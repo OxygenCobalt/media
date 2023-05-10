@@ -86,5 +86,4 @@ import java.lang.annotation.Target;
 @Retention(CLASS)
 @Target({TYPE, METHOD, CONSTRUCTOR, FIELD})
 @UnstableApi
-@RequiresOptIn(level = RequiresOptIn.Level.ERROR)
 public @interface UnstableApi {}
