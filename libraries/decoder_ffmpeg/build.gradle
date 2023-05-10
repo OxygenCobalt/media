@@ -11,14 +11,42 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+import org.apache.tools.ant.taskdefs.condition.Os
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 
-// Configure the native build only if ffmpeg is present to avoid gradle sync
-// failures if ffmpeg hasn't been built according to the README instructions.
-if (project.file('src/main/jni/ffmpeg').exists()) {
-    android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
-    // Should match cmake_minimum_required.
-    android.externalNativeBuild.cmake.version = '3.21.0+'
+android.ndkVersion = "23.2.8568313"
+android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
+// Should match cmake_minimum_required.
+android.externalNativeBuild.cmake.version = '3.21.0+'
+
+task assembleFfmpeg(type: Exec) {
+    def host = ""
+    if (Os.isFamily(Os.FAMILY_UNIX)) {
+        host = "linux-x86_64"
+    } else if (Os.isFamily(Os.FAMILY_MAC)) {
+        host = "darwin-x86_64"
+    } else {
+        throw UnsupportedOperationException(
+                "Building with Windows is not supported. " +
+                        "Please use WSL or a unix-based operating system.")
+    }
+
+    def jniDir = "$projectDir/src/main/jni/"
+    def libs = new File("$jniDir/ffmpeg/android-libs")
+    if (libs.exists()) {
+        commandLine "true"
+        return
+    }
+    commandLine "sh", "-c", "$jniDir/build_ffmpeg.sh $projectDir/src/main $android.ndkDirectory $host flac alac"
+}
+
+afterEvaluate {
+    preDebugBuild.dependsOn assembleFfmpeg
+    preReleaseBuild.dependsOn assembleFfmpeg
+}
+
+clean {
+    delete "$projectDir/src/main/jni/ffmpeg/android-libs/"
 }
 
 dependencies {

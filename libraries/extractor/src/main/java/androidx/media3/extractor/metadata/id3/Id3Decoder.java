@@ -487,11 +487,31 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     }
 
     ImmutableList.Builder<String> values = ImmutableList.builder();
+    Charset charset = getCharset(encoding);
+
+    @Nullable Charset firstBomCharset = null;
+
     int valueStartIndex = index;
     int valueEndIndex = indexOfTerminator(data, valueStartIndex, encoding);
     while (valueStartIndex < valueEndIndex) {
-      String value =
-          new String(data, valueStartIndex, valueEndIndex - valueStartIndex, getCharset(encoding));
+      Charset realCharset = charset;
+      if (encoding == ID3_TEXT_ENCODING_UTF_16) {
+        // Certain ID3v2 implementations may try to save space with a UTF-16 encoding by adding
+        // a BOM to the first value, and then omitting the BOM from all following values, while
+        // still implicitly using the endianness defined from the first value's BOM. In this case,
+        // we want to fall back to the first defined endianness instead of allowing String to pick
+        // a likely incorrect endianness.
+        @Nullable Charset bomCharset = getBomCharset(data, valueStartIndex);
+        if (bomCharset != null && firstBomCharset == null) {
+          // First BOM we have found, keep this for later.
+          firstBomCharset = bomCharset;
+        } else if (bomCharset == null && firstBomCharset != null) {
+          // No BOM in this value, but we do have a prior BOM we can re-use.
+          realCharset = firstBomCharset;
+        }
+      }
+
+      String value = new String(data, valueStartIndex, valueEndIndex - valueStartIndex, realCharset);
       values.add(value);
 
       valueStartIndex = valueEndIndex + delimiterLength(encoding);
@@ -500,6 +520,17 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
 
     ImmutableList<String> result = values.build();
     return result.isEmpty() ? ImmutableList.of("") : result;
+  }
+
+  @Nullable
+  private static Charset getBomCharset(byte[] data, final int index) {
+    if (data[index] == (byte) 0xff && data[index + 1] == (byte) 0xfe) {
+      return Charsets.UTF_16LE;
+    } else if (data[index] == (byte) 0xfe && data[index + 1] == (byte) 0xff) {
+      return Charsets.UTF_16BE;
+    } else {
+      return null;
+    }
   }
 
   @Nullable
