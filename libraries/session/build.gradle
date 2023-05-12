@@ -17,6 +17,7 @@ apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 group 'androidx.media3'
 
 android {
+    namespace "androidx.media3.session"
     defaultConfig {
         multiDexEnabled true
     }
@@ -28,6 +29,9 @@ android {
     sourceSets.androidTest.assets.srcDir '../test_data/src/test/assets/'
     lint {
         baseline = file("lint-baseline.xml")
+    }
+    buildFeatures {
+        aidl true
     }
 }
 dependencies {

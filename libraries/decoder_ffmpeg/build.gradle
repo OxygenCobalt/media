@@ -49,6 +49,10 @@ clean {
     delete "$projectDir/src/main/jni/ffmpeg/android-libs/"
 }
 
+android {
+    namespace "androidx.media3.decoder.ffmpeg"
+}
+
 dependencies {
     implementation project(modulePrefix + 'lib-decoder')
     // TODO(b/203752526): Remove this dependency.
