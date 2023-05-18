@@ -18,6 +18,6 @@ if (gradle.ext.has('androidxMediaModulePrefix')) {
     modulePrefix += gradle.ext.androidxMediaModulePrefix
 }
 
-gradle.ext.androidxMediaProjectName = 'media3'
+rootProject.name = 'media3'
 
 apply from: 'core_settings.gradle'
