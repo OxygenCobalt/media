@@ -25,7 +25,7 @@ rootProject.allprojects.forEach {
 }
 
 android {
-    namespace "androidx.media3.common"
+    namespace 'androidx.media3.common'
     buildTypes {
         debug {
             testCoverageEnabled = true

@@ -14,7 +14,11 @@
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 
 android {
+<<<<<<< HEAD
     namespace "androidx.media3.test.utils"
+=======
+    namespace 'androidx.media3.test.utils'
+>>>>>>> b3db85133a (Add `android.namespace` to all `build.gradle` files)
 }
 
 dependencies {
