@@ -21,6 +21,7 @@ android {
     defaultConfig {
         multiDexEnabled true
     }
+
     buildTypes {
         debug {
             testCoverageEnabled = true
@@ -44,7 +45,6 @@ dependencies {
     androidTestImplementation 'com.squareup.okhttp3:mockwebserver:' + okhttpVersion
     androidTestImplementation project(modulePrefix + 'test-utils')
     androidTestImplementation project(modulePrefix + 'test-data')
-    androidTestImplementation 'androidx.multidex:multidex:' + androidxMultidexVersion
     androidTestImplementation 'androidx.test:runner:' + androidxTestRunnerVersion
     testImplementation project(modulePrefix + 'test-utils')
     testImplementation project(modulePrefix + 'test-utils-robolectric')
