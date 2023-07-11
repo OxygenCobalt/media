@@ -24,6 +24,9 @@ if (gradle.ext.has('androidxMediaModulePrefix')) {
 include modulePrefix + 'lib-common'
 project(modulePrefix + 'lib-common').projectDir = new File(rootDir, 'libraries/common')
 
+include modulePrefix + 'lib-container'
+project(modulePrefix + 'lib-container').projectDir = new File(rootDir, 'libraries/container')
+
 include modulePrefix + 'lib-exoplayer'
 project(modulePrefix + 'lib-exoplayer').projectDir = new File(rootDir, 'libraries/exoplayer')
 
