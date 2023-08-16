@@ -319,6 +319,7 @@ public class AdaptiveTrackSelection extends BaseTrackSelection {
   private @C.SelectionReason int reason;
   private long lastBufferEvaluationMs;
   @Nullable private MediaChunk lastBufferEvaluationMediaChunk;
+  private long latestBitrateEstimate;
 
   /**
    * @param group The {@link TrackGroup}.
@@ -410,6 +411,7 @@ public class AdaptiveTrackSelection extends BaseTrackSelection {
     playbackSpeed = 1f;
     reason = C.SELECTION_REASON_UNKNOWN;
     lastBufferEvaluationMs = C.TIME_UNSET;
+    latestBitrateEstimate = Long.MIN_VALUE;
   }
 
   @CallSuper
@@ -457,7 +459,8 @@ public class AdaptiveTrackSelection extends BaseTrackSelection {
       previousReason = Iterables.getLast(queue).trackSelectionReason;
     }
     int newSelectedIndex = determineIdealSelectedIndex(nowMs, chunkDurationUs);
-    if (!isTrackExcluded(previousSelectedIndex, nowMs)) {
+    if (newSelectedIndex != previousSelectedIndex
+        && !isTrackExcluded(previousSelectedIndex, nowMs)) {
       // Revert back to the previous selection if conditions are not suitable for switching.
       Format currentFormat = getFormat(previousSelectedIndex);
       Format selectedFormat = getFormat(newSelectedIndex);
@@ -540,6 +543,11 @@ public class AdaptiveTrackSelection extends BaseTrackSelection {
       }
     }
     return queueSize;
+  }
+
+  @Override
+  public long getLatestBitrateEstimate() {
+    return latestBitrateEstimate;
   }
 
   /**
@@ -680,8 +688,8 @@ public class AdaptiveTrackSelection extends BaseTrackSelection {
   }
 
   private long getTotalAllocatableBandwidth(long chunkDurationUs) {
-    long cautiousBandwidthEstimate =
-        (long) (bandwidthMeter.getBitrateEstimate() * bandwidthFraction);
+    latestBitrateEstimate = bandwidthMeter.getBitrateEstimate();
+    long cautiousBandwidthEstimate = (long) (latestBitrateEstimate * bandwidthFraction);
     long timeToFirstByteEstimateUs = bandwidthMeter.getTimeToFirstByteEstimateUs();
     if (timeToFirstByteEstimateUs == C.TIME_UNSET || chunkDurationUs == C.TIME_UNSET) {
       return (long) (cautiousBandwidthEstimate / playbackSpeed);

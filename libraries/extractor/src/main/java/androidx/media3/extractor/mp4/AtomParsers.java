@@ -729,6 +729,13 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         long editDuration =
             Util.scaleLargeTimestamp(
                 track.editListDurations[i], track.timescale, track.movieTimescale);
+        // The timestamps array is in the order read from the media, which might not be strictly
+        // sorted, but will ensure that a) all sync frames are in-order and b) any out-of-order
+        // frames are after their respective sync frames. This means that although the result of
+        // this binary search might be slightly incorrect (due to out-of-order timestamps), the loop
+        // below that walks forward to find the next sync frame will result in a correct start
+        // index. The start index would also be correct if we walk backwards to the previous sync
+        // frame (https://github.com/google/ExoPlayer/issues/1659).
         startIndices[i] =
             Util.binarySearchFloor(
                 timestamps, editMediaTime, /* inclusive= */ true, /* stayInBounds= */ true);
@@ -775,7 +782,10 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         long ptsUs = Util.scaleLargeTimestamp(pts, C.MICROS_PER_SECOND, track.movieTimescale);
         long timeInSegmentUs =
             Util.scaleLargeTimestamp(
-                max(0, timestamps[j] - editMediaTime), C.MICROS_PER_SECOND, track.timescale);
+                timestamps[j] - editMediaTime, C.MICROS_PER_SECOND, track.timescale);
+        if (canTrimSamplesWithTimestampChange(track.type)) {
+          timeInSegmentUs = max(0, timeInSegmentUs);
+        }
         editedTimestamps[sampleIndex] = ptsUs + timeInSegmentUs;
         if (copyMetadata && editedSizes[sampleIndex] > editedMaximumSize) {
           editedMaximumSize = sizes[j];
@@ -794,6 +804,12 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         editedTimestamps,
         editedFlags,
         editedDurationUs);
+  }
+
+  private static boolean canTrimSamplesWithTimestampChange(@C.TrackType int trackType) {
+    // Audio samples have an inherent duration and we can't trim data by changing the sample
+    // timestamp alone.
+    return trackType != C.TRACK_TYPE_AUDIO;
   }
 
   @Nullable

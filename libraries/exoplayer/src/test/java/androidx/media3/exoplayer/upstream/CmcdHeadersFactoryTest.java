@@ -21,15 +21,16 @@ import static org.mockito.Mockito.when;
 
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.TrackGroup;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-/** Tests for {@link CmcdLog}. */
+/** Tests for {@link CmcdHeadersFactory}. */
 @RunWith(AndroidJUnit4.class)
-public class CmcdLogTest {
+public class CmcdHeadersFactoryTest {
 
   @Test
   public void createInstance_populatesCmcdHeaders() {
@@ -56,26 +57,30 @@ public class CmcdLogTest {
     CmcdConfiguration cmcdConfiguration =
         cmcdConfigurationFactory.createCmcdConfiguration(mediaItem);
     ExoTrackSelection trackSelection = mock(ExoTrackSelection.class);
-    when(trackSelection.getSelectedFormat())
-        .thenReturn(new Format.Builder().setPeakBitrate(840_000).build());
-    CmcdLog cmcdLog =
-        CmcdLog.createInstance(
-            cmcdConfiguration,
-            trackSelection,
-            /* playbackPositionUs= */ 1_000_000,
-            /* loadPositionUs= */ 2_760_000);
+    Format format = new Format.Builder().setPeakBitrate(840_000).build();
+    when(trackSelection.getSelectedFormat()).thenReturn(format);
+    when(trackSelection.getTrackGroup())
+        .thenReturn(new TrackGroup(format, new Format.Builder().setPeakBitrate(1_000_000).build()));
+    when(trackSelection.getLatestBitrateEstimate()).thenReturn(500_000L);
 
     ImmutableMap<@CmcdConfiguration.HeaderKey String, String> requestHeaders =
-        cmcdLog.getHttpRequestHeaders();
+        new CmcdHeadersFactory(
+                cmcdConfiguration,
+                trackSelection,
+                /* bufferedDurationUs= */ 1_760_000,
+                /* streamingFormat= */ CmcdHeadersFactory.STREAMING_FORMAT_DASH,
+                /* isLive= */ true)
+            .setChunkDurationUs(3_000_000)
+            .createHttpRequestHeaders();
 
     assertThat(requestHeaders)
         .containsExactly(
             "CMCD-Object",
-            "br=840,key1=value1",
+            "br=840,tb=1000,d=3000,key1=value1",
             "CMCD-Request",
-            "bl=1800,key2=\"stringValue\"",
+            "bl=1800,mtp=500,key2=\"stringValue\"",
             "CMCD-Session",
-            "cid=\"mediaId\",sid=\"sessionId\"",
+            "cid=\"mediaId\",sid=\"sessionId\",sf=d,st=l",
             "CMCD-Status",
             "rtp=1700");
   }

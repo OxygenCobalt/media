@@ -1431,6 +1431,40 @@ public final class Util {
   }
 
   /**
+   * Returns the total duration (in microseconds) of {@code sampleCount} samples of equal duration
+   * at {@code sampleRate}.
+   *
+   * <p>If {@code sampleRate} is less than {@link C#MICROS_PER_SECOND}, the duration produced by
+   * this method can be reversed to the original sample count using {@link
+   * #durationUsToSampleCount(long, int)}.
+   *
+   * @param sampleCount The number of samples.
+   * @param sampleRate The sample rate, in samples per second.
+   * @return The total duration, in microseconds, of {@code sampleCount} samples.
+   */
+  @UnstableApi
+  public static long sampleCountToDurationUs(long sampleCount, int sampleRate) {
+    return (sampleCount * C.MICROS_PER_SECOND) / sampleRate;
+  }
+
+  /**
+   * Returns the number of samples required to represent {@code durationUs} of media at {@code
+   * sampleRate}, assuming all samples are equal duration except the last one which may be shorter.
+   *
+   * <p>The result of this method <b>cannot</b> be generally reversed to the original duration with
+   * {@link #sampleCountToDurationUs(long, int)}, due to information lost when rounding to a whole
+   * number of samples.
+   *
+   * @param durationUs The duration in microseconds.
+   * @param sampleRate The sample rate in samples per second.
+   * @return The number of samples required to represent {@code durationUs}.
+   */
+  @UnstableApi
+  public static long durationUsToSampleCount(long durationUs, int sampleRate) {
+    return Util.ceilDivide(durationUs * sampleRate, C.MICROS_PER_SECOND);
+  }
+
+  /**
    * Parses an xs:duration attribute value, returning the parsed duration in milliseconds.
    *
    * @param value The attribute value to decode.
@@ -1673,25 +1707,6 @@ public final class Util {
   @UnstableApi
   public static long toLong(int mostSignificantBits, int leastSignificantBits) {
     return (toUnsignedLong(mostSignificantBits) << 32) | toUnsignedLong(leastSignificantBits);
-  }
-
-  /**
-   * Truncates a sequence of ASCII characters to a maximum length.
-   *
-   * <p>This preserves span styling in the {@link CharSequence}. If that's not important, use {@link
-   * Ascii#truncate(CharSequence, int, String)}.
-   *
-   * <p><b>Note:</b> This is not safe to use in general on Unicode text because it may separate
-   * characters from combining characters or split up surrogate pairs.
-   *
-   * @param sequence The character sequence to truncate.
-   * @param maxLength The max length to truncate to.
-   * @return {@code sequence} directly if {@code sequence.length() <= maxLength}, otherwise {@code
-   *     sequence.subsequence(0, maxLength}.
-   */
-  @UnstableApi
-  public static CharSequence truncateAscii(CharSequence sequence, int maxLength) {
-    return sequence.length() <= maxLength ? sequence : sequence.subSequence(0, maxLength);
   }
 
   /**

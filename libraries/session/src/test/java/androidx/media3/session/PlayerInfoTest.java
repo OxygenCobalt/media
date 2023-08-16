@@ -118,6 +118,7 @@ public class PlayerInfoTest {
                     /* contentDurationMs= */ 27000,
                     /* contentBufferedPositionMs= */ 15000))
             .setTimeline(new FakeTimeline(/* windowCount= */ 10))
+            .setTimelineChangeReason(Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE)
             .setMediaMetadata(new MediaMetadata.Builder().setTitle("title").build())
             .setPlaylistMetadata(new MediaMetadata.Builder().setArtist("artist").build())
             .setVolume(0.5f)
@@ -150,7 +151,7 @@ public class PlayerInfoTest {
                 new PlaybackException(
                     /* message= */ null, /* cause= */ null, PlaybackException.ERROR_CODE_TIMEOUT))
             .setPlayWhenReady(true)
-            .setPlayWhenReadyChangedReason(Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            .setPlayWhenReadyChangeReason(Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setRepeatMode(Player.REPEAT_MODE_ONE)
             .setSeekBackIncrement(7000)
             .setSeekForwardIncrement(6000)
@@ -202,6 +203,8 @@ public class PlayerInfoTest {
     assertThat(infoAfterBundling.sessionPositionInfo.contentDurationMs).isEqualTo(27000);
     assertThat(infoAfterBundling.sessionPositionInfo.contentBufferedPositionMs).isEqualTo(15000);
     assertThat(infoAfterBundling.timeline.getWindowCount()).isEqualTo(10);
+    assertThat(infoAfterBundling.timelineChangeReason)
+        .isEqualTo(Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE);
     assertThat(infoAfterBundling.mediaMetadata.title).isEqualTo("title");
     assertThat(infoAfterBundling.playlistMetadata.artist).isEqualTo("artist");
     assertThat(infoAfterBundling.volume).isEqualTo(0.5f);
@@ -225,7 +228,7 @@ public class PlayerInfoTest {
     assertThat(infoAfterBundling.playerError.errorCode)
         .isEqualTo(PlaybackException.ERROR_CODE_TIMEOUT);
     assertThat(infoAfterBundling.playWhenReady).isTrue();
-    assertThat(infoAfterBundling.playWhenReadyChangedReason)
+    assertThat(infoAfterBundling.playWhenReadyChangeReason)
         .isEqualTo(Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST);
     assertThat(infoAfterBundling.repeatMode).isEqualTo(Player.REPEAT_MODE_ONE);
     assertThat(infoAfterBundling.seekBackIncrementMs).isEqualTo(7000);

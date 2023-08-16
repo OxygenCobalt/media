@@ -27,6 +27,7 @@ import static androidx.media3.common.util.Util.parseXsDateTime;
 import static androidx.media3.common.util.Util.parseXsDuration;
 import static androidx.media3.common.util.Util.unescapeFileName;
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -38,10 +39,6 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.style.StrikethroughSpan;
-import android.text.style.UnderlineSpan;
 import android.util.SparseLongArray;
 import androidx.media3.common.C;
 import androidx.media3.test.utils.TestUtil;
@@ -837,6 +834,21 @@ public class UtilTest {
   }
 
   @Test
+  public void sampleCountToDuration_thenDurationToSampleCount_returnsOriginalValue() {
+    // Use co-prime increments, to maximise 'discord' between sampleCount and sampleRate.
+    for (long originalSampleCount = 0; originalSampleCount < 100_000; originalSampleCount += 97) {
+      for (int sampleRate = 89; sampleRate < 1_000_000; sampleRate += 89) {
+        long calculatedSampleCount =
+            Util.durationUsToSampleCount(
+                Util.sampleCountToDurationUs(originalSampleCount, sampleRate), sampleRate);
+        assertWithMessage("sampleCount=%s, sampleRate=%s", originalSampleCount, sampleRate)
+            .that(calculatedSampleCount)
+            .isEqualTo(originalSampleCount);
+      }
+    }
+  }
+
+  @Test
   public void parseXsDuration_returnsParsedDurationInMillis() {
     assertThat(parseXsDuration("PT150.279S")).isEqualTo(150279L);
     assertThat(parseXsDuration("PT1.500S")).isEqualTo(1500L);
@@ -894,45 +906,6 @@ public class UtilTest {
   @Test
   public void toLong_withBigNegativeValue_returnsValue() {
     assertThat(Util.toLong(0xFEDCBA, 0x87654321)).isEqualTo(0xFEDCBA_87654321L);
-  }
-
-  @Test
-  public void truncateAscii_shortInput_returnsInput() {
-    String input = "a short string";
-
-    assertThat(Util.truncateAscii(input, 100)).isSameInstanceAs(input);
-  }
-
-  @Test
-  public void truncateAscii_longInput_truncated() {
-    String input = "a much longer string";
-
-    assertThat(Util.truncateAscii(input, 5).toString()).isEqualTo("a muc");
-  }
-
-  @Test
-  public void truncateAscii_preservesStylingSpans() {
-    SpannableString input = new SpannableString("a short string");
-    input.setSpan(new UnderlineSpan(), 0, 10, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-    input.setSpan(new StrikethroughSpan(), 4, 10, Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
-
-    CharSequence result = Util.truncateAscii(input, 7);
-
-    assertThat(result).isInstanceOf(SpannableString.class);
-    assertThat(result.toString()).isEqualTo("a short");
-    // TODO(internal b/161804035): Use SpannedSubject when it's available in a dependency we can use
-    // from here.
-    Spanned spannedResult = (Spanned) result;
-    Object[] spans = spannedResult.getSpans(0, result.length(), Object.class);
-    assertThat(spans).hasLength(2);
-    assertThat(spans[0]).isInstanceOf(UnderlineSpan.class);
-    assertThat(spannedResult.getSpanStart(spans[0])).isEqualTo(0);
-    assertThat(spannedResult.getSpanEnd(spans[0])).isEqualTo(7);
-    assertThat(spannedResult.getSpanFlags(spans[0])).isEqualTo(Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-    assertThat(spans[1]).isInstanceOf(StrikethroughSpan.class);
-    assertThat(spannedResult.getSpanStart(spans[1])).isEqualTo(4);
-    assertThat(spannedResult.getSpanEnd(spans[1])).isEqualTo(7);
-    assertThat(spannedResult.getSpanFlags(spans[1])).isEqualTo(Spanned.SPAN_INCLUSIVE_EXCLUSIVE);
   }
 
   @Test

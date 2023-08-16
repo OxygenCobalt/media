@@ -442,6 +442,11 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   @Override
+  public ImmutableList<CommandButton> getCustomLayout() {
+    return controllerInfo.customLayout;
+  }
+
+  @Override
   @Nullable
   public PlaybackException getPlayerError() {
     return controllerInfo.playerInfo.playerError;
@@ -650,7 +655,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
                 /* durationMs= */ C.TIME_UNSET,
                 /* bufferedPositionMs= */ 0,
                 /* bufferedPercentage= */ 0,
-                /* totalBufferedDurationMs= */ 0));
+                /* totalBufferedDurationMs= */ 0),
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
     ControllerInfo maskedControllerInfo =
         new ControllerInfo(
             maskedPlayerInfo,
@@ -711,7 +717,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         calculateCurrentItemIndexAfterAddItems(currentMediaItemIndex, index, mediaItems.size());
     PlayerInfo maskedPlayerInfo =
         controllerInfo.playerInfo.copyWithTimelineAndMediaItemIndex(
-            newQueueTimeline, newCurrentMediaItemIndex);
+            newQueueTimeline,
+            newCurrentMediaItemIndex,
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
     ControllerInfo maskedControllerInfo =
         new ControllerInfo(
             maskedPlayerInfo,
@@ -759,7 +767,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     }
     PlayerInfo maskedPlayerInfo =
         controllerInfo.playerInfo.copyWithTimelineAndMediaItemIndex(
-            newQueueTimeline, newCurrentMediaItemIndex);
+            newQueueTimeline,
+            newCurrentMediaItemIndex,
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
 
     ControllerInfo maskedControllerInfo =
         new ControllerInfo(
@@ -823,7 +833,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         queueTimeline.copyWithMovedMediaItems(fromIndex, toIndex, newIndex);
     PlayerInfo maskedPlayerInfo =
         controllerInfo.playerInfo.copyWithTimelineAndMediaItemIndex(
-            newQueueTimeline, newCurrentMediaItemIndex);
+            newQueueTimeline,
+            newCurrentMediaItemIndex,
+            Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
 
     ControllerInfo maskedControllerInfo =
         new ControllerInfo(
@@ -1505,6 +1517,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         mediaItemTransitionReason);
   }
 
+  // Calling deprecated listener callback method for backwards compatibility.
+  @SuppressWarnings("deprecation")
   private void updateControllerInfo(
       boolean notifyConnected,
       LegacyPlayerInfo newLegacyPlayerInfo,
@@ -1524,9 +1538,11 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       if (!oldControllerInfo.customLayout.equals(newControllerInfo.customLayout)) {
         getInstance()
             .notifyControllerListener(
-                listener ->
-                    ignoreFuture(
-                        listener.onSetCustomLayout(getInstance(), newControllerInfo.customLayout)));
+                listener -> {
+                  ignoreFuture(
+                      listener.onSetCustomLayout(getInstance(), newControllerInfo.customLayout));
+                  listener.onCustomLayoutChanged(getInstance(), newControllerInfo.customLayout);
+                });
       }
       return;
     }
@@ -1536,7 +1552,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           (listener) ->
               listener.onTimelineChanged(
                   newControllerInfo.playerInfo.timeline,
-                  Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED));
+                  newControllerInfo.playerInfo.timelineChangeReason));
     }
     if (!Util.areEqual(oldLegacyPlayerInfo.queueTitle, newLegacyPlayerInfo.queueTitle)) {
       listeners.queueEvent(
@@ -1655,9 +1671,11 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     if (!oldControllerInfo.customLayout.equals(newControllerInfo.customLayout)) {
       getInstance()
           .notifyControllerListener(
-              listener ->
-                  ignoreFuture(
-                      listener.onSetCustomLayout(getInstance(), newControllerInfo.customLayout)));
+              listener -> {
+                ignoreFuture(
+                    listener.onSetCustomLayout(getInstance(), newControllerInfo.customLayout));
+                listener.onCustomLayoutChanged(getInstance(), newControllerInfo.customLayout);
+              });
     }
     listeners.flushEvents();
   }
@@ -2232,6 +2250,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
             /* shuffleModeEnabled= */ shuffleModeEnabled,
             /* videoSize= */ VideoSize.UNKNOWN,
             /* timeline= */ currentTimeline,
+            /* timelineChangeReason= */ PlayerInfo.TIMELINE_CHANGE_REASON_DEFAULT,
             /* playlistMetadata= */ playlistMetadata,
             /* volume= */ 1.0f,
             /* audioAttributes= */ audioAttributes,
@@ -2240,7 +2259,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
             /* deviceVolume= */ deviceVolume,
             /* deviceMuted= */ deviceMuted,
             /* playWhenReady= */ playWhenReady,
-            /* playWhenReadyChangedReason= */ PlayerInfo.PLAY_WHEN_READY_CHANGE_REASON_DEFAULT,
+            /* playWhenReadyChangeReason= */ PlayerInfo.PLAY_WHEN_READY_CHANGE_REASON_DEFAULT,
             /* playbackSuppressionReason= */ Player.PLAYBACK_SUPPRESSION_REASON_NONE,
             /* playbackState= */ playbackState,
             /* isPlaying= */ isPlaying,

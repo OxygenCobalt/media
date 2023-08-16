@@ -187,9 +187,8 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
 
     private static String buildCustomDiagnosticInfo(int errorCode) {
       String sign = errorCode < 0 ? "neg_" : "";
-      return "com.google.android.exoplayer2.mediacodec.MediaCodecRenderer_"
-          + sign
-          + Math.abs(errorCode);
+      String packageName = "androidx.media3.exoplayer.mediacodec";
+      return packageName + ".MediaCodecRenderer_" + sign + Math.abs(errorCode);
     }
   }
 
@@ -704,6 +703,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
       bypassBatchBuffer.clear();
       bypassSampleBuffer.clear();
       bypassSampleBufferPending = false;
+      oggOpusAudioPacketizer.reset();
     } else {
       flushOrReinitializeCodec();
     }
@@ -2333,7 +2333,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
           if (inputFormat != null
               && inputFormat.sampleMimeType != null
               && inputFormat.sampleMimeType.equals(MimeTypes.AUDIO_OPUS)) {
-            oggOpusAudioPacketizer.packetize(bypassSampleBuffer);
+            oggOpusAudioPacketizer.packetize(bypassSampleBuffer, inputFormat.initializationData);
           }
 
           if (!bypassBatchBuffer.append(bypassSampleBuffer)) {

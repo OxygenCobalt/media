@@ -210,11 +210,11 @@ public class HlsChunkSourceTest {
     assertThat(output.chunk.dataSpec.httpRequestHeaders)
         .containsExactly(
             "CMCD-Object",
-            "br=800",
+            "br=800,tb=800,d=4000,ot=v",
             "CMCD-Request",
             "bl=0",
             "CMCD-Session",
-            "cid=\"mediaId\",sid=\"" + cmcdConfiguration.sessionId + "\"");
+            "cid=\"mediaId\",sid=\"" + cmcdConfiguration.sessionId + "\",sf=h,st=v");
   }
 
   @Test
@@ -256,11 +256,11 @@ public class HlsChunkSourceTest {
     assertThat(output.chunk.dataSpec.httpRequestHeaders)
         .containsExactly(
             "CMCD-Object",
-            "br=800",
+            "br=800,tb=800,d=4000,ot=v",
             "CMCD-Request",
             "bl=0",
             "CMCD-Session",
-            "cid=\"mediaIdcontentIdSuffix\"",
+            "cid=\"mediaIdcontentIdSuffix\",sf=h,st=v",
             "CMCD-Status",
             "rtp=4000");
   }
@@ -303,11 +303,11 @@ public class HlsChunkSourceTest {
     assertThat(output.chunk.dataSpec.httpRequestHeaders)
         .containsExactly(
             "CMCD-Object",
-            "br=800,key1=value1",
+            "br=800,tb=800,d=4000,ot=v,key1=value1",
             "CMCD-Request",
             "bl=0,key2=\"stringValue\"",
             "CMCD-Session",
-            "cid=\"mediaId\",sid=\"" + cmcdConfiguration.sessionId + "\",key3=1",
+            "cid=\"mediaId\",sid=\"" + cmcdConfiguration.sessionId + "\",sf=h,st=v,key3=1",
             "CMCD-Status",
             "key4=5.0");
   }

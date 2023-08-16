@@ -266,6 +266,8 @@ public final class ExoPlayerTest {
     assertThat(renderer.getFormatsRead()).isEmpty();
     assertThat(renderer.sampleBufferReadCount).isEqualTo(0);
     assertThat(renderer.isEnded).isFalse();
+
+    player.release();
   }
 
   /** Tests playback of a source that exposes a single period. */
@@ -308,6 +310,8 @@ public final class ExoPlayerTest {
     assertThat(renderer.getFormatsRead()).containsExactly(ExoPlayerTestRunner.VIDEO_FORMAT);
     assertThat(renderer.sampleBufferReadCount).isEqualTo(1);
     assertThat(renderer.isEnded).isTrue();
+
+    player.release();
   }
 
   /** Tests playback of a source that exposes three periods. */
@@ -344,6 +348,8 @@ public final class ExoPlayerTest {
             ExoPlayerTestRunner.VIDEO_FORMAT);
     assertThat(renderer.sampleBufferReadCount).isEqualTo(3);
     assertThat(renderer.isEnded).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -448,6 +454,8 @@ public final class ExoPlayerTest {
     assertThat(renderer.getFormatsRead()).hasSize(100);
     assertThat(renderer.sampleBufferReadCount).isEqualTo(100);
     assertThat(renderer.isEnded).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -672,6 +680,8 @@ public final class ExoPlayerTest {
     assertThat(audioRenderer.positionResetCount).isEqualTo(1);
     assertThat(videoRenderer.isEnded).isTrue();
     assertThat(audioRenderer.isEnded).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -753,6 +763,8 @@ public final class ExoPlayerTest {
                             new int[] {C.FORMAT_HANDLED},
                             /* trackSelected= */ new boolean[] {true})))));
     assertThat(renderer.isEnded).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -795,6 +807,8 @@ public final class ExoPlayerTest {
         .containsExactly(0, 1, 1, 2, 2, 0, 0, 0, 1, 2)
         .inOrder();
     assertThat(renderer.isEnded).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -3044,6 +3058,8 @@ public final class ExoPlayerTest {
 
     assertThat(player.getPlayerError()).isNull();
     verify(secondMediaItemTarget, times(2)).handleMessage(anyInt(), any());
+
+    player.release();
   }
 
   @Test
@@ -3239,6 +3255,8 @@ public final class ExoPlayerTest {
     // When the ad finishes, the player position should be at or after the requested seek position.
     runUntilPositionDiscontinuity(player, Player.DISCONTINUITY_REASON_AUTO_TRANSITION);
     assertThat(player.getCurrentPosition()).isAtLeast(seekPositionMs);
+
+    player.release();
   }
 
   @Test
@@ -3382,6 +3400,8 @@ public final class ExoPlayerTest {
     // We expect the change to null to be notified, but not onPlayerError.
     verify(mockListener).onPlayerErrorChanged(ArgumentMatchers.isNull());
     verify(mockListener, never()).onPlayerError(any());
+
+    player.release();
   }
 
   @Test
@@ -5164,6 +5184,8 @@ public final class ExoPlayerTest {
 
     // This times out if playback info updates after the seek are blocked.
     runUntilPlaybackState(player, Player.STATE_ENDED);
+
+    player.release();
   }
 
   @Test
@@ -5915,6 +5937,8 @@ public final class ExoPlayerTest {
     runUntilPendingCommandsAreFullyHandled(player);
 
     assertThat(player.getPlayerError()).isNull();
+
+    player.release();
   }
 
   @Test
@@ -6001,6 +6025,8 @@ public final class ExoPlayerTest {
 
     // The player is not stuck in the buffering state.
     TestPlayerRunHelper.runUntilPlaybackState(player, Player.STATE_READY);
+
+    player.release();
   }
 
   @Test
@@ -6927,6 +6953,15 @@ public final class ExoPlayerTest {
       capturedTimelineShuffleIndexes.add(i);
     }
     assertThat(capturedTimelineShuffleIndexes).isEqualTo(newShuffleOrderIndexes);
+  }
+
+  @Test
+  public void setShuffleOrder_shuffleOrderLengthNotEqualToCurrentPlaylistLength_shouldThrow() {
+    ExoPlayer player = new TestExoPlayerBuilder(context).build();
+    player.addMediaSources(ImmutableList.of(new FakeMediaSource(), new FakeMediaSource()));
+
+    assertThrows(
+        IllegalArgumentException.class, () -> player.setShuffleOrder(new FakeShuffleOrder(3)));
   }
 
   @Test
@@ -9408,6 +9443,8 @@ public final class ExoPlayerTest {
     assertThat(player.isCommandAvailable(COMMAND_SET_TRACK_SELECTION_PARAMETERS)).isTrue();
     assertThat(player.isCommandAvailable(COMMAND_GET_TRACKS)).isTrue();
     assertThat(player.isCommandAvailable(COMMAND_RELEASE)).isTrue();
+
+    player.release();
   }
 
   @SuppressWarnings("deprecation") // Checking old volume commands
@@ -9421,6 +9458,8 @@ public final class ExoPlayerTest {
     assertThat(player.isCommandAvailable(COMMAND_ADJUST_DEVICE_VOLUME)).isTrue();
     assertThat(player.isCommandAvailable(COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)).isTrue();
     assertThat(player.isCommandAvailable(COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)).isTrue();
+
+    player.release();
   }
 
   @SuppressWarnings("deprecation") // Checking old volume commands
@@ -9435,6 +9474,8 @@ public final class ExoPlayerTest {
     assertThat(player.isCommandAvailable(COMMAND_ADJUST_DEVICE_VOLUME)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)).isFalse();
+
+    player.release();
   }
 
   @Test
@@ -9473,6 +9514,8 @@ public final class ExoPlayerTest {
     assertThat(player.isCommandAvailable(COMMAND_SEEK_TO_MEDIA_ITEM)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_SEEK_BACK)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_SEEK_FORWARD)).isFalse();
+
+    player.release();
   }
 
   @Test
@@ -9493,6 +9536,8 @@ public final class ExoPlayerTest {
     assertThat(player.isCommandAvailable(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_SEEK_BACK)).isFalse();
     assertThat(player.isCommandAvailable(COMMAND_SEEK_FORWARD)).isFalse();
+
+    player.release();
   }
 
   @Test
@@ -9518,6 +9563,8 @@ public final class ExoPlayerTest {
     runUntilPlaybackState(player, Player.STATE_READY);
 
     assertThat(player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS)).isFalse();
+
+    player.release();
   }
 
   @Test
@@ -9546,6 +9593,8 @@ public final class ExoPlayerTest {
     runUntilPlaybackState(player, Player.STATE_READY);
 
     assertThat(player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS)).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -9570,6 +9619,8 @@ public final class ExoPlayerTest {
     runUntilPlaybackState(player, Player.STATE_READY);
 
     assertThat(player.isCommandAvailable(COMMAND_SEEK_TO_NEXT)).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -9607,6 +9658,8 @@ public final class ExoPlayerTest {
     player.seekTo(/* mediaItemIndex= */ 3, /* positionMs= */ 0);
     verify(mockListener).onAvailableCommandsChanged(commandsWithSeekToPreviousWindow);
     verify(mockListener, times(3)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9645,6 +9698,8 @@ public final class ExoPlayerTest {
     player.seekTo(/* mediaItemIndex= */ 0, /* positionMs= */ 0);
     verify(mockListener).onAvailableCommandsChanged(commandsWithSeekToNextWindow);
     verify(mockListener, times(3)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9661,6 +9716,8 @@ public final class ExoPlayerTest {
     player.seekTo(/* mediaItemIndex= */ 0, /* positionMs= */ 100);
     // Check that there were no other calls to onAvailableCommandsChanged.
     verify(mockListener).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9720,6 +9777,8 @@ public final class ExoPlayerTest {
     runUntilPlaybackState(player, Player.STATE_ENDED);
     verify(mockListener).onAvailableCommandsChanged(commandsWithSeekInCurrentAndToPreviousWindow);
     verify(mockListener, times(4)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9742,6 +9801,8 @@ public final class ExoPlayerTest {
 
     player.addMediaSource(new FakeMediaSource());
     verify(mockListener, times(2)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9764,6 +9825,8 @@ public final class ExoPlayerTest {
 
     player.addMediaSource(/* index= */ 0, new FakeMediaSource());
     verify(mockListener, times(2)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9794,6 +9857,8 @@ public final class ExoPlayerTest {
     player.removeMediaItem(/* index= */ 0);
     verify(mockListener).onAvailableCommandsChanged(emptyTimelineCommands);
     verify(mockListener, times(3)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9825,6 +9890,8 @@ public final class ExoPlayerTest {
     player.removeMediaItem(/* index= */ 0);
     verify(mockListener).onAvailableCommandsChanged(emptyTimelineCommands);
     verify(mockListener, times(3)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9844,6 +9911,8 @@ public final class ExoPlayerTest {
     player.removeMediaItem(/* index= */ 0);
     verify(mockListener).onAvailableCommandsChanged(defaultCommands);
     verify(mockListener, times(2)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9866,6 +9935,8 @@ public final class ExoPlayerTest {
     player.setRepeatMode(Player.REPEAT_MODE_ALL);
     verify(mockListener).onAvailableCommandsChanged(commandsWithSeekToPreviousAndNextWindow);
     verify(mockListener, times(2)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9880,6 +9951,8 @@ public final class ExoPlayerTest {
 
     player.setRepeatMode(Player.REPEAT_MODE_ONE);
     verify(mockListener).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9906,6 +9979,8 @@ public final class ExoPlayerTest {
     player.setShuffleModeEnabled(true);
     verify(mockListener).onAvailableCommandsChanged(commandsWithSeekToPreviousWindow);
     verify(mockListener, times(2)).onAvailableCommandsChanged(any());
+
+    player.release();
   }
 
   @Test
@@ -9933,6 +10008,8 @@ public final class ExoPlayerTest {
             .uid;
     assertThat(error.mediaPeriodId.periodUid).isEqualTo(period1Uid);
     assertThat(player.getCurrentMediaItemIndex()).isEqualTo(1);
+
+    player.release();
   }
 
   @Test
@@ -9979,6 +10056,8 @@ public final class ExoPlayerTest {
             .uid;
     assertThat(error.mediaPeriodId.periodUid).isEqualTo(period1Uid);
     assertThat(player.getCurrentMediaItemIndex()).isEqualTo(1);
+
+    player.release();
   }
 
   @Test
@@ -10042,6 +10121,8 @@ public final class ExoPlayerTest {
             .uid;
     assertThat(error.mediaPeriodId.periodUid).isEqualTo(period1Uid);
     assertThat(player.getCurrentMediaItemIndex()).isEqualTo(1);
+
+    player.release();
   }
 
   @Test
@@ -10093,6 +10174,8 @@ public final class ExoPlayerTest {
     inOrderEvents
         .verify(mockListener)
         .onMediaItemTransition(any(), any(), eq(Player.MEDIA_ITEM_TRANSITION_REASON_AUTO));
+
+    player.release();
   }
 
   @Test
@@ -10122,6 +10205,8 @@ public final class ExoPlayerTest {
 
     runUntilSleepingForOffload(player, /* expectedSleepForOffload= */ true);
     assertThat(player.experimentalIsSleepingForOffload()).isTrue();
+
+    player.release();
   }
 
   @Test
@@ -10142,6 +10227,8 @@ public final class ExoPlayerTest {
     runUntilSleepingForOffload(player, /* expectedSleepForOffload= */ false);
     assertThat(player.experimentalIsSleepingForOffload()).isFalse();
     runUntilPlaybackState(player, Player.STATE_ENDED);
+
+    player.release();
   }
 
   @Test
@@ -10160,6 +10247,8 @@ public final class ExoPlayerTest {
     runUntilSleepingForOffload(player, /* expectedSleepForOffload= */ false);
     assertThat(player.experimentalIsSleepingForOffload()).isFalse();
     runUntilPlaybackState(player, Player.STATE_ENDED);
+
+    player.release();
   }
 
   @Test
@@ -10184,6 +10273,8 @@ public final class ExoPlayerTest {
 
     assertThat(newPosition - currentPosition).isNotEqualTo(0);
     assertThat(newPosition).isEqualTo(800);
+
+    player.release();
   }
 
   @Test
@@ -10209,6 +10300,8 @@ public final class ExoPlayerTest {
     long currentPosition = player.getCurrentPosition();
 
     assertThat(currentPosition).isEqualTo(800);
+
+    player.release();
   }
 
   @Test
@@ -10236,6 +10329,8 @@ public final class ExoPlayerTest {
     long currentPosition = player.getCurrentPosition();
 
     assertThat(currentPosition).isEqualTo(1800);
+
+    player.release();
   }
 
   @Test
@@ -10463,6 +10558,8 @@ public final class ExoPlayerTest {
 
     verify(mockListener)
         .onPlaybackParametersChanged(new PlaybackParameters(/* speed= */ 2, /* pitch= */ 2));
+
+    player.release();
   }
 
   @Test
@@ -12424,6 +12521,8 @@ public final class ExoPlayerTest {
             .build());
 
     assertThat(player.getMediaMetadata()).isEqualTo(mediaMetadata);
+
+    player.release();
   }
 
   @Test
@@ -12449,12 +12548,15 @@ public final class ExoPlayerTest {
     shadowOf(Looper.getMainLooper()).idle();
 
     assertThat(player.getMediaMetadata()).isEqualTo(mediaMetadata);
+
+    player.release();
   }
 
   @Test
   @Config(sdk = Config.ALL_SDKS)
   public void builder_inBackgroundThreadWithAllowedAnyThreadMethods_doesNotThrow()
       throws Exception {
+    AtomicReference<Player> playerReference = new AtomicReference<>();
     Thread builderThread =
         new Thread(
             () -> {
@@ -12466,6 +12568,7 @@ public final class ExoPlayerTest {
               player.getClock();
               player.getApplicationLooper();
               player.getPlaybackLooper();
+              playerReference.set(player);
             });
     AtomicReference<Throwable> builderThrow = new AtomicReference<>();
     builderThread.setUncaughtExceptionHandler((thread, throwable) -> builderThrow.set(throwable));
@@ -12474,6 +12577,7 @@ public final class ExoPlayerTest {
     builderThread.join();
 
     assertThat(builderThrow.get()).isNull();
+    playerReference.get().release();
   }
 
   @Test
@@ -12490,6 +12594,8 @@ public final class ExoPlayerTest {
 
     verify(playerListener).onPlaylistMetadataChanged(mediaMetadata);
     verify(analyticsListener).onPlaylistMetadataChanged(any(), eq(mediaMetadata));
+
+    player.release();
   }
 
   @Test
@@ -12696,6 +12802,8 @@ public final class ExoPlayerTest {
 
     assertThat(minVolume).isEqualTo(0);
     assertThat(maxVolume).isEqualTo(0);
+
+    player.release();
   }
 
   @Test
@@ -12716,6 +12824,8 @@ public final class ExoPlayerTest {
     runUntilPlaybackState(player, Player.STATE_ENDED);
 
     // Assert that playing works without getting stuck due to the memory used by the back buffer.
+
+    player.release();
   }
 
   @Test

@@ -2,6 +2,59 @@
 
 ## 1.1
 
+### 1.1.1 (2023-08-14)
+
+This release corresponds to the
+[ExoPlayer 2.19.1 release](https://github.com/google/ExoPlayer/releases/tag/r2.19.1).
+
+This release includes the following changes since the
+[1.1.0 release](#110-2023-07-05):
+
+*   Common Library:
+    *   Remove accidentally added `multidex` dependency from all modules
+        ([#499](https://github.com/androidx/media/issues/499)).
+*   ExoPlayer:
+    *   Fix issue in `PlaybackStatsListener` where spurious `PlaybackStats` are
+        created after the playlist is cleared.
+    *   Add additional fields to Common Media Client Data (CMCD) logging:
+        streaming format (sf), stream type (st), version (v), top birate (tb),
+        object duration (d), measured throughput (mtp) and object type (ot)
+        ([#8699](https://github.com/google/ExoPlayer/issues/8699)).
+*   Audio:
+    *   Fix a bug where `Player.getState()` never transitioned to `STATE_ENDED`
+        when playing very short files
+        ([#538](https://github.com/androidx/media/issues/538)).
+*   Audio Offload:
+    *   Prepend Ogg ID Header and Comment Header Pages to bitstream for
+        offloaded Opus playback in accordance with RFC 7845.
+*   Video:
+    *   H.265/HEVC: Fix parsing SPS short and long term reference picture info.
+*   Text:
+    *   CEA-608: Change cue truncation logic to only consider visible text.
+        Previously indent and tab offset were included when limiting the cue
+        length to 32 characters (which was technically correct by the spec)
+        ([#11019](https://github.com/google/ExoPlayer/issues/11019)).
+*   IMA extension:
+    *   Bump IMA SDK version to 3.30.3.
+*   Session:
+    *   Add custom layout to the state of the controller and provide a getter to
+        access it. When the custom layout changes,
+        `MediaController.Listener.onCustomLayoutChanged` is called. Apps that
+        want to send different custom layouts to different Media3 controller can
+        do this in `MediaSession.Callback.onConnect` by using an
+        `AcceptedResultBuilder` to make sure the custom layout is available to
+        the controller when connection completes.
+    *   Fix cases where `MediaLibraryServiceLegacyStub` sent an error to a
+        `Result` that didn't support this which produced an
+        `UnsupportedOperationException`
+        ([#78](https://github.com/androidx/media/issues/78)).
+    *   Fix the way `PlayerWrapper` creates a `VolumeProviderCompat` by
+        determining `volumeControlType` through both legacy commands
+        (`COMMAND_ADJUST_DEVICE_VOLUME` and `COMMAND_SET_DEVICE_VOLUME`) and new
+        commands (`COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS` and
+        `COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS`)
+        ([#554](https://github.com/androidx/media/issues/554)).
+
 ### 1.1.0 (2023-07-05)
 
 This release corresponds to the
@@ -166,13 +219,6 @@ This release contains the following changes since the
         implement playback resumption with media button events sent by, for
         example, a Bluetooth headset
         ([#167](https://github.com/androidx/media/issues/167)).
-    *   Add default implementation to `MediaSession.Callback.onAddMediaItems` to
-        allow requested `MediaItems` to be passed onto `Player` if they have
-        `LocalConfiguration` (e.g. URI)
-        ([#282](https://github.com/androidx/media/issues/282)).
-    *   Add "seek to previous" and "seek to next" command buttons on compact
-        media notification view by default for Android 12 and below
-        ([#410](https://github.com/androidx/media/issues/410)).
     *   Add default implementation to `MediaSession.Callback.onAddMediaItems` to
         allow requested `MediaItems` to be passed onto `Player` if they have
         `LocalConfiguration` (e.g. URI)
