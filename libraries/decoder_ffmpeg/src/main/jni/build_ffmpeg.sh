@@ -49,7 +49,7 @@ cd "${FFMPEG_MODULE_PATH}/jni/ffmpeg"
     --libdir=android-libs/armeabi-v7a \
     --arch=arm \
     --cpu=armv7-a \
-    --cross-prefix="${TOOLCHAIN_PREFIX}/armv7a-linux-androideabi16-" \
+    --cross-prefix="${TOOLCHAIN_PREFIX}/armv7a-linux-androideabi21-" \
     --nm="${TOOLCHAIN_PREFIX}/llvm-nm" \
     --ar="${TOOLCHAIN_PREFIX}/llvm-ar" \
     --ranlib="${TOOLCHAIN_PREFIX}/llvm-ranlib" \
@@ -77,7 +77,7 @@ make clean
     --libdir=android-libs/x86 \
     --arch=x86 \
     --cpu=i686 \
-    --cross-prefix="${TOOLCHAIN_PREFIX}/i686-linux-android16-" \
+    --cross-prefix="${TOOLCHAIN_PREFIX}/i686-linux-android21-" \
     --nm="${TOOLCHAIN_PREFIX}/llvm-nm" \
     --ar="${TOOLCHAIN_PREFIX}/llvm-ar" \
     --ranlib="${TOOLCHAIN_PREFIX}/llvm-ranlib" \
