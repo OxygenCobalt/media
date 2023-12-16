@@ -76,8 +76,10 @@ public final class Mp4Muxer {
     LAST_FRAME_DURATION_BEHAVIOR_INSERT_SHORT_FRAME
   })
   public @interface LastFrameDurationBehavior {}
+
   /** Insert a zero-length last sample. */
   public static final int LAST_FRAME_DURATION_BEHAVIOR_INSERT_SHORT_FRAME = 0;
+
   /**
    * Use the difference between the last timestamp and the one before that as the duration of the
    * last sample.
@@ -236,6 +238,9 @@ public final class Mp4Muxer {
 
   /**
    * Writes encoded sample data.
+   *
+   * <p>The samples are cached and are written in batches so the caller must not change/release the
+   * {@link ByteBuffer} and the {@link BufferInfo} after calling this method.
    *
    * @param trackToken The {@link TrackToken} for which this sample is being written.
    * @param byteBuffer The encoded sample.

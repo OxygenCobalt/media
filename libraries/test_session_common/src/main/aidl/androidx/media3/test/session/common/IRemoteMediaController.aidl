@@ -81,6 +81,7 @@ interface IRemoteMediaController {
   void decreaseDeviceVolumeWithFlags(String controllerId, int flags);
   void setDeviceMuted(String controllerId, boolean muted);
   void setDeviceMutedWithFlags(String controllerId, boolean muted, int flags);
+  void setAudioAttributes(String controllerId, in Bundle audioAttributes, boolean handleAudioFocus);
   Bundle sendCustomCommand(String controllerId, in Bundle command, in Bundle args);
   Bundle setRatingWithMediaId(String controllerId, String mediaId, in Bundle rating);
   Bundle setRating(String controllerId, in Bundle rating);
@@ -100,6 +101,7 @@ interface IRemoteMediaController {
       int pageSize,
       in Bundle libraryParams);
   Bundle getCustomLayout(String controllerId);
+  Bundle getAvailableCommands(String controllerId);
   Bundle getItem(String controllerId, String mediaId);
   Bundle search(String controllerId, String query, in Bundle libraryParams);
   Bundle getSearchResult(

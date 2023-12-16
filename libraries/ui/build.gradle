@@ -27,6 +27,11 @@ android {
             withSourcesJar()
         }
     }
+
+    sourceSets {
+        androidTest.assets.srcDir '../test_data/src/test/assets'
+        test.assets.srcDir '../test_data/src/test/assets/'
+    }
 }
 
 dependencies {
@@ -41,11 +46,6 @@ dependencies {
     testImplementation project(modulePrefix + 'test-utils')
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }
-
-ext {
-    javadocTitle = 'UI module'
-}
-apply from: '../../javadoc_library.gradle'
 
 ext {
     releaseArtifactId = 'media3-ui'

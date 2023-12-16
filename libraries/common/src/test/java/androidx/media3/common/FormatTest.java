@@ -18,6 +18,7 @@ package androidx.media3.common;
 import static androidx.media3.common.C.WIDEVINE_UUID;
 import static androidx.media3.common.MimeTypes.VIDEO_MP4;
 import static androidx.media3.common.MimeTypes.VIDEO_WEBM;
+import static androidx.media3.test.utils.TestUtil.buildTestData;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.os.Bundle;
@@ -25,7 +26,6 @@ import androidx.media3.test.utils.FakeMetadataEntry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -78,7 +78,9 @@ public final class FormatTest {
             C.COLOR_SPACE_BT709,
             C.COLOR_RANGE_LIMITED,
             C.COLOR_TRANSFER_SDR,
-            new byte[] {1, 2, 3, 4, 5, 6, 7});
+            new byte[] {1, 2, 3, 4, 5, 6, 7},
+            /* lumaBitdepth */ 9,
+            /* chromaBitdepth */ 11);
 
     return new Format.Builder()
         .setId("id")
@@ -114,13 +116,5 @@ public final class FormatTest {
         .setTileCountHorizontal(20)
         .setTileCountVertical(40)
         .build();
-  }
-
-  /** Generates an array of random bytes with the specified length. */
-  // TODO(internal b/161804035): Use TestUtils when it's available in a dependency we can use here.
-  private static byte[] buildTestData(int length, int seed) {
-    byte[] source = new byte[length];
-    new Random(seed).nextBytes(source);
-    return source;
   }
 }

@@ -19,7 +19,6 @@ import static android.Manifest.permission.READ_EXTERNAL_STORAGE;
 import static android.Manifest.permission.READ_MEDIA_VIDEO;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.SDK_INT;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_NOT_STARTED;
 
@@ -31,7 +30,6 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.opengl.Matrix;
 import android.os.Bundle;
 import android.os.Handler;
 import android.text.Spannable;
@@ -54,13 +52,15 @@ import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.audio.AudioProcessor;
+import androidx.media3.common.audio.ChannelMixingAudioProcessor;
+import androidx.media3.common.audio.ChannelMixingMatrix;
 import androidx.media3.common.audio.SonicAudioProcessor;
 import androidx.media3.common.util.BitmapLoader;
-import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Log;
 import androidx.media3.datasource.DataSourceBitmapLoader;
 import androidx.media3.effect.BitmapOverlay;
 import androidx.media3.effect.Contrast;
+import androidx.media3.effect.DebugTraceUtil;
 import androidx.media3.effect.DrawableOverlay;
 import androidx.media3.effect.GlEffect;
 import androidx.media3.effect.GlShaderProgram;
@@ -87,7 +87,6 @@ import androidx.media3.transformer.Effects;
 import androidx.media3.transformer.ExportException;
 import androidx.media3.transformer.ExportResult;
 import androidx.media3.transformer.ProgressHolder;
-import androidx.media3.transformer.TransformationRequest;
 import androidx.media3.transformer.Transformer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
@@ -97,11 +96,12 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -123,6 +123,8 @@ public final class TransformerActivity extends AppCompatActivity {
   private @MonotonicNonNull TextView informationTextView;
   private @MonotonicNonNull ViewGroup progressViewGroup;
   private @MonotonicNonNull LinearProgressIndicator progressIndicator;
+  private @MonotonicNonNull Button cancelButton;
+  private @MonotonicNonNull Button resumeButton;
   private @MonotonicNonNull Stopwatch exportStopwatch;
   private @MonotonicNonNull AspectRatioFrameLayout debugFrame;
 
@@ -147,6 +149,10 @@ public final class TransformerActivity extends AppCompatActivity {
     informationTextView = findViewById(R.id.information_text_view);
     progressViewGroup = findViewById(R.id.progress_view_group);
     progressIndicator = findViewById(R.id.progress_indicator);
+    cancelButton = findViewById(R.id.cancel_button);
+    cancelButton.setOnClickListener(this::cancelExport);
+    resumeButton = findViewById(R.id.resume_button);
+    resumeButton.setOnClickListener(this::resumeExport);
     debugFrame = findViewById(R.id.debug_aspect_ratio_frame_layout);
     displayInputButton = findViewById(R.id.display_input_button);
     displayInputButton.setOnClickListener(this::toggleInputVideoDisplay);
@@ -165,31 +171,20 @@ public final class TransformerActivity extends AppCompatActivity {
   protected void onStart() {
     super.onStart();
 
-    checkNotNull(progressIndicator);
-    checkNotNull(informationTextView);
-    checkNotNull(exportStopwatch);
-    checkNotNull(inputCardView);
-    checkNotNull(inputTextView);
-    checkNotNull(inputImageView);
-    checkNotNull(inputPlayerView);
-    checkNotNull(outputPlayerView);
-    checkNotNull(outputVideoTextView);
-    checkNotNull(debugTextView);
-    checkNotNull(progressViewGroup);
-    checkNotNull(debugFrame);
-    checkNotNull(displayInputButton);
     startExport();
 
-    inputPlayerView.onResume();
-    outputPlayerView.onResume();
+    checkNotNull(inputPlayerView).onResume();
+    checkNotNull(outputPlayerView).onResume();
   }
 
   @Override
   protected void onStop() {
     super.onStop();
 
-    checkNotNull(transformer).cancel();
-    transformer = null;
+    if (transformer != null) {
+      transformer.cancel();
+      transformer = null;
+    }
 
     // The stop watch is reset after cancelling the export, in case cancelling causes the stop watch
     // to be stopped in a transformer callback.
@@ -203,22 +198,23 @@ public final class TransformerActivity extends AppCompatActivity {
     externalCacheFile = null;
   }
 
-  @RequiresNonNull({
-    "displayInputButton",
-    "inputCardView",
-    "inputTextView",
-    "inputImageView",
-    "inputPlayerView",
-    "outputPlayerView",
-    "outputVideoTextView",
-    "debugTextView",
-    "informationTextView",
-    "progressIndicator",
-    "exportStopwatch",
-    "progressViewGroup",
-    "debugFrame",
-  })
   private void startExport() {
+    checkNotNull(progressIndicator);
+    checkNotNull(informationTextView);
+    checkNotNull(exportStopwatch);
+    checkNotNull(inputCardView);
+    checkNotNull(inputTextView);
+    checkNotNull(inputImageView);
+    checkNotNull(inputPlayerView);
+    checkNotNull(outputPlayerView);
+    checkNotNull(outputVideoTextView);
+    checkNotNull(debugTextView);
+    checkNotNull(progressViewGroup);
+    checkNotNull(debugFrame);
+    checkNotNull(displayInputButton);
+    checkNotNull(cancelButton);
+    checkNotNull(resumeButton);
+
     requestReadVideoPermission(/* activity= */ this);
 
     Intent intent = getIntent();
@@ -231,15 +227,11 @@ public final class TransformerActivity extends AppCompatActivity {
     String filePath = externalCacheFile.getAbsolutePath();
     @Nullable Bundle bundle = intent.getExtras();
     MediaItem mediaItem = createMediaItem(bundle, inputUri);
-    try {
-      Transformer transformer = createTransformer(bundle, inputUri, filePath);
-      Composition composition = createComposition(mediaItem, bundle);
-      exportStopwatch.start();
-      transformer.start(composition, filePath);
-      this.transformer = transformer;
-    } catch (PackageManager.NameNotFoundException e) {
-      throw new IllegalStateException(e);
-    }
+    Transformer transformer = createTransformer(bundle, inputUri, filePath);
+    Composition composition = createComposition(mediaItem, bundle);
+    exportStopwatch.start();
+    transformer.start(composition, filePath);
+    this.transformer = transformer;
     displayInputButton.setVisibility(View.GONE);
     inputCardView.setVisibility(View.GONE);
     outputPlayerView.setVisibility(View.GONE);
@@ -247,6 +239,8 @@ public final class TransformerActivity extends AppCompatActivity {
     debugTextView.setVisibility(View.GONE);
     informationTextView.setText(R.string.export_started);
     progressViewGroup.setVisibility(View.VISIBLE);
+    cancelButton.setVisibility(View.VISIBLE);
+    resumeButton.setVisibility(View.GONE);
     Handler mainHandler = new Handler(getMainLooper());
     ProgressHolder progressHolder = new ProgressHolder();
     mainHandler.post(
@@ -299,17 +293,14 @@ public final class TransformerActivity extends AppCompatActivity {
   private Transformer createTransformer(@Nullable Bundle bundle, Uri inputUri, String filePath) {
     Transformer.Builder transformerBuilder = new Transformer.Builder(/* context= */ this);
     if (bundle != null) {
-      TransformationRequest.Builder requestBuilder = new TransformationRequest.Builder();
       @Nullable String audioMimeType = bundle.getString(ConfigurationActivity.AUDIO_MIME_TYPE);
       if (audioMimeType != null) {
-        requestBuilder.setAudioMimeType(audioMimeType);
+        transformerBuilder.setAudioMimeType(audioMimeType);
       }
       @Nullable String videoMimeType = bundle.getString(ConfigurationActivity.VIDEO_MIME_TYPE);
       if (videoMimeType != null) {
-        requestBuilder.setVideoMimeType(videoMimeType);
+        transformerBuilder.setVideoMimeType(videoMimeType);
       }
-      requestBuilder.setHdrMode(bundle.getInt(ConfigurationActivity.HDR_MODE));
-      transformerBuilder.setTransformationRequest(requestBuilder.build());
 
       transformerBuilder.setEncoderFactory(
           new DefaultEncoderFactory.Builder(this.getApplicationContext())
@@ -363,12 +354,10 @@ public final class TransformerActivity extends AppCompatActivity {
     "exportStopwatch",
     "progressViewGroup",
   })
-  private Composition createComposition(MediaItem mediaItem, @Nullable Bundle bundle)
-      throws PackageManager.NameNotFoundException {
+  private Composition createComposition(MediaItem mediaItem, @Nullable Bundle bundle) {
     EditedMediaItem.Builder editedMediaItemBuilder = new EditedMediaItem.Builder(mediaItem);
     // For image inputs. Automatically ignored if input is audio/video.
     editedMediaItemBuilder.setDurationUs(5_000_000).setFrameRate(30);
-    boolean forceAudioTrack = false;
     if (bundle != null) {
       ImmutableList<AudioProcessor> audioProcessors = createAudioProcessorsFromBundle(bundle);
       ImmutableList<Effect> videoEffects = createVideoEffectsFromBundle(bundle);
@@ -378,15 +367,16 @@ public final class TransformerActivity extends AppCompatActivity {
           .setFlattenForSlowMotion(
               bundle.getBoolean(ConfigurationActivity.SHOULD_FLATTEN_FOR_SLOW_MOTION))
           .setEffects(new Effects(audioProcessors, videoEffects));
-      forceAudioTrack = bundle.getBoolean(ConfigurationActivity.FORCE_AUDIO_TRACK);
     }
-    List<EditedMediaItem> editedMediaItems = new ArrayList<>();
-    editedMediaItems.add(editedMediaItemBuilder.build());
-    List<EditedMediaItemSequence> sequences = new ArrayList<>();
-    sequences.add(new EditedMediaItemSequence(editedMediaItems));
-    return new Composition.Builder(sequences)
-        .experimentalSetForceAudioTrack(forceAudioTrack)
-        .build();
+    Composition.Builder compositionBuilder =
+        new Composition.Builder(new EditedMediaItemSequence(editedMediaItemBuilder.build()));
+    if (bundle != null) {
+      compositionBuilder
+          .setHdrMode(bundle.getInt(ConfigurationActivity.HDR_MODE))
+          .experimentalSetForceAudioTrack(
+              bundle.getBoolean(ConfigurationActivity.FORCE_AUDIO_TRACK));
+    }
+    return compositionBuilder.build();
   }
 
   private ImmutableList<AudioProcessor> createAudioProcessorsFromBundle(Bundle bundle) {
@@ -419,13 +409,44 @@ public final class TransformerActivity extends AppCompatActivity {
       processors.add(silenceSkippingAudioProcessor);
     }
 
+    boolean mixToMono = selectedAudioEffects[ConfigurationActivity.CHANNEL_MIXING_INDEX];
+    boolean scaleVolumeToHalf = selectedAudioEffects[ConfigurationActivity.VOLUME_SCALING_INDEX];
+    if (mixToMono || scaleVolumeToHalf) {
+      ChannelMixingAudioProcessor mixingAudioProcessor = new ChannelMixingAudioProcessor();
+      for (int inputChannelCount = 1; inputChannelCount <= 6; inputChannelCount++) {
+        ChannelMixingMatrix matrix;
+        if (mixToMono) {
+          float[] mixingCoefficients = new float[inputChannelCount];
+          // Each channel is equally weighted in the mix to mono.
+          Arrays.fill(mixingCoefficients, 1f / inputChannelCount);
+          matrix =
+              new ChannelMixingMatrix(
+                  inputChannelCount, /* outputChannelCount= */ 1, mixingCoefficients);
+        } else {
+          // Identity matrix.
+          matrix =
+              ChannelMixingMatrix.create(
+                  inputChannelCount, /* outputChannelCount= */ inputChannelCount);
+        }
+
+        // Apply the volume adjustment.
+        mixingAudioProcessor.putChannelMixingMatrix(
+            scaleVolumeToHalf ? matrix.scaleBy(0.5f) : matrix);
+      }
+      processors.add(mixingAudioProcessor);
+    }
+
     return processors.build();
   }
 
-  private ImmutableList<Effect> createVideoEffectsFromBundle(Bundle bundle)
-      throws PackageManager.NameNotFoundException {
+  private ImmutableList<Effect> createVideoEffectsFromBundle(Bundle bundle) {
     boolean[] selectedEffects =
-        checkStateNotNull(bundle.getBooleanArray(ConfigurationActivity.VIDEO_EFFECTS_SELECTIONS));
+        bundle.getBooleanArray(ConfigurationActivity.VIDEO_EFFECTS_SELECTIONS);
+
+    if (selectedEffects == null) {
+      return ImmutableList.of();
+    }
+
     ImmutableList.Builder<Effect> effects = new ImmutableList.Builder<>();
     if (selectedEffects[ConfigurationActivity.DIZZY_CROP_INDEX]) {
       effects.add(MatrixTransformationFactory.createDizzyCropEffect());
@@ -571,19 +592,22 @@ public final class TransformerActivity extends AppCompatActivity {
   }
 
   @Nullable
-  private OverlayEffect createOverlayEffectFromBundle(Bundle bundle, boolean[] selectedEffects)
-      throws PackageManager.NameNotFoundException {
+  private OverlayEffect createOverlayEffectFromBundle(Bundle bundle, boolean[] selectedEffects) {
     ImmutableList.Builder<TextureOverlay> overlaysBuilder = new ImmutableList.Builder<>();
     if (selectedEffects[ConfigurationActivity.OVERLAY_LOGO_AND_TIMER_INDEX]) {
-      float[] logoPositioningMatrix = GlUtil.create4x4IdentityMatrix();
-      Matrix.translateM(
-          logoPositioningMatrix, /* mOffset= */ 0, /* x= */ -0.95f, /* y= */ -0.95f, /* z= */ 1);
       OverlaySettings logoSettings =
           new OverlaySettings.Builder()
-              .setMatrix(logoPositioningMatrix)
-              .setAnchor(/* x= */ -1f, /* y= */ -1f)
+              // Place the logo in the bottom left corner of the screen with some padding from the
+              // edges.
+              .setOverlayFrameAnchor(/* x= */ 1f, /* y= */ 1f)
+              .setBackgroundFrameAnchor(/* x= */ -0.95f, /* y= */ -0.95f)
               .build();
-      Drawable logo = getPackageManager().getApplicationIcon(getPackageName());
+      Drawable logo;
+      try {
+        logo = getPackageManager().getApplicationIcon(getPackageName());
+      } catch (PackageManager.NameNotFoundException e) {
+        throw new IllegalStateException(e);
+      }
       logo.setBounds(
           /* left= */ 0, /* top= */ 0, logo.getIntrinsicWidth(), logo.getIntrinsicHeight());
       TextureOverlay logoOverlay = DrawableOverlay.createStaticDrawableOverlay(logo, logoSettings);
@@ -593,7 +617,7 @@ public final class TransformerActivity extends AppCompatActivity {
     if (selectedEffects[ConfigurationActivity.BITMAP_OVERLAY_INDEX]) {
       OverlaySettings overlaySettings =
           new OverlaySettings.Builder()
-              .setAlpha(
+              .setAlphaScale(
                   bundle.getFloat(
                       ConfigurationActivity.BITMAP_OVERLAY_ALPHA, /* defaultValue= */ 1))
               .build();
@@ -607,7 +631,7 @@ public final class TransformerActivity extends AppCompatActivity {
     if (selectedEffects[ConfigurationActivity.TEXT_OVERLAY_INDEX]) {
       OverlaySettings overlaySettings =
           new OverlaySettings.Builder()
-              .setAlpha(
+              .setAlphaScale(
                   bundle.getFloat(ConfigurationActivity.TEXT_OVERLAY_ALPHA, /* defaultValue= */ 1))
               .build();
       SpannableString overlayText =
@@ -659,7 +683,10 @@ public final class TransformerActivity extends AppCompatActivity {
   private void onCompleted(Uri inputUri, String filePath) {
     exportStopwatch.stop();
     informationTextView.setText(
-        getString(R.string.export_completed, exportStopwatch.elapsed(TimeUnit.SECONDS), filePath));
+        getString(
+            R.string.export_completed,
+            exportStopwatch.elapsed(TimeUnit.MILLISECONDS) / 1000.f,
+            filePath));
     progressViewGroup.setVisibility(View.GONE);
     debugFrame.removeAllViews();
     inputCardView.setVisibility(View.VISIBLE);
@@ -667,6 +694,14 @@ public final class TransformerActivity extends AppCompatActivity {
     outputVideoTextView.setVisibility(View.VISIBLE);
     debugTextView.setVisibility(View.VISIBLE);
     displayInputButton.setVisibility(View.VISIBLE);
+    Log.d(TAG, DebugTraceUtil.generateTraceSummary());
+    File file = new File(getExternalFilesDir(null), "trace.tsv");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      DebugTraceUtil.dumpTsv(writer);
+      Log.d(TAG, file.getAbsolutePath());
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
     playMediaItems(MediaItem.fromUri(inputUri), MediaItem.fromUri("file://" + filePath));
     Log.d(TAG, "Output file path: file://" + filePath);
   }
@@ -788,6 +823,21 @@ public final class TransformerActivity extends AppCompatActivity {
       inputCardView.setVisibility(View.GONE);
       displayInputButton.setText(getString(R.string.show_input_video));
     }
+  }
+
+  @RequiresNonNull({"transformer", "exportStopwatch", "cancelButton", "resumeButton"})
+  private void cancelExport(View view) {
+    transformer.cancel();
+    transformer = null;
+    exportStopwatch.stop();
+    cancelButton.setVisibility(View.GONE);
+    resumeButton.setVisibility(View.VISIBLE);
+  }
+
+  @RequiresNonNull({"exportStopwatch"})
+  private void resumeExport(View view) {
+    exportStopwatch.reset();
+    startExport();
   }
 
   private final class DemoDebugViewProvider implements DebugViewProvider {

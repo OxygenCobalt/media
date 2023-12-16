@@ -22,6 +22,7 @@ import static androidx.media3.common.util.Util.postOrRun;
 
 import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -31,7 +32,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
-import android.view.KeyEvent;
 import androidx.annotation.CallSuper;
 import androidx.annotation.DoNotInline;
 import androidx.annotation.GuardedBy;
@@ -40,6 +40,7 @@ import androidx.annotation.RequiresApi;
 import androidx.collection.ArrayMap;
 import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.MediaSessionManager;
+import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -157,7 +158,7 @@ public abstract class MediaSessionService extends Service {
   /** The action for {@link Intent} filter that must be declared by the service. */
   public static final String SERVICE_INTERFACE = "androidx.media3.session.MediaSessionService";
 
-  private static final String TAG = "MSSImpl";
+  private static final String TAG = "MSessionService";
 
   private final Object lock;
   private final Handler mainHandler;
@@ -426,10 +427,19 @@ public abstract class MediaSessionService extends Service {
         }
         addSession(session);
       }
-      @Nullable KeyEvent keyEvent = actionFactory.getKeyEvent(intent);
-      if (keyEvent != null) {
-        session.getSessionCompat().getController().dispatchMediaButtonEvent(keyEvent);
-      }
+      MediaSessionImpl sessionImpl = session.getImpl();
+      sessionImpl
+          .getApplicationHandler()
+          .post(
+              () -> {
+                ControllerInfo callerInfo = sessionImpl.getMediaNotificationControllerInfo();
+                if (callerInfo == null) {
+                  callerInfo = createFallbackMediaButtonCaller(intent);
+                }
+                if (!sessionImpl.onMediaButtonEvent(callerInfo, intent)) {
+                  Log.d(TAG, "Ignored unrecognized media button intent.");
+                }
+              });
     } else if (session != null && actionFactory.isCustomAction(intent)) {
       @Nullable String customAction = actionFactory.getCustomAction(intent);
       if (customAction == null) {
@@ -439,6 +449,24 @@ public abstract class MediaSessionService extends Service {
       getMediaNotificationManager().onCustomAction(session, customAction, customExtras);
     }
     return START_STICKY;
+  }
+
+  private static ControllerInfo createFallbackMediaButtonCaller(Intent mediaButtonIntent) {
+    @Nullable ComponentName componentName = mediaButtonIntent.getComponent();
+    String packageName =
+        componentName != null
+            ? componentName.getPackageName()
+            : "androidx.media3.session.MediaSessionService";
+    return new ControllerInfo(
+        new MediaSessionManager.RemoteUserInfo(
+            packageName,
+            MediaSessionManager.RemoteUserInfo.UNKNOWN_PID,
+            MediaSessionManager.RemoteUserInfo.UNKNOWN_UID),
+        MediaLibraryInfo.VERSION_INT,
+        MediaControllerStub.VERSION_INT,
+        /* trusted= */ false,
+        /* cb= */ null,
+        /* connectionHints= */ Bundle.EMPTY);
   }
 
   /**
@@ -676,7 +704,7 @@ public abstract class MediaSessionService extends Service {
                         request.libraryVersion,
                         request.controllerInterfaceVersion,
                         isTrusted,
-                        /* cb= */ null,
+                        new MediaSessionStub.Controller2Cb(caller),
                         request.connectionHints);
 
                 @Nullable MediaSession session;
@@ -689,14 +717,7 @@ public abstract class MediaSessionService extends Service {
                   service.addSession(session);
                   shouldNotifyDisconnected = false;
 
-                  session.handleControllerConnectionFromService(
-                      caller,
-                      request.libraryVersion,
-                      request.controllerInterfaceVersion,
-                      request.packageName,
-                      pid,
-                      uid,
-                      request.connectionHints);
+                  session.handleControllerConnectionFromService(caller, controllerInfo);
                 } catch (Exception e) {
                   // Don't propagate exception in service to the controller.
                   Log.w(TAG, "Failed to add a session to session service", e);

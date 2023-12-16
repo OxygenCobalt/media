@@ -26,6 +26,9 @@ import static androidx.media3.common.util.Util.minValue;
 import static androidx.media3.common.util.Util.parseXsDateTime;
 import static androidx.media3.common.util.Util.parseXsDuration;
 import static androidx.media3.common.util.Util.unescapeFileName;
+import static androidx.media3.test.utils.TestUtil.buildTestData;
+import static androidx.media3.test.utils.TestUtil.buildTestString;
+import static androidx.media3.test.utils.TestUtil.createByteArray;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertThrows;
@@ -41,7 +44,6 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.SparseLongArray;
 import androidx.media3.common.C;
-import androidx.media3.test.utils.TestUtil;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.Futures;
@@ -849,6 +851,26 @@ public class UtilTest {
   }
 
   @Test
+  public void durationToSampleCount_doesntOverflowWithLargeDuration() {
+    // Choose a durationUs & sampleRate that will overflow a signed 64-bit integer if they are
+    // multiplied together, but not if the durationUs is converted to seconds first.
+    long sampleCount =
+        Util.durationUsToSampleCount(
+            /* durationUs= */ Long.MAX_VALUE / 100_000, /* sampleRate= */ 192_000);
+    assertThat(sampleCount).isEqualTo(17708874310762L);
+  }
+
+  @Test
+  public void sampleCountToDuration_doesntOverflowWithLargeDuration() {
+    // Choose a sampleCount that will overflow a signed 64-bit integer if it is multiplied directly
+    // by C.MICROS_PER_SECOND, but not if it is divided by sampleRate first.
+    long durationUs =
+        Util.sampleCountToDurationUs(
+            /* sampleCount= */ Long.MAX_VALUE / 100_000, /* sampleRate= */ 192_000);
+    assertThat(durationUs).isEqualTo(480383960252848L);
+  }
+
+  @Test
   public void parseXsDuration_returnsParsedDurationInMillis() {
     assertThat(parseXsDuration("PT150.279S")).isEqualTo(150279L);
     assertThat(parseXsDuration("PT1.500S")).isEqualTo(1500L);
@@ -996,7 +1018,7 @@ public class UtilTest {
 
   @Test
   public void gzip_resultInflatesBackToOriginalValue() throws Exception {
-    byte[] input = TestUtil.buildTestData(20);
+    byte[] input = buildTestData(20);
 
     byte[] deflated = gzip(input);
 
@@ -1027,6 +1049,26 @@ public class UtilTest {
     ByteBuffer byteBuffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
 
     assertThat(Util.getBigEndianInt(byteBuffer, 1)).isEqualTo(0x08070605);
+  }
+
+  @Test
+  public void createReadOnlyByteBuffer_fromLittleEndian_preservesByteOrder() {
+    byte[] bytes = {1, 2, 3, 4};
+    ByteBuffer byteBuffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer readOnlyByteBuffer = Util.createReadOnlyByteBuffer(byteBuffer);
+
+    assertThat(readOnlyByteBuffer.order()).isEqualTo(ByteOrder.LITTLE_ENDIAN);
+    assertThat(byteBuffer.getInt()).isEqualTo(readOnlyByteBuffer.getInt());
+  }
+
+  @Test
+  public void createReadOnlyByteBuffer_fromBigEndian_preservesByteOrder() {
+    byte[] bytes = {1, 2, 3, 4};
+    ByteBuffer byteBuffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
+    ByteBuffer readOnlyByteBuffer = Util.createReadOnlyByteBuffer(byteBuffer);
+
+    assertThat(readOnlyByteBuffer.order()).isEqualTo(ByteOrder.BIG_ENDIAN);
+    assertThat(byteBuffer.getInt()).isEqualTo(readOnlyByteBuffer.getInt());
   }
 
   @Test
@@ -1493,40 +1535,5 @@ public class UtilTest {
       @Override
       public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {}
     };
-  }
-
-  /** Generates an array of random bytes with the specified length. */
-  private static byte[] buildTestData(int length, int seed) {
-    byte[] source = new byte[length];
-    new Random(seed).nextBytes(source);
-    return source;
-  }
-
-  /** Equivalent to {@code buildTestData(length, length)}. */
-  // TODO(internal b/161804035): Use TestUtils when it's available in a dependency we can use here.
-  private static byte[] buildTestData(int length) {
-    return buildTestData(length, length);
-  }
-
-  /** Generates a random string with the specified maximum length. */
-  // TODO(internal b/161804035): Use TestUtils when it's available in a dependency we can use here.
-  private static String buildTestString(int maximumLength, Random random) {
-    int length = random.nextInt(maximumLength);
-    StringBuilder builder = new StringBuilder(length);
-    for (int i = 0; i < length; i++) {
-      builder.append((char) random.nextInt());
-    }
-    return builder.toString();
-  }
-
-  /** Converts an array of integers in the range [0, 255] into an equivalent byte array. */
-  // TODO(internal b/161804035): Use TestUtils when it's available in a dependency we can use here.
-  private static byte[] createByteArray(int... bytes) {
-    byte[] byteArray = new byte[bytes.length];
-    for (int i = 0; i < byteArray.length; i++) {
-      Assertions.checkState(0x00 <= bytes[i] && bytes[i] <= 0xFF);
-      byteArray[i] = (byte) bytes[i];
-    }
-    return byteArray;
   }
 }

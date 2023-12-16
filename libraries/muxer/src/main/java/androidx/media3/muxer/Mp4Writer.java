@@ -18,6 +18,7 @@ package androidx.media3.muxer;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
 import static java.lang.Math.max;
+import static java.lang.Math.min;
 
 import android.media.MediaCodec;
 import android.media.MediaCodec.BufferInfo;
@@ -339,9 +340,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
    * @return The mdat box extension amount in bytes.
    */
   private long getMdatExtensionAmount(long currentFileLength) {
+    // Don't extend by more than 1 GB at a time because the final trimming creates a "free" box that
+    // can be as big as this extension + the old "moov" box, but should be less than 2**31 - 1 bytes
+    // (because it is a compact "free" box and for simplicity its size is written as a signed
+    // integer). Therefore, to be conservative, a max extension of 1 GB was chosen.
     long minBytesToExtend = 500_000L;
+    long maxBytesToExtend = 1_000_000_000L;
     float extensionRatio = 0.2f;
-    return max(minBytesToExtend, (long) (extensionRatio * currentFileLength));
+
+    return min(
+        maxBytesToExtend, max(minBytesToExtend, (long) (extensionRatio * currentFileLength)));
   }
 
   private class Track implements TrackToken, Mp4MoovStructure.TrackMetadataProvider {
@@ -364,6 +372,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
     }
 
     public void writeSampleData(ByteBuffer byteBuffer, BufferInfo bufferInfo) throws IOException {
+      // TODO: b/279931840 - Confirm whether muxer should throw when writing empty samples.
+      // Skip empty samples.
+      if (bufferInfo.size == 0 || byteBuffer.remaining() == 0) {
+        return;
+      }
+
       if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) > 0) {
         hadKeyframe = true;
       }
@@ -372,28 +386,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
         return;
       }
 
-      if (bufferInfo.size == 0) {
-        return;
-      }
-
-      // Skip empty samples.
-      // TODO: b/279931840 - Confirm whether muxer should throw when writing empty samples.
-      if (byteBuffer.remaining() > 0) {
-        // Copy sample data and release the original buffer.
-        ByteBuffer byteBufferCopy = ByteBuffer.allocateDirect(byteBuffer.remaining());
-        byteBufferCopy.put(byteBuffer);
-        byteBufferCopy.rewind();
-
-        BufferInfo bufferInfoCopy = new BufferInfo();
-        bufferInfoCopy.set(
-            /* newOffset= */ byteBufferCopy.position(),
-            /* newSize= */ byteBufferCopy.remaining(),
-            bufferInfo.presentationTimeUs,
-            bufferInfo.flags);
-
-        pendingSamples.addLast(Pair.create(bufferInfoCopy, byteBufferCopy));
-        doInterleave();
-      }
+      pendingSamples.addLast(Pair.create(bufferInfo, byteBuffer));
+      doInterleave();
     }
 
     @Override

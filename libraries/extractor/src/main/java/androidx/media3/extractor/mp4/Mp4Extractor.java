@@ -83,8 +83,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         FLAG_READ_SEF_DATA
       })
   public @interface Flags {}
+
   /** Flag to ignore any edit lists in the stream. */
   public static final int FLAG_WORKAROUND_IGNORE_EDIT_LISTS = 1;
+
   /**
    * Flag to extract {@link MotionPhotoMetadata} from HEIC motion photos following the Google Photos
    * Motion Photo File Format V1.1.
@@ -93,6 +95,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
    * retrieval use cases.
    */
   public static final int FLAG_READ_MOTION_PHOTO_METADATA = 1 << 1;
+
   /**
    * Flag to extract {@link SlowMotionData} metadata from Samsung Extension Format (SEF) slow motion
    * videos.
@@ -161,6 +164,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   private int sampleBytesRead;
   private int sampleBytesWritten;
   private int sampleCurrentNalBytesRemaining;
+  private boolean seenFtypAtom;
 
   // Extractor outputs.
   private ExtractorOutput extractorOutput;
@@ -441,11 +445,17 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     if (atomData != null) {
       input.readFully(atomData.getData(), atomHeaderBytesRead, (int) atomPayloadSize);
       if (atomType == Atom.TYPE_ftyp) {
+        seenFtypAtom = true;
         fileType = processFtypAtom(atomData);
       } else if (!containerAtoms.isEmpty()) {
         containerAtoms.peek().add(new Atom.LeafAtom(atomType, atomData));
       }
     } else {
+      if (!seenFtypAtom && atomType == Atom.TYPE_mdat) {
+        // The original QuickTime specification did not require files to begin with the ftyp atom.
+        // See https://developer.apple.com/standards/qtff-2001.pdf.
+        fileType = FILE_TYPE_QUICKTIME;
+      }
       // We don't need the data. Skip or seek, depending on how large the atom is.
       if (atomPayloadSize < RELOAD_MINIMUM_SEEK_DISTANCE) {
         input.skipFully((int) atomPayloadSize);
@@ -491,20 +501,13 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     List<Mp4Track> tracks = new ArrayList<>();
 
     // Process metadata.
-    @Nullable Metadata udtaMetaMetadata = null;
-    @Nullable Metadata smtaMetadata = null;
-    @Nullable Metadata xyzMetadata = null;
     boolean isQuickTime = fileType == FILE_TYPE_QUICKTIME;
     GaplessInfoHolder gaplessInfoHolder = new GaplessInfoHolder();
+    @Nullable Metadata udtaMetadata = null;
     @Nullable Atom.LeafAtom udta = moov.getLeafAtomOfType(Atom.TYPE_udta);
     if (udta != null) {
-      AtomParsers.UdtaInfo udtaInfo = AtomParsers.parseUdta(udta);
-      udtaMetaMetadata = udtaInfo.metaMetadata;
-      smtaMetadata = udtaInfo.smtaMetadata;
-      xyzMetadata = udtaInfo.xyzMetadata;
-      if (udtaMetaMetadata != null) {
-        gaplessInfoHolder.setFromMetadata(udtaMetaMetadata);
-      }
+      udtaMetadata = AtomParsers.parseUdta(udta);
+      gaplessInfoHolder.setFromMetadata(udtaMetadata);
     }
     @Nullable Metadata mdtaMetadata = null;
     @Nullable Atom.ContainerAtom meta = moov.getContainerAtomOfType(Atom.TYPE_meta);
@@ -513,7 +516,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     }
 
     Metadata mvhdMetadata =
-        AtomParsers.parseMvhd(checkNotNull(moov.getLeafAtomOfType(Atom.TYPE_mvhd)).data).metadata;
+        new Metadata(
+            AtomParsers.parseMvhd(checkNotNull(moov.getLeafAtomOfType(Atom.TYPE_mvhd)).data));
 
     boolean ignoreEditLists = (flags & FLAG_WORKAROUND_IGNORE_EDIT_LISTS) != 0;
     List<TrackSampleTable> trackSampleTables =
@@ -561,12 +565,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       MetadataUtil.setFormatGaplessInfo(track.type, gaplessInfoHolder, formatBuilder);
       MetadataUtil.setFormatMetadata(
           track.type,
-          udtaMetaMetadata,
           mdtaMetadata,
           formatBuilder,
-          smtaMetadata,
           slowMotionMetadataEntries.isEmpty() ? null : new Metadata(slowMotionMetadataEntries),
-          xyzMetadata,
+          udtaMetadata,
           mvhdMetadata);
       mp4Track.trackOutput.format(formatBuilder.build());
 

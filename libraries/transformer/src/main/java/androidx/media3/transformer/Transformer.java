@@ -17,7 +17,9 @@
 package androidx.media3.transformer;
 
 import static androidx.media3.common.util.Assertions.checkArgument;
+import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
+import static androidx.media3.transformer.Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.Context;
@@ -28,11 +30,15 @@ import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.C;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.audio.AudioProcessor;
+import androidx.media3.common.audio.AudioProcessor.AudioFormat;
+import androidx.media3.common.audio.ChannelMixingAudioProcessor;
+import androidx.media3.common.audio.SonicAudioProcessor;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.HandlerWrapper;
 import androidx.media3.common.util.ListenerSet;
@@ -80,7 +86,9 @@ public final class Transformer {
     private final Context context;
 
     // Optional fields.
-    private TransformationRequest transformationRequest;
+    private @MonotonicNonNull String audioMimeType;
+    private @MonotonicNonNull String videoMimeType;
+    private @MonotonicNonNull TransformationRequest transformationRequest;
     private ImmutableList<AudioProcessor> audioProcessors;
     private ImmutableList<Effect> videoEffects;
     private boolean removeAudio;
@@ -88,6 +96,7 @@ public final class Transformer {
     private boolean flattenForSlowMotion;
     private ListenerSet<Transformer.Listener> listeners;
     private AssetLoader.@MonotonicNonNull Factory assetLoaderFactory;
+    private AudioMixer.Factory audioMixerFactory;
     private VideoFrameProcessor.Factory videoFrameProcessorFactory;
     private Codec.EncoderFactory encoderFactory;
     private Muxer.Factory muxerFactory;
@@ -102,9 +111,9 @@ public final class Transformer {
      */
     public Builder(Context context) {
       this.context = context.getApplicationContext();
-      transformationRequest = new TransformationRequest.Builder().build();
       audioProcessors = ImmutableList.of();
       videoEffects = ImmutableList.of();
+      audioMixerFactory = new DefaultAudioMixer.Factory();
       videoFrameProcessorFactory = new DefaultVideoFrameProcessor.Factory.Builder().build();
       encoderFactory = new DefaultEncoderFactory.Builder(this.context).build();
       muxerFactory = new DefaultMuxer.Factory();
@@ -117,6 +126,8 @@ public final class Transformer {
     /** Creates a builder with the values of the provided {@link Transformer}. */
     private Builder(Transformer transformer) {
       this.context = transformer.context;
+      this.audioMimeType = transformer.transformationRequest.audioMimeType;
+      this.videoMimeType = transformer.transformationRequest.videoMimeType;
       this.transformationRequest = transformer.transformationRequest;
       this.audioProcessors = transformer.audioProcessors;
       this.videoEffects = transformer.videoEffects;
@@ -124,6 +135,7 @@ public final class Transformer {
       this.removeVideo = transformer.removeVideo;
       this.listeners = transformer.listeners;
       this.assetLoaderFactory = transformer.assetLoaderFactory;
+      this.audioMixerFactory = transformer.audioMixerFactory;
       this.videoFrameProcessorFactory = transformer.videoFrameProcessorFactory;
       this.encoderFactory = transformer.encoderFactory;
       this.muxerFactory = transformer.muxerFactory;
@@ -133,17 +145,75 @@ public final class Transformer {
     }
 
     /**
-     * Sets the {@link TransformationRequest} which configures the editing and transcoding options.
+     * Sets the audio {@linkplain MimeTypes MIME type} of the output.
      *
-     * <p>Actual applied values may differ, per device capabilities. {@link
-     * Listener#onFallbackApplied(Composition, TransformationRequest, TransformationRequest)} will
-     * be invoked with the actual applied values.
+     * <p>If no audio MIME type is passed, the output audio MIME type is the same as the first
+     * {@link MediaItem} in the {@link Composition}.
      *
-     * @param transformationRequest The {@link TransformationRequest}.
+     * <p>Supported MIME types are:
+     *
+     * <ul>
+     *   <li>{@link MimeTypes#AUDIO_AAC}
+     *   <li>{@link MimeTypes#AUDIO_AMR_NB}
+     *   <li>{@link MimeTypes#AUDIO_AMR_WB}
+     * </ul>
+     *
+     * If the MIME type is not supported, {@link Transformer} will fallback to a supported MIME type
+     * and {@link Listener#onFallbackApplied(Composition, TransformationRequest,
+     * TransformationRequest)} will be invoked with the fallback value.
+     *
+     * @param audioMimeType The MIME type of the audio samples in the output.
      * @return This builder.
+     * @throws IllegalArgumentException If the audio MIME type passed is not an audio {@linkplain
+     *     MimeTypes MIME type}.
      */
     @CanIgnoreReturnValue
+    public Builder setAudioMimeType(String audioMimeType) {
+      checkArgument(MimeTypes.isAudio(audioMimeType), "Not an audio MIME type: " + audioMimeType);
+      this.audioMimeType = audioMimeType;
+      return this;
+    }
+
+    /**
+     * Sets the video {@linkplain MimeTypes MIME type} of the output.
+     *
+     * <p>If no video MIME type is passed, the output video MIME type is the same as the first
+     * {@link MediaItem} in the {@link Composition}.
+     *
+     * <p>Supported MIME types are:
+     *
+     * <ul>
+     *   <li>{@link MimeTypes#VIDEO_H263}
+     *   <li>{@link MimeTypes#VIDEO_H264}
+     *   <li>{@link MimeTypes#VIDEO_H265} from API level 24
+     *   <li>{@link MimeTypes#VIDEO_MP4V}
+     * </ul>
+     *
+     * If the MIME type is not supported, {@link Transformer} will fallback to a supported MIME type
+     * and {@link Listener#onFallbackApplied(Composition, TransformationRequest,
+     * TransformationRequest)} will be invoked with the fallback value.
+     *
+     * @param videoMimeType The MIME type of the video samples in the output.
+     * @return This builder.
+     * @throws IllegalArgumentException If the video MIME type passed is not a video {@linkplain
+     *     MimeTypes MIME type}.
+     */
+    @CanIgnoreReturnValue
+    public Builder setVideoMimeType(String videoMimeType) {
+      checkArgument(MimeTypes.isVideo(videoMimeType), "Not a video MIME type: " + videoMimeType);
+      this.videoMimeType = videoMimeType;
+      return this;
+    }
+
+    /**
+     * @deprecated Use {@link #setAudioMimeType(String)}, {@link #setVideoMimeType(String)} and
+     *     {@link Composition.Builder#setHdrMode(int)} instead.
+     */
+    @Deprecated
+    @CanIgnoreReturnValue
     public Builder setTransformationRequest(TransformationRequest transformationRequest) {
+      // TODO(b/289872787): Make TransformationRequest.Builder package private once this method is
+      //  removed.
       this.transformationRequest = transformationRequest;
       return this;
     }
@@ -274,10 +344,29 @@ public final class Transformer {
     }
 
     /**
-     * Sets the factory to be used to create {@link VideoFrameProcessor} instances.
+     * Sets the {@link AudioMixer.Factory} to be used when {@linkplain AudioMixer audio mixing} is
+     * needed.
+     *
+     * <p>The default value is a {@link DefaultAudioMixer.Factory} with default values.
+     *
+     * @param audioMixerFactory A {@link AudioMixer.Factory}.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setAudioMixerFactory(AudioMixer.Factory audioMixerFactory) {
+      this.audioMixerFactory = audioMixerFactory;
+      return this;
+    }
+
+    /**
+     * Sets the {@link VideoFrameProcessor.Factory} to be used to create {@link VideoFrameProcessor}
+     * instances.
      *
      * <p>The default value is a {@link DefaultVideoFrameProcessor.Factory} built with default
      * values.
+     *
+     * <p>If passing in a {@link DefaultVideoFrameProcessor.Factory}, the caller must not {@link
+     * DefaultVideoFrameProcessor.Factory.Builder#setTextureOutput set the texture output}.
      *
      * @param videoFrameProcessorFactory A {@link VideoFrameProcessor.Factory}.
      * @return This builder.
@@ -304,7 +393,7 @@ public final class Transformer {
     }
 
     /**
-     * Sets the factory for muxers that write the media container.
+     * Sets the {@link Muxer.Factory} for muxers that write the media container.
      *
      * <p>The default value is a {@link DefaultMuxer.Factory}.
      *
@@ -376,20 +465,22 @@ public final class Transformer {
      *     type.
      */
     public Transformer build() {
+      TransformationRequest.Builder transformationRequestBuilder =
+          transformationRequest == null
+              ? new TransformationRequest.Builder()
+              : transformationRequest.buildUpon();
+      if (audioMimeType != null) {
+        transformationRequestBuilder.setAudioMimeType(audioMimeType);
+      }
+      if (videoMimeType != null) {
+        transformationRequestBuilder.setVideoMimeType(videoMimeType);
+      }
+      transformationRequest = transformationRequestBuilder.build();
       if (transformationRequest.audioMimeType != null) {
         checkSampleMimeType(transformationRequest.audioMimeType);
       }
       if (transformationRequest.videoMimeType != null) {
         checkSampleMimeType(transformationRequest.videoMimeType);
-      }
-      if (assetLoaderFactory == null) {
-        assetLoaderFactory =
-            new DefaultAssetLoaderFactory(
-                context,
-                new DefaultDecoderFactory(context),
-                /* forceInterpretHdrAsSdr= */ transformationRequest.hdrMode
-                    == TransformationRequest.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR,
-                clock);
       }
       return new Transformer(
           context,
@@ -401,6 +492,7 @@ public final class Transformer {
           flattenForSlowMotion,
           listeners,
           assetLoaderFactory,
+          audioMixerFactory,
           videoFrameProcessorFactory,
           encoderFactory,
           muxerFactory,
@@ -543,16 +635,21 @@ public final class Transformer {
     PROGRESS_STATE_UNAVAILABLE
   })
   public @interface ProgressState {}
+
   /** Indicates that the corresponding operation hasn't been started. */
   public static final int PROGRESS_STATE_NOT_STARTED = 0;
+
   /**
    * @deprecated Use {@link #PROGRESS_STATE_NOT_STARTED} instead.
    */
   @Deprecated public static final int PROGRESS_STATE_NO_TRANSFORMATION = PROGRESS_STATE_NOT_STARTED;
+
   /** Indicates that the progress is currently unavailable, but might become available. */
   public static final int PROGRESS_STATE_WAITING_FOR_AVAILABILITY = 1;
+
   /** Indicates that the progress is available. */
   public static final int PROGRESS_STATE_AVAILABLE = 2;
+
   /** Indicates that the progress is permanently unavailable. */
   public static final int PROGRESS_STATE_UNAVAILABLE = 3;
 
@@ -564,7 +661,8 @@ public final class Transformer {
   private final boolean removeVideo;
   private final boolean flattenForSlowMotion;
   private final ListenerSet<Transformer.Listener> listeners;
-  private final AssetLoader.Factory assetLoaderFactory;
+  @Nullable private final AssetLoader.Factory assetLoaderFactory;
+  private final AudioMixer.Factory audioMixerFactory;
   private final VideoFrameProcessor.Factory videoFrameProcessorFactory;
   private final Codec.EncoderFactory encoderFactory;
   private final Muxer.Factory muxerFactory;
@@ -583,7 +681,8 @@ public final class Transformer {
       boolean removeVideo,
       boolean flattenForSlowMotion,
       ListenerSet<Listener> listeners,
-      AssetLoader.Factory assetLoaderFactory,
+      @Nullable AssetLoader.Factory assetLoaderFactory,
+      AudioMixer.Factory audioMixerFactory,
       VideoFrameProcessor.Factory videoFrameProcessorFactory,
       Codec.EncoderFactory encoderFactory,
       Muxer.Factory muxerFactory,
@@ -600,6 +699,7 @@ public final class Transformer {
     this.flattenForSlowMotion = flattenForSlowMotion;
     this.listeners = listeners;
     this.assetLoaderFactory = assetLoaderFactory;
+    this.audioMixerFactory = audioMixerFactory;
     this.videoFrameProcessorFactory = videoFrameProcessorFactory;
     this.encoderFactory = encoderFactory;
     this.muxerFactory = muxerFactory;
@@ -659,25 +759,50 @@ public final class Transformer {
   /**
    * Starts an asynchronous operation to export the given {@link Composition}.
    *
-   * <p>This method is under implementation. Only the {@linkplain Composition compositions} meeting
-   * the below conditions are supported:
+   * <p>The first {@link EditedMediaItem} in the first {@link EditedMediaItemSequence} that has a
+   * given {@linkplain C.TrackType track} will determine the output format for that track, unless
+   * the format is set when {@linkplain Builder#build building} the {@code Transformer}. For
+   * example, consider the following composition
+   *
+   * <pre>
+   *   Composition {
+   *     EditedMediaItemSequence {
+   *       [ImageMediaItem, VideoMediaItem]
+   *     },
+   *     EditedMediaItemSequence {
+   *       [AudioMediaItem]
+   *     },
+   *   }
+   * </pre>
+   *
+   * The video format will be determined by the {@code ImageMediaItem} in the first {@link
+   * EditedMediaItemSequence}, while the audio format will be determined by the {@code
+   * AudioMediaItem} in the second {@code EditedMediaItemSequence}.
+   *
+   * <p>This method is under development. A {@link Composition} must meet the following conditions:
    *
    * <ul>
-   *   <li>There must be no overlapping track corresponding to the same track type in the output.
-   *       More precisely, the composition must either contain a single {@linkplain
-   *       EditedMediaItemSequence sequence}, or contain one audio-only sequence and one
-   *       video/image-only sequence.
-   *   <li>A sequence cannot contain both video and image input.
-   *   <li>A sequence cannot contain both HDR and SDR video input.
-   *   <li>A sequence cannot have gaps in its video or image samples. In other words, if a sequence
-   *       contains video or image data, it must contain this type of data in the entire sequence.
-   *   <li>All the {@link EditedMediaItem} instances in a sequence must have the same audio format.
-   *   <li>All the {@link EditedMediaItem} instances in a sequence must have the same effects
-   *       applied.
    *   <li>The {@linkplain Composition#effects composition effects} must contain no {@linkplain
    *       Effects#audioProcessors audio effects}.
-   *   <li>The composition effects must either contain no {@linkplain Effects#videoEffects video
-   *       effects}, or exactly one {@link Presentation}.
+   *   <li>The video composition {@link Presentation} effect is applied after input streams are
+   *       composited. Other composition effects are ignored.
+   * </ul>
+   *
+   * <p>{@linkplain EditedMediaItemSequence Sequences} within the {@link Composition} must meet the
+   * following conditions:
+   *
+   * <ul>
+   *   <li>A sequence cannot contain both HDR and SDR video input.
+   *   <li>If an {@link EditedMediaItem} in a sequence contains data of a given {@linkplain
+   *       C.TrackType track}, so must all items in that sequence.
+   *       <ul>
+   *         <li>For audio, this condition can be removed by setting an experimental {@link
+   *             Composition.Builder#experimentalSetForceAudioTrack(boolean) flag}.
+   *       </ul>
+   *   <li>All sequences containing audio data must output audio with the same {@linkplain
+   *       AudioFormat properties}. This can be done by adding {@linkplain EditedMediaItem#effects
+   *       item specific effects}, such as {@link SonicAudioProcessor} and {@link
+   *       ChannelMixingAudioProcessor}.
    * </ul>
    *
    * <p>The export state is notified through the {@linkplain Builder#addListener(Listener)
@@ -703,37 +828,11 @@ public final class Transformer {
    * @throws IllegalStateException If an export is already in progress.
    */
   public void start(Composition composition, String path) {
-    checkArgument(composition.effects.audioProcessors.isEmpty());
-    // Only supports Presentation in video effects.
-    ImmutableList<Effect> videoEffects = composition.effects.videoEffects;
-    checkArgument(
-        videoEffects.isEmpty()
-            || (videoEffects.size() == 1 && videoEffects.get(0) instanceof Presentation));
-    verifyApplicationThread();
-    checkState(transformerInternal == null, "There is already an export in progress.");
-
-    TransformerInternalListener transformerInternalListener =
-        new TransformerInternalListener(composition);
-    HandlerWrapper applicationHandler = clock.createHandler(looper, /* callback= */ null);
-    FallbackListener fallbackListener =
-        new FallbackListener(composition, listeners, applicationHandler, transformationRequest);
-    DebugTraceUtil.reset();
-    transformerInternal =
-        new TransformerInternal(
-            context,
-            composition,
-            path,
-            transformationRequest,
-            assetLoaderFactory,
-            videoFrameProcessorFactory,
-            encoderFactory,
-            muxerFactory,
-            transformerInternalListener,
-            fallbackListener,
-            applicationHandler,
-            debugViewProvider,
-            clock);
-    transformerInternal.start();
+    ComponentListener componentListener = new ComponentListener(composition);
+    startInternal(
+        composition,
+        new MuxerWrapper(path, muxerFactory, componentListener, MuxerWrapper.MUXER_MODE_DEFAULT),
+        componentListener);
   }
 
   /**
@@ -762,9 +861,7 @@ public final class Transformer {
    * @throws IllegalStateException If an export is already in progress.
    */
   public void start(EditedMediaItem editedMediaItem, String path) {
-    EditedMediaItemSequence sequence =
-        new EditedMediaItemSequence(ImmutableList.of(editedMediaItem));
-    start(new Composition.Builder(ImmutableList.of(sequence)).build(), path);
+    start(new Composition.Builder(new EditedMediaItemSequence(editedMediaItem)).build(), path);
   }
 
   /**
@@ -870,31 +967,137 @@ public final class Transformer {
     }
   }
 
-  private final class TransformerInternalListener implements TransformerInternal.Listener {
+  private void startInternal(
+      Composition composition, MuxerWrapper muxerWrapper, ComponentListener componentListener) {
+    checkArgument(composition.effects.audioProcessors.isEmpty());
+    verifyApplicationThread();
+    checkState(transformerInternal == null, "There is already an export in progress.");
+    HandlerWrapper applicationHandler = clock.createHandler(looper, /* callback= */ null);
+    TransformationRequest transformationRequest = this.transformationRequest;
+    if (composition.hdrMode != Composition.HDR_MODE_KEEP_HDR) {
+      transformationRequest =
+          transformationRequest.buildUpon().setHdrMode(composition.hdrMode).build();
+    }
+    FallbackListener fallbackListener =
+        new FallbackListener(composition, listeners, applicationHandler, transformationRequest);
+    AssetLoader.Factory assetLoaderFactory = this.assetLoaderFactory;
+    if (assetLoaderFactory == null) {
+      assetLoaderFactory =
+          new DefaultAssetLoaderFactory(
+              context,
+              new DefaultDecoderFactory(context),
+              /* forceInterpretHdrAsSdr= */ transformationRequest.hdrMode
+                  == HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR,
+              clock);
+    }
+    DebugTraceUtil.reset();
+    transformerInternal =
+        new TransformerInternal(
+            context,
+            composition,
+            transformationRequest,
+            assetLoaderFactory,
+            audioMixerFactory,
+            videoFrameProcessorFactory,
+            encoderFactory,
+            muxerWrapper,
+            componentListener,
+            fallbackListener,
+            applicationHandler,
+            debugViewProvider,
+            clock,
+            /* videoSampleTimestampOffsetUs= */ 0);
+    transformerInternal.start();
+  }
+
+  private final class ComponentListener
+      implements TransformerInternal.Listener, MuxerWrapper.Listener {
 
     private final Composition composition;
+    private final ExportResult.Builder exportResultBuilder;
 
-    public TransformerInternalListener(Composition composition) {
+    public ComponentListener(Composition composition) {
       this.composition = composition;
+      this.exportResultBuilder = new ExportResult.Builder();
     }
 
+    // TransformerInternal.Listener implementation
+
     @Override
-    public void onCompleted(ExportResult exportResult) {
+    public void onCompleted(
+        ImmutableList<ExportResult.ProcessedInput> processedInputs,
+        @Nullable String audioEncoderName,
+        @Nullable String videoEncoderName) {
+      exportResultBuilder
+          .setProcessedInputs(processedInputs)
+          .setAudioEncoderName(audioEncoderName)
+          .setVideoEncoderName(videoEncoderName);
+
       // TODO(b/213341814): Add event flags for Transformer events.
       transformerInternal = null;
       listeners.queueEvent(
           /* eventFlag= */ C.INDEX_UNSET,
-          listener -> listener.onCompleted(composition, exportResult));
+          listener -> listener.onCompleted(composition, exportResultBuilder.build()));
       listeners.flushEvents();
     }
 
     @Override
-    public void onError(ExportResult exportResult, ExportException exportException) {
+    @SuppressWarnings("UngroupedOverloads") // Grouped by interface.
+    public void onError(
+        ImmutableList<ExportResult.ProcessedInput> processedInputs,
+        @Nullable String audioEncoderName,
+        @Nullable String videoEncoderName,
+        ExportException exportException) {
+      exportResultBuilder
+          .setProcessedInputs(processedInputs)
+          .setAudioEncoderName(audioEncoderName)
+          .setVideoEncoderName(videoEncoderName)
+          .setExportException(exportException);
+
       transformerInternal = null;
       listeners.queueEvent(
           /* eventFlag= */ C.INDEX_UNSET,
-          listener -> listener.onError(composition, exportResult, exportException));
+          listener -> listener.onError(composition, exportResultBuilder.build(), exportException));
       listeners.flushEvents();
+    }
+
+    // MuxerWrapper.Listener implementation
+
+    @Override
+    public void onTrackEnded(
+        @C.TrackType int trackType, Format format, int averageBitrate, int sampleCount) {
+      if (trackType == C.TRACK_TYPE_AUDIO) {
+        exportResultBuilder.setAverageAudioBitrate(averageBitrate);
+        if (format.channelCount != Format.NO_VALUE) {
+          exportResultBuilder.setChannelCount(format.channelCount);
+        }
+        if (format.sampleRate != Format.NO_VALUE) {
+          exportResultBuilder.setSampleRate(format.sampleRate);
+        }
+      } else if (trackType == C.TRACK_TYPE_VIDEO) {
+        exportResultBuilder
+            .setAverageVideoBitrate(averageBitrate)
+            .setColorInfo(format.colorInfo)
+            .setVideoFrameCount(sampleCount);
+        if (format.height != Format.NO_VALUE) {
+          exportResultBuilder.setHeight(format.height);
+        }
+        if (format.width != Format.NO_VALUE) {
+          exportResultBuilder.setWidth(format.width);
+        }
+      }
+    }
+
+    @Override
+    public void onEnded(long durationMs, long fileSizeBytes) {
+      exportResultBuilder.setDurationMs(durationMs).setFileSizeBytes(fileSizeBytes);
+      checkNotNull(transformerInternal).endWithCompletion();
+    }
+
+    @Override
+    @SuppressWarnings("UngroupedOverloads") // Grouped by interface.
+    public void onError(ExportException exportException) {
+      checkNotNull(transformerInternal).endWithException(exportException);
     }
   }
 }

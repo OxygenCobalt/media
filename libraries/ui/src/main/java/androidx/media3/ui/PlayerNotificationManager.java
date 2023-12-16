@@ -613,20 +613,28 @@ public class PlayerNotificationManager {
 
   /** The action which starts playback. */
   public static final String ACTION_PLAY = "androidx.media3.ui.notification.play";
+
   /** The action which pauses playback. */
   public static final String ACTION_PAUSE = "androidx.media3.ui.notification.pause";
+
   /** The action which skips to the previous media item. */
   public static final String ACTION_PREVIOUS = "androidx.media3.ui.notification.prev";
+
   /** The action which skips to the next media item. */
   public static final String ACTION_NEXT = "androidx.media3.ui.notification.next";
+
   /** The action which fast forwards. */
   public static final String ACTION_FAST_FORWARD = "androidx.media3.ui.notification.ffwd";
+
   /** The action which rewinds. */
   public static final String ACTION_REWIND = "androidx.media3.ui.notification.rewind";
+
   /** The action which stops playback. */
   public static final String ACTION_STOP = "androidx.media3.ui.notification.stop";
+
   /** The extra key of the instance id of the player notification manager. */
   public static final String EXTRA_INSTANCE_ID = "INSTANCE_ID";
+
   /**
    * The action which is executed when the notification is dismissed. It cancels the notification
    * and calls {@link NotificationListener#onNotificationCancelled(int, boolean)}.
@@ -704,6 +712,7 @@ public class PlayerNotificationManager {
   private boolean useRewindActionInCompactView;
   private boolean useFastForwardActionInCompactView;
   private boolean usePlayPauseActions;
+  private boolean showPlayButtonIfSuppressed;
   private boolean useStopAction;
   private int badgeIconType;
   private boolean colorized;
@@ -754,6 +763,7 @@ public class PlayerNotificationManager {
     usePreviousAction = true;
     useNextAction = true;
     usePlayPauseActions = true;
+    showPlayButtonIfSuppressed = true;
     useRewindAction = true;
     useFastForwardAction = true;
     colorized = true;
@@ -959,6 +969,22 @@ public class PlayerNotificationManager {
   public final void setUsePlayPauseActions(boolean usePlayPauseActions) {
     if (this.usePlayPauseActions != usePlayPauseActions) {
       this.usePlayPauseActions = usePlayPauseActions;
+      invalidate();
+    }
+  }
+
+  /**
+   * Sets whether a play button is shown if playback is {@linkplain
+   * Player#getPlaybackSuppressionReason() suppressed}.
+   *
+   * <p>The default is {@code true}.
+   *
+   * @param showPlayButtonIfSuppressed Whether to show a play button if playback is {@linkplain
+   *     Player#getPlaybackSuppressionReason() suppressed}.
+   */
+  public void setShowPlayButtonIfPlaybackIsSuppressed(boolean showPlayButtonIfSuppressed) {
+    if (this.showPlayButtonIfSuppressed != showPlayButtonIfSuppressed) {
+      this.showPlayButtonIfSuppressed = showPlayButtonIfSuppressed;
       invalidate();
     }
   }
@@ -1331,7 +1357,7 @@ public class PlayerNotificationManager {
       stringActions.add(ACTION_REWIND);
     }
     if (usePlayPauseActions) {
-      if (Util.shouldShowPlayButton(player)) {
+      if (Util.shouldShowPlayButton(player, showPlayButtonIfSuppressed)) {
         stringActions.add(ACTION_PLAY);
       } else {
         stringActions.add(ACTION_PAUSE);
@@ -1379,7 +1405,7 @@ public class PlayerNotificationManager {
     if (leftSideActionIndex != -1) {
       actionIndices[actionCounter++] = leftSideActionIndex;
     }
-    boolean shouldShowPlayButton = Util.shouldShowPlayButton(player);
+    boolean shouldShowPlayButton = Util.shouldShowPlayButton(player, showPlayButtonIfSuppressed);
     if (pauseActionIndex != -1 && !shouldShowPlayButton) {
       actionIndices[actionCounter++] = pauseActionIndex;
     } else if (playActionIndex != -1 && shouldShowPlayButton) {

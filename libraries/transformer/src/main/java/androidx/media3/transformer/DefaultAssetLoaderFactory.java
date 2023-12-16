@@ -42,6 +42,7 @@ public final class DefaultAssetLoaderFactory implements AssetLoader.Factory {
 
   private AssetLoader.@MonotonicNonNull Factory imageAssetLoaderFactory;
   private AssetLoader.@MonotonicNonNull Factory exoPlayerAssetLoaderFactory;
+
   /**
    * Creates an instance.
    *
@@ -49,7 +50,7 @@ public final class DefaultAssetLoaderFactory implements AssetLoader.Factory {
    * @param decoderFactory The {@link Codec.DecoderFactory} to use to decode the samples (if
    *     necessary).
    * @param forceInterpretHdrAsSdr Whether to apply {@link
-   *     TransformationRequest#HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR}.
+   *     Composition#HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR}.
    * @param clock The {@link Clock} to use. It should always be {@link Clock#DEFAULT}, except for
    *     testing.
    */
@@ -72,7 +73,7 @@ public final class DefaultAssetLoaderFactory implements AssetLoader.Factory {
    * @param decoderFactory The {@link Codec.DecoderFactory} to use to decode the samples (if
    *     necessary).
    * @param forceInterpretHdrAsSdr Whether to apply {@link
-   *     TransformationRequest#HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR}.
+   *     Composition#HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR}.
    * @param clock The {@link Clock} to use. It should always be {@link Clock#DEFAULT}, except for
    *     testing.
    * @param mediaSourceFactory The {@link MediaSource.Factory} to use to retrieve the samples to

@@ -15,6 +15,7 @@
  */
 package androidx.media3.session;
 
+import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.test.session.common.CommonConstants.ACTION_MEDIA3_CONTROLLER;
 import static androidx.media3.test.session.common.CommonConstants.KEY_COMMAND_BUTTON_LIST;
 import static androidx.media3.test.session.common.TestUtils.SERVICE_CONNECTION_TIMEOUT_MS;
@@ -27,6 +28,7 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackParameters;
@@ -41,8 +43,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -57,6 +61,7 @@ public class MediaControllerProviderService extends Service {
   private static final String TAG = "MCProviderService";
 
   Map<String, MediaController> mediaControllerMap = new HashMap<>();
+  Set<String> untrackedControllerIds = new HashSet<>();
   RemoteMediaControllerStub binder;
 
   TestHandler handler;
@@ -137,6 +142,7 @@ public class MediaControllerProviderService extends Service {
               });
 
       if (!waitForConnection) {
+        untrackedControllerIds.add(controllerId);
         return;
       }
 
@@ -693,11 +699,27 @@ public class MediaControllerProviderService extends Service {
     }
 
     @Override
+    public void setAudioAttributes(
+        String controllerId, Bundle audioAttributes, boolean handleAudioFocus)
+        throws RemoteException {
+      runOnHandler(
+          () -> {
+            MediaController controller = mediaControllerMap.get(controllerId);
+            controller.setAudioAttributes(
+                AudioAttributes.CREATOR.fromBundle(audioAttributes), handleAudioFocus);
+          });
+    }
+
+    @Override
     public void release(String controllerId) throws RemoteException {
       runOnHandler(
           () -> {
             MediaController controller = mediaControllerMap.get(controllerId);
-            controller.release();
+            if (controller != null) {
+              controller.release();
+            } else {
+              checkState(untrackedControllerIds.remove(controllerId));
+            }
           });
     }
 
@@ -812,6 +834,12 @@ public class MediaControllerProviderService extends Service {
       Bundle bundle = new Bundle();
       bundle.putParcelableArrayList(KEY_COMMAND_BUTTON_LIST, customLayout);
       return bundle;
+    }
+
+    @Override
+    public Bundle getAvailableCommands(String controllerId) throws RemoteException {
+      MediaController controller = mediaControllerMap.get(controllerId);
+      return runOnHandler(controller::getAvailableCommands).toBundle();
     }
 
     @Override

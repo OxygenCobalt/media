@@ -378,8 +378,8 @@ public final class AudioCapabilities {
     public static ImmutableList<Integer> getDirectPlaybackSupportedEncodings() {
       ImmutableList.Builder<Integer> supportedEncodingsListBuilder = ImmutableList.builder();
       for (int encoding : ALL_SURROUND_ENCODINGS_AND_MAX_CHANNELS.keySet()) {
-        // AudioFormat.ENCODING_DTS_UHD_P2 is supported from API 34.
-        if (Util.SDK_INT < 34 && encoding == C.ENCODING_DTS_UHD_P2) {
+        if (Util.SDK_INT < Util.getApiLevelThatAudioFormatIntroducedAudioEncoding(encoding)) {
+          // Example: AudioFormat.ENCODING_DTS_UHD_P2 is supported only from API 34.
           continue;
         }
         if (AudioTrack.isDirectPlaybackSupported(
@@ -406,11 +406,15 @@ public final class AudioCapabilities {
       // TODO(internal b/234351617): Query supported channel masks directly once it's supported,
       // see also b/25994457.
       for (int channelCount = DEFAULT_MAX_CHANNEL_COUNT; channelCount > 0; channelCount--) {
+        int channelConfig = Util.getAudioTrackChannelConfig(channelCount);
+        if (channelConfig == AudioFormat.CHANNEL_INVALID) {
+          continue;
+        }
         AudioFormat audioFormat =
             new AudioFormat.Builder()
                 .setEncoding(encoding)
                 .setSampleRate(sampleRate)
-                .setChannelMask(Util.getAudioTrackChannelConfig(channelCount))
+                .setChannelMask(channelConfig)
                 .build();
         if (AudioTrack.isDirectPlaybackSupported(audioFormat, DEFAULT_AUDIO_ATTRIBUTES)) {
           return channelCount;

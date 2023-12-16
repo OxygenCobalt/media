@@ -15,13 +15,20 @@
  */
 package androidx.media3.common;
 
+import static java.lang.annotation.ElementType.TYPE_USE;
+
 import android.os.Bundle;
+import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.BundleableUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.common.base.Joiner;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -172,6 +179,7 @@ public final class Format implements Bundleable {
     // Text specific.
 
     private int accessibilityChannel;
+    @UnstableApi private @CueReplacementBehavior int cueReplacementBehavior;
 
     // Image specific
 
@@ -201,6 +209,7 @@ public final class Format implements Bundleable {
       pcmEncoding = NO_VALUE;
       // Text specific.
       accessibilityChannel = NO_VALUE;
+      cueReplacementBehavior = CUE_REPLACEMENT_BEHAVIOR_MERGE;
       // Image specific.
       tileCountHorizontal = NO_VALUE;
       tileCountVertical = NO_VALUE;
@@ -248,6 +257,7 @@ public final class Format implements Bundleable {
       this.encoderPadding = format.encoderPadding;
       // Text specific.
       this.accessibilityChannel = format.accessibilityChannel;
+      this.cueReplacementBehavior = format.cueReplacementBehavior;
       // Image specific.
       this.tileCountHorizontal = format.tileCountHorizontal;
       this.tileCountVertical = format.tileCountVertical;
@@ -626,6 +636,19 @@ public final class Format implements Bundleable {
       return this;
     }
 
+    /**
+     * Sets {@link Format#cueReplacementBehavior}. The default value is {@link
+     * #CUE_REPLACEMENT_BEHAVIOR_MERGE}.
+     *
+     * @param cueReplacementBehavior The {@link Format.CueReplacementBehavior}.
+     * @return The builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setCueReplacementBehavior(@CueReplacementBehavior int cueReplacementBehavior) {
+      this.cueReplacementBehavior = cueReplacementBehavior;
+      return this;
+    }
+
     // Image specific.
 
     /**
@@ -673,6 +696,36 @@ public final class Format implements Bundleable {
     }
   }
 
+  /**
+   * The replacement behaviors for consecutive samples in a {@linkplain C#TRACK_TYPE_TEXT text
+   * track} of type {@link MimeTypes#APPLICATION_MEDIA3_CUES}.
+   */
+  @UnstableApi
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    CUE_REPLACEMENT_BEHAVIOR_MERGE,
+    CUE_REPLACEMENT_BEHAVIOR_REPLACE,
+  })
+  public @interface CueReplacementBehavior {}
+
+  /**
+   * Subsequent cues should be merged with any previous cues that should still be shown on screen.
+   *
+   * <p>Tracks with this behavior must not contain samples with an {@linkplain C#TIME_UNSET unset}
+   * duration.
+   */
+  @UnstableApi public static final int CUE_REPLACEMENT_BEHAVIOR_MERGE = 1;
+
+  /**
+   * Subsequent cues should replace all previous cues.
+   *
+   * <p>Tracks with this behavior may contain samples with an {@linkplain C#TIME_UNSET unset}
+   * duration (but the duration may also be set to a 'real' value).
+   */
+  @UnstableApi public static final int CUE_REPLACEMENT_BEHAVIOR_REPLACE = 2;
+
   /** A value for various fields to indicate that the field's value is unknown or not applicable. */
   public static final int NO_VALUE = -1;
 
@@ -686,14 +739,19 @@ public final class Format implements Bundleable {
 
   /** An identifier for the format, or null if unknown or not applicable. */
   @Nullable public final String id;
+
   /** The human readable label, or null if unknown or not applicable. */
   @Nullable public final String label;
+
   /** The language as an IETF BCP 47 conformant tag, or null if unknown or not applicable. */
   @Nullable public final String language;
+
   /** Track selection flags. */
   public final @C.SelectionFlags int selectionFlags;
+
   /** Track role flags. */
   public final @C.RoleFlags int roleFlags;
+
   /**
    * The average bitrate in bits per second, or {@link #NO_VALUE} if unknown or not applicable. The
    * way in which this field is populated depends on the type of media to which the format
@@ -716,6 +774,7 @@ public final class Format implements Bundleable {
    * </ul>
    */
   @UnstableApi public final int averageBitrate;
+
   /**
    * The peak bitrate in bits per second, or {@link #NO_VALUE} if unknown or not applicable. The way
    * in which this field is populated depends on the type of media to which the format corresponds:
@@ -735,14 +794,17 @@ public final class Format implements Bundleable {
    * </ul>
    */
   @UnstableApi public final int peakBitrate;
+
   /**
    * The bitrate in bits per second. This is the peak bitrate if known, or else the average bitrate
    * if known, or else {@link Format#NO_VALUE}. Equivalent to: {@code peakBitrate != NO_VALUE ?
    * peakBitrate : averageBitrate}.
    */
   @UnstableApi public final int bitrate;
+
   /** Codecs of the format as described in RFC 6381, or null if unknown or not applicable. */
   @Nullable public final String codecs;
+
   /** Metadata, or null if unknown or not applicable. */
   @UnstableApi @Nullable public final Metadata metadata;
 
@@ -755,16 +817,19 @@ public final class Format implements Bundleable {
 
   /** The sample MIME type, or null if unknown or not applicable. */
   @Nullable public final String sampleMimeType;
+
   /**
    * The maximum size of a buffer of data (typically one sample), or {@link #NO_VALUE} if unknown or
    * not applicable.
    */
   @UnstableApi public final int maxInputSize;
+
   /**
    * Initialization data that must be provided to the decoder. Will not be null, but may be empty if
    * initialization data is not required.
    */
   @UnstableApi public final List<byte[]> initializationData;
+
   /** DRM initialization data if the stream is protected, or null otherwise. */
   @UnstableApi @Nullable public final DrmInitData drmInitData;
 
@@ -779,25 +844,32 @@ public final class Format implements Bundleable {
 
   /** The width of the video in pixels, or {@link #NO_VALUE} if unknown or not applicable. */
   public final int width;
+
   /** The height of the video in pixels, or {@link #NO_VALUE} if unknown or not applicable. */
   public final int height;
+
   /** The frame rate in frames per second, or {@link #NO_VALUE} if unknown or not applicable. */
   public final float frameRate;
+
   /**
    * The clockwise rotation that should be applied to the video for it to be rendered in the correct
    * orientation, or 0 if unknown or not applicable. Only 0, 90, 180 and 270 are supported.
    */
   @UnstableApi public final int rotationDegrees;
+
   /** The width to height ratio of pixels in the video, or 1.0 if unknown or not applicable. */
   public final float pixelWidthHeightRatio;
+
   /** The projection data for 360/VR video, or null if not applicable. */
   @UnstableApi @Nullable public final byte[] projectionData;
+
   /**
    * The stereo layout for 360/3D/VR video, or {@link #NO_VALUE} if not applicable. Valid stereo
    * modes are {@link C#STEREO_MODE_MONO}, {@link C#STEREO_MODE_TOP_BOTTOM}, {@link
    * C#STEREO_MODE_LEFT_RIGHT}, {@link C#STEREO_MODE_STEREO_MESH}.
    */
   @UnstableApi public final @C.StereoMode int stereoMode;
+
   /** The color metadata associated with the video, or null if not applicable. */
   @UnstableApi @Nullable public final ColorInfo colorInfo;
 
@@ -805,15 +877,19 @@ public final class Format implements Bundleable {
 
   /** The number of audio channels, or {@link #NO_VALUE} if unknown or not applicable. */
   public final int channelCount;
+
   /** The audio sampling rate in Hz, or {@link #NO_VALUE} if unknown or not applicable. */
   public final int sampleRate;
+
   /** The {@link C.PcmEncoding} for PCM audio. Set to {@link #NO_VALUE} for other media types. */
   @UnstableApi public final @C.PcmEncoding int pcmEncoding;
+
   /**
    * The number of frames to trim from the start of the decoded audio stream, or 0 if not
    * applicable.
    */
   @UnstableApi public final int encoderDelay;
+
   /**
    * The number of frames to trim from the end of the decoded audio stream, or 0 if not applicable.
    */
@@ -824,12 +900,19 @@ public final class Format implements Bundleable {
   /** The Accessibility channel, or {@link #NO_VALUE} if not known or applicable. */
   @UnstableApi public final int accessibilityChannel;
 
+  /**
+   * The replacement behavior that should be followed when handling consecutive samples in a
+   * {@linkplain C#TRACK_TYPE_TEXT text track} of type {@link MimeTypes#APPLICATION_MEDIA3_CUES}.
+   */
+  @UnstableApi public final @CueReplacementBehavior int cueReplacementBehavior;
+
   // Image specific.
 
   /**
    * The number of horizontal tiles in an image, or {@link #NO_VALUE} if not known or applicable.
    */
   @UnstableApi public final int tileCountHorizontal;
+
   /** The number of vertical tiles in an image, or {@link #NO_VALUE} if not known or applicable. */
   @UnstableApi public final int tileCountVertical;
 
@@ -884,6 +967,7 @@ public final class Format implements Bundleable {
     encoderPadding = builder.encoderPadding == NO_VALUE ? 0 : builder.encoderPadding;
     // Text specific.
     accessibilityChannel = builder.accessibilityChannel;
+    cueReplacementBehavior = builder.cueReplacementBehavior;
     // Image specific.
     tileCountHorizontal = builder.tileCountHorizontal;
     tileCountVertical = builder.tileCountVertical;

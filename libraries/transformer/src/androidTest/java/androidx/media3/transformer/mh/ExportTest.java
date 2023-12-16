@@ -18,15 +18,16 @@ package androidx.media3.transformer.mh;
 import static androidx.media3.transformer.AndroidTestUtil.FORCE_TRANSCODE_VIDEO_EFFECTS;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_4K60_PORTRAIT_FORMAT;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_4K60_PORTRAIT_URI_STRING;
+import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_8K24_FORMAT;
+import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_8K24_URI_STRING;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_BT2020_SDR;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_BT2020_SDR_FORMAT;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_SEF_URI_STRING;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_URI_STRING;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_FORMAT;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_URI_STRING;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_REMOTE_8K24_FORMAT;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_REMOTE_8K24_URI_STRING;
 import static androidx.media3.transformer.AndroidTestUtil.recordTestSkipped;
+import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
 import android.net.Uri;
@@ -39,6 +40,7 @@ import androidx.media3.transformer.AndroidTestUtil.ForceEncodeEncoderFactory;
 import androidx.media3.transformer.DefaultEncoderFactory;
 import androidx.media3.transformer.EditedMediaItem;
 import androidx.media3.transformer.Effects;
+import androidx.media3.transformer.ExportTestResult;
 import androidx.media3.transformer.Transformer;
 import androidx.media3.transformer.TransformerAndroidTestRunner;
 import androidx.media3.transformer.VideoEncoderSettings;
@@ -156,7 +158,7 @@ public class ExportTest {
     String testId = TAG + "_export8K24";
     Context context = ApplicationProvider.getApplicationContext();
     if (AndroidTestUtil.skipAndLogIfFormatsUnsupported(
-        context, testId, /* inputFormat= */ MP4_REMOTE_8K24_FORMAT, /* outputFormat= */ null)) {
+        context, testId, /* inputFormat= */ MP4_ASSET_8K24_FORMAT, /* outputFormat= */ null)) {
       return;
     }
 
@@ -164,12 +166,12 @@ public class ExportTest {
         new Transformer.Builder(context)
             .setEncoderFactory(new ForceEncodeEncoderFactory(context))
             .build();
-    MediaItem mediaItem = MediaItem.fromUri(Uri.parse(MP4_REMOTE_8K24_URI_STRING));
+    MediaItem mediaItem = MediaItem.fromUri(Uri.parse(MP4_ASSET_8K24_URI_STRING));
     // TODO: b/281824052 - have requestCalculateSsim always be true after linked bug is fixed.
     boolean requestCalculateSsim = !Util.MODEL.equals("SM-G991B");
     new TransformerAndroidTestRunner.Builder(context, transformer)
         .setRequestCalculateSsim(requestCalculateSsim)
-        .setTimeoutSeconds(180)
+        .setTimeoutSeconds(120)
         .build()
         .run(testId, mediaItem);
   }
@@ -237,9 +239,13 @@ public class ExportTest {
         new EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(MP4_ASSET_SEF_URI_STRING)))
             .setFlattenForSlowMotion(true)
             .build();
-    new TransformerAndroidTestRunner.Builder(context, transformer)
-        .build()
-        .run(testId, editedMediaItem);
+    ExportTestResult result =
+        new TransformerAndroidTestRunner.Builder(context, transformer)
+            .build()
+            .run(testId, editedMediaItem);
+
+    assertThat(result.exportResult.durationMs).isGreaterThan(800);
+    assertThat(result.exportResult.durationMs).isLessThan(950);
   }
 
   @Test

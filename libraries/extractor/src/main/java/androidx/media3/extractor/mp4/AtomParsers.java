@@ -31,10 +31,11 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.Util;
-import androidx.media3.container.CreationTime;
 import androidx.media3.container.Mp4LocationData;
+import androidx.media3.container.Mp4TimestampData;
 import androidx.media3.extractor.AacUtil;
 import androidx.media3.extractor.Ac3Util;
 import androidx.media3.extractor.Ac4Util;
@@ -44,6 +45,7 @@ import androidx.media3.extractor.ExtractorUtil;
 import androidx.media3.extractor.GaplessInfoHolder;
 import androidx.media3.extractor.HevcConfig;
 import androidx.media3.extractor.OpusUtil;
+import androidx.media3.extractor.VorbisUtil;
 import androidx.media3.extractor.metadata.mp4.SmtaMetadataEntry;
 import androidx.media3.extractor.mp4.Atom.LeafAtom;
 import com.google.common.base.Function;
@@ -54,44 +56,10 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 /** Utility methods for parsing MP4 format atom payloads according to ISO/IEC 14496-12. */
 @SuppressWarnings("ConstantField")
 /* package */ final class AtomParsers {
-
-  /** Stores metadata retrieved from the udta atom. */
-  public static final class UdtaInfo {
-    /** The metadata retrieved from the meta sub atom. */
-    @Nullable public final Metadata metaMetadata;
-    /** The metadata retrieved from the smta sub atom. */
-    @Nullable public final Metadata smtaMetadata;
-    /** The location metadata retrieved from the xyz sub atom. */
-    @Nullable public final Metadata xyzMetadata;
-
-    /** Creates an instance. */
-    public UdtaInfo(
-        @Nullable Metadata metaMetadata,
-        @Nullable Metadata smtaMetadata,
-        @Nullable Metadata xyzMetadata) {
-      this.metaMetadata = metaMetadata;
-      this.smtaMetadata = smtaMetadata;
-      this.xyzMetadata = xyzMetadata;
-    }
-  }
-
-  /** Stores data retrieved from the mvhd atom. */
-  public static final class MvhdInfo {
-    /** The metadata. */
-    public final Metadata metadata;
-    /** The movie timescale. */
-    public final long timescale;
-
-    public MvhdInfo(Metadata metadata, long timescale) {
-      this.metadata = metadata;
-      this.timescale = timescale;
-    }
-  }
 
   private static final String TAG = "AtomParsers";
 
@@ -192,60 +160,54 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
    * Parses a udta atom.
    *
    * @param udtaAtom The udta (user data) atom to decode.
-   * @return A {@link UdtaInfo} containing the metadata extracted from the meta, smta and xyz child
-   *     atoms (if present).
+   * @return Parsed metadata.
    */
-  public static UdtaInfo parseUdta(Atom.LeafAtom udtaAtom) {
+  public static Metadata parseUdta(Atom.LeafAtom udtaAtom) {
     ParsableByteArray udtaData = udtaAtom.data;
     udtaData.setPosition(Atom.HEADER_SIZE);
-    @Nullable Metadata metaMetadata = null;
-    @Nullable Metadata smtaMetadata = null;
-    @Nullable Metadata xyzMetadata = null;
+    Metadata metadata = new Metadata();
     while (udtaData.bytesLeft() >= Atom.HEADER_SIZE) {
       int atomPosition = udtaData.getPosition();
       int atomSize = udtaData.readInt();
       int atomType = udtaData.readInt();
       if (atomType == Atom.TYPE_meta) {
         udtaData.setPosition(atomPosition);
-        metaMetadata = parseUdtaMeta(udtaData, atomPosition + atomSize);
+        metadata =
+            metadata.copyWithAppendedEntriesFrom(parseUdtaMeta(udtaData, atomPosition + atomSize));
       } else if (atomType == Atom.TYPE_smta) {
         udtaData.setPosition(atomPosition);
-        smtaMetadata = parseSmta(udtaData, atomPosition + atomSize);
+        metadata =
+            metadata.copyWithAppendedEntriesFrom(parseSmta(udtaData, atomPosition + atomSize));
       } else if (atomType == Atom.TYPE_xyz) {
-        xyzMetadata = parseXyz(udtaData);
+        metadata = metadata.copyWithAppendedEntriesFrom(parseXyz(udtaData));
       }
       udtaData.setPosition(atomPosition + atomSize);
     }
-    return new UdtaInfo(metaMetadata, smtaMetadata, xyzMetadata);
+    return metadata;
   }
 
   /**
-   * Parses a mvhd atom (defined in ISO/IEC 14496-12), returning the timescale for the movie.
+   * Parses an mvhd atom (defined in ISO/IEC 14496-12).
    *
    * @param mvhd Contents of the mvhd atom to be parsed.
    * @return An object containing the parsed data.
    */
-  public static MvhdInfo parseMvhd(ParsableByteArray mvhd) {
+  public static Mp4TimestampData parseMvhd(ParsableByteArray mvhd) {
     mvhd.setPosition(Atom.HEADER_SIZE);
     int fullAtom = mvhd.readInt();
     int version = Atom.parseFullAtomVersion(fullAtom);
     long creationTimestampSeconds;
+    long modificationTimestampSeconds;
     if (version == 0) {
       creationTimestampSeconds = mvhd.readUnsignedInt();
-      mvhd.skipBytes(4); // modification_time
+      modificationTimestampSeconds = mvhd.readUnsignedInt();
     } else {
       creationTimestampSeconds = mvhd.readLong();
-      mvhd.skipBytes(8); // modification_time
+      modificationTimestampSeconds = mvhd.readLong();
     }
 
-    // Convert creation time from MP4 format to Unix epoch timestamp in Ms.
-    // Time delta between January 1, 1904 (MP4 format) and January 1, 1970 (Unix epoch).
-    // Includes leap year.
-    int timeDeltaSeconds = (66 * 365 + 17) * (24 * 60 * 60);
-    long unixTimestampMs = (creationTimestampSeconds - timeDeltaSeconds) * 1000;
-
     long timescale = mvhd.readUnsignedInt();
-    return new MvhdInfo(new Metadata(new CreationTime(unixTimestampMs)), timescale);
+    return new Mp4TimestampData(creationTimestampSeconds, modificationTimestampSeconds, timescale);
   }
 
   /**
@@ -1180,6 +1142,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     int height = parent.readUnsignedShort();
     boolean pixelWidthHeightRatioFromPasp = false;
     float pixelWidthHeightRatio = 1;
+    // Set default luma and chroma bit depths to 8 as old codecs might not even signal them
+    int bitdepthLuma = 8;
+    int bitdepthChroma = 8;
     parent.skipBytes(50);
 
     int childPosition = parent.getPosition();
@@ -1246,6 +1211,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         colorSpace = avcConfig.colorSpace;
         colorRange = avcConfig.colorRange;
         colorTransfer = avcConfig.colorTransfer;
+        bitdepthLuma = avcConfig.bitdepthLuma;
+        bitdepthChroma = avcConfig.bitdepthChroma;
       } else if (childAtomType == Atom.TYPE_hvcC) {
         ExtractorUtil.checkContainerInput(mimeType == null, /* message= */ null);
         mimeType = MimeTypes.VIDEO_H265;
@@ -1260,6 +1227,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         colorSpace = hevcConfig.colorSpace;
         colorRange = hevcConfig.colorRange;
         colorTransfer = hevcConfig.colorTransfer;
+        bitdepthLuma = hevcConfig.bitdepthLuma;
+        bitdepthChroma = hevcConfig.bitdepthChroma;
       } else if (childAtomType == Atom.TYPE_dvcC || childAtomType == Atom.TYPE_dvvC) {
         @Nullable DolbyVisionConfig dolbyVisionConfig = DolbyVisionConfig.parse(parent);
         if (dolbyVisionConfig != null) {
@@ -1272,7 +1241,10 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         parent.setPosition(childStartPosition + Atom.FULL_HEADER_SIZE);
         // See vpcC atom syntax: https://www.webmproject.org/vp9/mp4/#syntax_1
         parent.skipBytes(2); // profile(8), level(8)
-        boolean fullRangeFlag = (parent.readUnsignedByte() & 1) != 0;
+        int byte3 = parent.readUnsignedByte();
+        bitdepthLuma = byte3 >> 4;
+        bitdepthChroma = bitdepthLuma;
+        boolean fullRangeFlag = (byte3 & 0b1) != 0;
         int colorPrimaries = parent.readUnsignedByte();
         int transferCharacteristics = parent.readUnsignedByte();
         colorSpace = ColorInfo.isoColorPrimariesToColorSpace(colorPrimaries);
@@ -1282,6 +1254,20 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       } else if (childAtomType == Atom.TYPE_av1C) {
         ExtractorUtil.checkContainerInput(mimeType == null, /* message= */ null);
         mimeType = MimeTypes.VIDEO_AV1;
+        parent.setPosition(childStartPosition + Atom.HEADER_SIZE);
+        parent.skipBytes(1);
+        int byte2 = parent.readUnsignedByte();
+        int seqProfile = byte2 >> 5;
+        int byte3 = parent.readUnsignedByte();
+        boolean highBitdepth = ((byte3 >> 6) & 0b1) != 0;
+        // From https://aomediacodec.github.io/av1-spec/av1-spec.pdf#page=44
+        if (seqProfile == 2 && highBitdepth) {
+          boolean twelveBit = ((byte3 >> 5) & 0b1) != 0;
+          bitdepthLuma = twelveBit ? 12 : 10;
+        } else if (seqProfile <= 2) {
+          bitdepthLuma = highBitdepth ? 10 : 8;
+        }
+        bitdepthChroma = bitdepthLuma;
       } else if (childAtomType == Atom.TYPE_clli) {
         if (hdrStaticInfo == null) {
           hdrStaticInfo = allocateHdrStaticInfo();
@@ -1408,20 +1394,18 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
             .setProjectionData(projectionData)
             .setStereoMode(stereoMode)
             .setInitializationData(initializationData)
-            .setDrmInitData(drmInitData);
-    if (colorSpace != Format.NO_VALUE
-        || colorRange != Format.NO_VALUE
-        || colorTransfer != Format.NO_VALUE
-        || hdrStaticInfo != null) {
-      // Note that if either mdcv or clli are missing, we leave the corresponding HDR static
-      // metadata bytes with value zero. See [Internal ref: b/194535665].
-      formatBuilder.setColorInfo(
-          new ColorInfo(
-              colorSpace,
-              colorRange,
-              colorTransfer,
-              hdrStaticInfo != null ? hdrStaticInfo.array() : null));
-    }
+            .setDrmInitData(drmInitData)
+            // Note that if either mdcv or clli are missing, we leave the corresponding HDR static
+            // metadata bytes with value zero. See [Internal ref: b/194535665].
+            .setColorInfo(
+                new ColorInfo.Builder()
+                    .setColorSpace(colorSpace)
+                    .setColorRange(colorRange)
+                    .setColorTransfer(colorTransfer)
+                    .setHdrStaticInfo(hdrStaticInfo != null ? hdrStaticInfo.array() : null)
+                    .setLumaBitdepth(bitdepthLuma)
+                    .setChromaBitdepth(bitdepthChroma)
+                    .build());
 
     if (esdsData != null) {
       formatBuilder
@@ -1539,9 +1523,25 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       sampleRate = (int) Math.round(parent.readDouble());
       channelCount = parent.readUnsignedIntToInt();
 
-      // Skip always7F000000, sampleSize, formatSpecificFlags, constBytesPerAudioPacket,
-      // constLPCMFramesPerAudioPacket.
-      parent.skipBytes(20);
+      parent.skipBytes(4); // always7F000000
+      int bitsPerSample = parent.readUnsignedIntToInt();
+      int formatSpecificFlags = parent.readUnsignedIntToInt();
+      boolean isFloat = (formatSpecificFlags & 1) != 0;
+      boolean isBigEndian = (formatSpecificFlags & (1 << 1)) != 0;
+      if (!isFloat) {
+        if (bitsPerSample == 8) {
+          pcmEncoding = C.ENCODING_PCM_8BIT;
+        } else if (bitsPerSample == 16) {
+          pcmEncoding = isBigEndian ? C.ENCODING_PCM_16BIT_BIG_ENDIAN : C.ENCODING_PCM_16BIT;
+        } else if (bitsPerSample == 24) {
+          pcmEncoding = isBigEndian ? C.ENCODING_PCM_24BIT_BIG_ENDIAN : C.ENCODING_PCM_24BIT;
+        } else if (bitsPerSample == 32) {
+          pcmEncoding = isBigEndian ? C.ENCODING_PCM_32BIT_BIG_ENDIAN : C.ENCODING_PCM_32BIT;
+        }
+      } else if (bitsPerSample == 32) {
+        pcmEncoding = C.ENCODING_PCM_FLOAT;
+      }
+      parent.skipBytes(8); // constBytesPerAudioPacket, constLPCMFramesPerAudioPacket
     } else {
       // Unsupported version.
       return;
@@ -1587,12 +1587,17 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       mimeType = MimeTypes.AUDIO_AMR_NB;
     } else if (atomType == Atom.TYPE_sawb) {
       mimeType = MimeTypes.AUDIO_AMR_WB;
-    } else if (atomType == Atom.TYPE_lpcm || atomType == Atom.TYPE_sowt) {
+    } else if (atomType == Atom.TYPE_sowt) {
       mimeType = MimeTypes.AUDIO_RAW;
       pcmEncoding = C.ENCODING_PCM_16BIT;
     } else if (atomType == Atom.TYPE_twos) {
       mimeType = MimeTypes.AUDIO_RAW;
       pcmEncoding = C.ENCODING_PCM_16BIT_BIG_ENDIAN;
+    } else if (atomType == Atom.TYPE_lpcm) {
+      mimeType = MimeTypes.AUDIO_RAW;
+      if (pcmEncoding == Format.NO_VALUE) {
+        pcmEncoding = C.ENCODING_PCM_16BIT;
+      }
     } else if (atomType == Atom.TYPE__mp2 || atomType == Atom.TYPE__mp3) {
       mimeType = MimeTypes.AUDIO_MPEG;
     } else if (atomType == Atom.TYPE_mha1) {
@@ -1640,15 +1645,21 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           mimeType = esdsData.mimeType;
           @Nullable byte[] initializationDataBytes = esdsData.initializationData;
           if (initializationDataBytes != null) {
-            if (MimeTypes.AUDIO_AAC.equals(mimeType)) {
-              // Update sampleRate and channelCount from the AudioSpecificConfig initialization
-              // data, which is more reliable. See [Internal: b/10903778].
-              AacUtil.Config aacConfig = AacUtil.parseAudioSpecificConfig(initializationDataBytes);
-              sampleRate = aacConfig.sampleRateHz;
-              channelCount = aacConfig.channelCount;
-              codecs = aacConfig.codecs;
+            if (MimeTypes.AUDIO_VORBIS.equals(mimeType)) {
+              initializationData =
+                  VorbisUtil.parseVorbisCsdFromEsdsInitializationData(initializationDataBytes);
+            } else {
+              if (MimeTypes.AUDIO_AAC.equals(mimeType)) {
+                // Update sampleRate and channelCount from the AudioSpecificConfig initialization
+                // data, which is more reliable. See [Internal: b/10903778].
+                AacUtil.Config aacConfig =
+                    AacUtil.parseAudioSpecificConfig(initializationDataBytes);
+                sampleRate = aacConfig.sampleRateHz;
+                channelCount = aacConfig.channelCount;
+                codecs = aacConfig.codecs;
+              }
+              initializationData = ImmutableList.of(initializationDataBytes);
             }
-            initializationData = ImmutableList.of(initializationDataBytes);
           }
         }
       } else if (childAtomType == Atom.TYPE_dac3) {

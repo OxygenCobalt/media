@@ -23,7 +23,9 @@ import android.view.Surface;
 import androidx.annotation.Nullable;
 import androidx.media3.common.FrameInfo;
 import androidx.media3.common.OnInputFrameProcessedListener;
+import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
+import androidx.media3.common.util.TimestampIterator;
 
 /** Handles {@code DefaultVideoFrameProcessor}'s input. */
 /* package */ interface TextureManager extends GlShaderProgram.InputListener {
@@ -41,13 +43,16 @@ import androidx.media3.common.VideoFrameProcessor;
    * Provides an input {@link Bitmap} to put into the video frames.
    *
    * @param inputBitmap The {@link Bitmap} queued to the {@code VideoFrameProcessor}.
-   * @param durationUs The duration of the bitmap in the composition, in microseconds.
    * @param frameInfo Information about the bitmap being queued.
-   * @param frameRate The rate at which to generate frames with the bitmap, in frames per second.
+   * @param inStreamOffsetsUs The times within the current stream that the bitmap should be shown
+   *     at. The timestamps should be monotonically increasing.
    * @param useHdr Whether input and/or output colors are HDR.
    */
   default void queueInputBitmap(
-      Bitmap inputBitmap, long durationUs, FrameInfo frameInfo, float frameRate, boolean useHdr) {
+      Bitmap inputBitmap,
+      FrameInfo frameInfo,
+      TimestampIterator inStreamOffsetsUs,
+      boolean useHdr) {
     throw new UnsupportedOperationException();
   }
 
@@ -72,7 +77,11 @@ import androidx.media3.common.VideoFrameProcessor;
   /**
    * Sets information about the input frames.
    *
-   * @see VideoFrameProcessor#setInputFrameInfo
+   * <p>The new input information is applied from the next frame {@linkplain #registerInputFrame
+   * registered} or {@linkplain #queueInputTexture queued} onwards.
+   *
+   * <p>Pixels are expanded using the {@link FrameInfo#pixelWidthHeightRatio} so that the output
+   * frames' pixels have a ratio of 1.
    */
   default void setInputFrameInfo(FrameInfo inputFrameInfo) {
     // Do nothing.
@@ -95,28 +104,16 @@ import androidx.media3.common.VideoFrameProcessor;
   /** See {@link VideoFrameProcessor#getPendingInputFrameCount}. */
   int getPendingFrameCount();
 
-  /**
-   * Signals the end of the current input stream.
-   *
-   * <p>This method must be called on the last input stream, before calling {@link
-   * #signalEndOfInput}.
-   */
+  /** Signals the end of the current input stream. */
   void signalEndOfCurrentInputStream();
 
-  /**
-   * Signals the end of the input.
-   *
-   * @see VideoFrameProcessor#signalEndOfInput()
-   */
-  void signalEndOfInput();
-
   /** Sets the task to run on completing flushing, or {@code null} to clear any task. */
-  void setOnFlushCompleteListener(@Nullable VideoFrameProcessingTask task);
+  void setOnFlushCompleteListener(@Nullable VideoFrameProcessingTaskExecutor.Task task);
 
   /**
    * Releases all resources.
    *
    * @see VideoFrameProcessor#release()
    */
-  void release();
+  void release() throws VideoFrameProcessingException;
 }

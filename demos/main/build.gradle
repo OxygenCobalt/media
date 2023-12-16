@@ -30,9 +30,7 @@ android {
         versionName project.ext.releaseVersion
         versionCode project.ext.releaseVersionCode
         minSdkVersion project.ext.minSdkVersion
-        // Not using appTargetSDKVersion to allow local file access on API 29
-        // and higher [Internal ref: b/191644662]
-        targetSdkVersion project.ext.mainDemoAppTargetSdkVersion
+        targetSdkVersion project.ext.appTargetSdkVersion
         multiDexEnabled true
     }
 
@@ -90,6 +88,7 @@ dependencies {
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-flac')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-opus')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-vp9')
+    withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-midi')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-datasource-rtmp')
 }
 

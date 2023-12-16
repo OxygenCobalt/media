@@ -22,7 +22,6 @@ import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import androidx.annotation.Nullable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.Buffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -38,6 +37,7 @@ public final class GlProgram {
 
   // https://www.khronos.org/registry/OpenGL/extensions/EXT/EXT_YUV_target.txt
   private static final int GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT = 0x8BE7;
+
   /** The identifier of a compiled and linked GLSL shader program. */
   private final int programId;
 
@@ -56,25 +56,9 @@ public final class GlProgram {
    */
   public GlProgram(Context context, String vertexShaderFilePath, String fragmentShaderFilePath)
       throws IOException, GlUtil.GlException {
-    this(loadAsset(context, vertexShaderFilePath), loadAsset(context, fragmentShaderFilePath));
-  }
-
-  /**
-   * Loads a file from the assets folder.
-   *
-   * @param context The {@link Context}.
-   * @param assetPath The path to the file to load, from the assets folder.
-   * @return The content of the file to load.
-   * @throws IOException If the file couldn't be read.
-   */
-  private static String loadAsset(Context context, String assetPath) throws IOException {
-    @Nullable InputStream inputStream = null;
-    try {
-      inputStream = context.getAssets().open(assetPath);
-      return Util.fromUtf8Bytes(Util.toByteArray(inputStream));
-    } finally {
-      Util.closeQuietly(inputStream);
-    }
+    this(
+        Util.loadAsset(context, vertexShaderFilePath),
+        Util.loadAsset(context, fragmentShaderFilePath));
   }
 
   /**
@@ -205,6 +189,11 @@ public final class GlProgram {
     checkNotNull(uniformByName.get(name)).setInt(value);
   }
 
+  /** Sets a {@code int[]} type uniform. */
+  public void setIntsUniform(String name, int[] value) {
+    checkNotNull(uniformByName.get(name)).setInts(value);
+  }
+
   /** Sets a {@code float} type uniform. */
   public void setFloatUniform(String name, float value) {
     checkNotNull(uniformByName.get(name)).setFloat(value);
@@ -312,7 +301,11 @@ public final class GlProgram {
    */
   private static final class Uniform {
 
-    /** Returns the uniform at the given index in the program. */
+    /**
+     * Returns the uniform at the given index in the program.
+     *
+     * <p>See https://docs.gl/es2/glGetActiveUniform for more information.
+     */
     public static Uniform create(int programId, int index) {
       int[] length = new int[1];
       GLES20.glGetProgramiv(
@@ -345,8 +338,8 @@ public final class GlProgram {
     private final int location;
     private final int type;
     private final float[] floatValue;
+    private final int[] intValue;
 
-    private int intValue;
     private int texIdValue;
     private int texUnitIndex;
 
@@ -354,7 +347,8 @@ public final class GlProgram {
       this.name = name;
       this.location = location;
       this.type = type;
-      this.floatValue = new float[16];
+      this.floatValue = new float[16]; // Allocate 16 for mat4
+      this.intValue = new int[4]; // Allocate 4 for ivec4
     }
 
     /**
@@ -367,9 +361,15 @@ public final class GlProgram {
       this.texIdValue = texId;
       this.texUnitIndex = texUnitIndex;
     }
+
     /** Configures {@link #bind()} to use the specified {@code int} {@code value}. */
     public void setInt(int value) {
-      this.intValue = value;
+      this.intValue[0] = value;
+    }
+
+    /** Configures {@link #bind()} to use the specified {@code int[]} {@code value}. */
+    public void setInts(int[] value) {
+      System.arraycopy(value, /* srcPos= */ 0, this.intValue, /* destPos= */ 0, value.length);
     }
 
     /** Configures {@link #bind()} to use the specified {@code float} {@code value}. */
@@ -391,7 +391,20 @@ public final class GlProgram {
     public void bind() throws GlUtil.GlException {
       switch (type) {
         case GLES20.GL_INT:
-          GLES20.glUniform1i(location, intValue);
+          GLES20.glUniform1iv(location, /* count= */ 1, intValue, /* offset= */ 0);
+          GlUtil.checkGlError();
+          break;
+        case GLES20.GL_INT_VEC2:
+          GLES20.glUniform2iv(location, /* count= */ 1, intValue, /* offset= */ 0);
+          GlUtil.checkGlError();
+          break;
+        case GLES20.GL_INT_VEC3:
+          GLES20.glUniform3iv(location, /* count= */ 1, intValue, /* offset= */ 0);
+          GlUtil.checkGlError();
+          break;
+        case GLES20.GL_INT_VEC4:
+          GLES20.glUniform4iv(location, /* count= */ 1, intValue, /* offset= */ 0);
+          GlUtil.checkGlError();
           break;
         case GLES20.GL_FLOAT:
           GLES20.glUniform1fv(location, /* count= */ 1, floatValue, /* offset= */ 0);

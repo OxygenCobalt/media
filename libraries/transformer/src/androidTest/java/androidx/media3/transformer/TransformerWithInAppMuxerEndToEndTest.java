@@ -15,7 +15,10 @@
  */
 package androidx.media3.transformer;
 
-import static com.google.common.truth.Truth.assertThat;
+import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_FORMAT;
+import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_URI_STRING;
+import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.net.Uri;
@@ -51,7 +54,17 @@ public class TransformerWithInAppMuxerEndToEndTest {
 
   @Test
   public void videoEditing_completesSuccessfully() throws Exception {
-    String testId = "videoEditing_completesSuccessfully";
+    String testId = "videoEditing_completesSuccessfully_" + inputFile;
+    // Use MP4_ASSET_FORMAT for H265_MP4_ASSET_URI_STRING test skipping as well, because emulators
+    // signal a lack of support for H265_MP4's actual format, but pass this test when using
+    // MP4_ASSET_FORMAT for skipping.
+    if (AndroidTestUtil.skipAndLogIfFormatsUnsupported(
+        context,
+        testId,
+        /* inputFormat= */ MP4_ASSET_FORMAT,
+        /* outputFormat= */ MP4_ASSET_FORMAT)) {
+      return;
+    }
     Transformer transformer =
         new Transformer.Builder(context).setMuxerFactory(new InAppMuxer.Factory()).build();
     ImmutableList<Effect> videoEffects = ImmutableList.of(RgbFilter.createGrayscaleFilter());
@@ -61,23 +74,23 @@ public class TransformerWithInAppMuxerEndToEndTest {
             .setEffects(new Effects(/* audioProcessors= */ ImmutableList.of(), videoEffects))
             .build();
 
-    ExportTestResult result =
-        new TransformerAndroidTestRunner.Builder(context, transformer)
-            .build()
-            .run(testId, editedMediaItem);
-
-    assertThat(result.exportResult.exportException).isNull();
+    new TransformerAndroidTestRunner.Builder(context, transformer)
+        .build()
+        .run(testId, editedMediaItem);
   }
 
   @Test
   public void audioEditing_completesSuccessfully() throws Exception {
+    // The test does not need not to be parameterised because it only needs to run for a single
+    // audio format (AAC).
+    assumeTrue(checkNotNull(inputFile).equals(H264_MP4));
     String testId = "audioEditing_completesSuccessfully";
     Transformer transformer =
         new Transformer.Builder(context).setMuxerFactory(new InAppMuxer.Factory()).build();
     ChannelMixingAudioProcessor channelMixingAudioProcessor = new ChannelMixingAudioProcessor();
     channelMixingAudioProcessor.putChannelMixingMatrix(
         ChannelMixingMatrix.create(/* inputChannelCount= */ 1, /* outputChannelCount= */ 2));
-    MediaItem mediaItem = MediaItem.fromUri(Uri.parse(MP4_FILE_ASSET_DIRECTORY + H264_MP4));
+    MediaItem mediaItem = MediaItem.fromUri(Uri.parse(MP4_ASSET_URI_STRING));
     EditedMediaItem editedMediaItem =
         new EditedMediaItem.Builder(mediaItem)
             .setEffects(
@@ -86,11 +99,8 @@ public class TransformerWithInAppMuxerEndToEndTest {
                     /* videoEffects= */ ImmutableList.of()))
             .build();
 
-    ExportTestResult result =
-        new TransformerAndroidTestRunner.Builder(context, transformer)
-            .build()
-            .run(testId, editedMediaItem);
-
-    assertThat(result.exportResult.exportException).isNull();
+    new TransformerAndroidTestRunner.Builder(context, transformer)
+        .build()
+        .run(testId, editedMediaItem);
   }
 }

@@ -42,8 +42,10 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.media.AudioDeviceCallback;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.MediaFormat;
 import android.media.metrics.LogSessionId;
@@ -95,10 +97,13 @@ import androidx.media3.exoplayer.analytics.DefaultAnalyticsCollector;
 import androidx.media3.exoplayer.analytics.MediaMetricsListener;
 import androidx.media3.exoplayer.analytics.PlayerId;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
+import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.metadata.MetadataOutput;
+import androidx.media3.exoplayer.source.MaskingMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
 import androidx.media3.exoplayer.source.ShuffleOrder;
+import androidx.media3.exoplayer.source.TimelineWithUpdatedMediaItem;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
@@ -141,6 +146,7 @@ import java.util.concurrent.TimeoutException;
    * operation.
    */
   /* package */ final TrackSelectorResult emptyTrackSelectorResult;
+
   /* package */ final Commands permanentAvailableCommands;
 
   private final ConditionVariable constructorFinished;
@@ -172,6 +178,8 @@ import java.util.concurrent.TimeoutException;
   private final WakeLockManager wakeLockManager;
   private final WifiLockManager wifiLockManager;
   private final long detachSurfaceTimeoutMs;
+  @Nullable private AudioManager audioManager;
+  private final boolean suppressPlaybackOnUnsuitableOutput;
 
   private @RepeatMode int repeatMode;
   private boolean shuffleModeEnabled;
@@ -274,6 +282,7 @@ import java.util.concurrent.TimeoutException;
       this.applicationLooper = builder.looper;
       this.clock = builder.clock;
       this.wrappingPlayer = wrappingPlayer == null ? this : wrappingPlayer;
+      this.suppressPlaybackOnUnsuitableOutput = builder.suppressPlaybackOnUnsuitableOutput;
       listeners =
           new ListenerSet<>(
               applicationLooper,
@@ -306,6 +315,7 @@ import java.util.concurrent.TimeoutException;
                   COMMAND_CHANGE_MEDIA_ITEMS,
                   COMMAND_GET_TRACKS,
                   COMMAND_GET_AUDIO_ATTRIBUTES,
+                  COMMAND_SET_AUDIO_ATTRIBUTES,
                   COMMAND_GET_VOLUME,
                   COMMAND_SET_VOLUME,
                   COMMAND_SET_VIDEO_SURFACE,
@@ -382,6 +392,13 @@ import java.util.concurrent.TimeoutException;
       audioBecomingNoisyManager.setEnabled(builder.handleAudioBecomingNoisy);
       audioFocusManager = new AudioFocusManager(builder.context, eventHandler, componentListener);
       audioFocusManager.setAudioAttributes(builder.handleAudioFocus ? audioAttributes : null);
+      if (suppressPlaybackOnUnsuitableOutput && Util.SDK_INT >= 23) {
+        audioManager = (AudioManager) applicationContext.getSystemService(Context.AUDIO_SERVICE);
+        Api23.registerAudioDeviceCallback(
+            audioManager,
+            new NoSuitableOutputPlaybackSuppressionAudioDeviceCallback(),
+            new Handler(applicationLooper));
+      }
       if (builder.deviceVolumeControlEnabled) {
         streamVolumeManager =
             new StreamVolumeManager(builder.context, eventHandler, componentListener);
@@ -451,16 +468,7 @@ import java.util.concurrent.TimeoutException;
   }
 
   @Override
-  public void experimentalSetOffloadSchedulingEnabled(boolean offloadSchedulingEnabled) {
-    verifyApplicationThread();
-    internalPlayer.experimentalSetOffloadSchedulingEnabled(offloadSchedulingEnabled);
-    for (AudioOffloadListener listener : audioOffloadListeners) {
-      listener.onExperimentalOffloadSchedulingEnabledChanged(offloadSchedulingEnabled);
-    }
-  }
-
-  @Override
-  public boolean experimentalIsSleepingForOffload() {
+  public boolean isSleepingForOffload() {
     verifyApplicationThread();
     return playbackInfo.sleepingForOffload;
   }
@@ -740,6 +748,11 @@ import java.util.concurrent.TimeoutException;
       return;
     }
     toIndex = min(toIndex, playlistSize);
+    if (canUpdateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems)) {
+      // Update MediaSources directly without creating new ones if possible.
+      updateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems);
+      return;
+    }
     List<MediaSource> mediaSources = createMediaSources(mediaItems);
     if (mediaSourceHolderSnapshots.isEmpty()) {
       // Handle initial items in a playlist as a set operation to ensure state changes and initial
@@ -1925,7 +1938,7 @@ import java.util.concurrent.TimeoutException;
         List<Timeline> timelines = ((PlaylistTimeline) newTimeline).getChildTimelines();
         checkState(timelines.size() == mediaSourceHolderSnapshots.size());
         for (int i = 0; i < timelines.size(); i++) {
-          mediaSourceHolderSnapshots.get(i).timeline = timelines.get(i);
+          mediaSourceHolderSnapshots.get(i).updateTimeline(timelines.get(i));
         }
       }
       boolean positionDiscontinuity = false;
@@ -1987,7 +2000,6 @@ import java.util.concurrent.TimeoutException;
             repeatCurrentMediaItem);
     boolean mediaItemTransitioned = mediaItemTransitionInfo.first;
     int mediaItemTransitionReason = mediaItemTransitionInfo.second;
-    MediaMetadata newMediaMetadata = mediaMetadata;
     @Nullable MediaItem mediaItem = null;
     if (mediaItemTransitioned) {
       if (!newPlaybackInfo.timeline.isEmpty()) {
@@ -1998,15 +2010,14 @@ import java.util.concurrent.TimeoutException;
       }
       staticAndDynamicMediaMetadata = MediaMetadata.EMPTY;
     }
-    if (mediaItemTransitioned
-        || !previousPlaybackInfo.staticMetadata.equals(newPlaybackInfo.staticMetadata)) {
+    if (!previousPlaybackInfo.staticMetadata.equals(newPlaybackInfo.staticMetadata)) {
       staticAndDynamicMediaMetadata =
           staticAndDynamicMediaMetadata
               .buildUpon()
               .populateFromMetadata(newPlaybackInfo.staticMetadata)
               .build();
-      newMediaMetadata = buildUpdatedMediaMetadata();
     }
+    MediaMetadata newMediaMetadata = buildUpdatedMediaMetadata();
     boolean metadataChanged = !newMediaMetadata.equals(mediaMetadata);
     mediaMetadata = newMediaMetadata;
     boolean playWhenReadyChanged =
@@ -2117,7 +2128,7 @@ import java.util.concurrent.TimeoutException;
 
     if (previousPlaybackInfo.sleepingForOffload != newPlaybackInfo.sleepingForOffload) {
       for (AudioOffloadListener listener : audioOffloadListeners) {
-        listener.onExperimentalSleepingForOffloadChanged(newPlaybackInfo.sleepingForOffload);
+        listener.onSleepingForOffloadChanged(newPlaybackInfo.sleepingForOffload);
       }
     }
   }
@@ -2348,7 +2359,7 @@ import java.util.concurrent.TimeoutException;
           new MediaSourceList.MediaSourceHolder(mediaSources.get(i), useLazyPreparation);
       holders.add(holder);
       mediaSourceHolderSnapshots.add(
-          i + index, new MediaSourceHolderSnapshot(holder.uid, holder.mediaSource.getTimeline()));
+          i + index, new MediaSourceHolderSnapshot(holder.uid, holder.mediaSource));
     }
     shuffleOrder =
         shuffleOrder.cloneAndInsert(
@@ -2732,26 +2743,30 @@ import java.util.concurrent.TimeoutException;
       @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason) {
     playWhenReady = playWhenReady && playerCommand != AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY;
     @PlaybackSuppressionReason
-    int playbackSuppressionReason =
-        playWhenReady && playerCommand != AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY
-            ? Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS
-            : Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+    int playbackSuppressionReason = computePlaybackSuppressionReason(playWhenReady, playerCommand);
     if (playbackInfo.playWhenReady == playWhenReady
         && playbackInfo.playbackSuppressionReason == playbackSuppressionReason) {
       return;
     }
-    pendingOperationAcks++;
+    updatePlaybackInfoForPlayWhenReadyAndSuppressionReasonStates(
+        playWhenReady, playWhenReadyChangeReason, playbackSuppressionReason);
+  }
 
+  private void updatePlaybackInfoForPlayWhenReadyAndSuppressionReasonStates(
+      boolean playWhenReady,
+      @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason,
+      @PlaybackSuppressionReason int playbackSuppressionReason) {
+    pendingOperationAcks++;
     // Position estimation and copy must occur before changing/masking playback state.
-    PlaybackInfo playbackInfo =
+    PlaybackInfo newPlaybackInfo =
         this.playbackInfo.sleepingForOffload
             ? this.playbackInfo.copyWithEstimatedPosition()
             : this.playbackInfo;
-    playbackInfo = playbackInfo.copyWithPlayWhenReady(playWhenReady, playbackSuppressionReason);
-
+    newPlaybackInfo =
+        newPlaybackInfo.copyWithPlayWhenReady(playWhenReady, playbackSuppressionReason);
     internalPlayer.setPlayWhenReady(playWhenReady, playbackSuppressionReason);
     updatePlaybackInfo(
-        playbackInfo,
+        newPlaybackInfo,
         /* ignored */ TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
         playWhenReadyChangeReason,
         /* positionDiscontinuity= */ false,
@@ -2761,12 +2776,41 @@ import java.util.concurrent.TimeoutException;
         /* repeatCurrentMediaItem= */ false);
   }
 
+  @PlaybackSuppressionReason
+  private int computePlaybackSuppressionReason(
+      boolean playWhenReady, @AudioFocusManager.PlayerCommand int playerCommand) {
+    if (playWhenReady && playerCommand != AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY) {
+      return Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS;
+    }
+    if (suppressPlaybackOnUnsuitableOutput) {
+      if (playWhenReady && !hasSupportedAudioOutput()) {
+        return Player.PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT;
+      }
+      if (!playWhenReady
+          && playbackInfo.playbackSuppressionReason
+              == PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT) {
+        return Player.PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT;
+      }
+    }
+    return Player.PLAYBACK_SUPPRESSION_REASON_NONE;
+  }
+
+  private boolean hasSupportedAudioOutput() {
+    if (audioManager == null || Util.SDK_INT < 23) {
+      // The Audio Manager API to determine the list of connected audio devices is available only in
+      // API >= 23.
+      return true;
+    }
+    return Api23.isSuitableAudioOutputPresentInAudioDeviceInfoList(
+        applicationContext, audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS));
+  }
+
   private void updateWakeAndWifiLock() {
     @State int playbackState = getPlaybackState();
     switch (playbackState) {
       case Player.STATE_READY:
       case Player.STATE_BUFFERING:
-        boolean isSleeping = experimentalIsSleepingForOffload();
+        boolean isSleeping = isSleepingForOffload();
         wakeLockManager.setStayAwake(getPlayWhenReady() && !isSleeping);
         // The wifi lock is not released while sleeping to avoid interrupting downloads.
         wifiLockManager.setStayAwake(getPlayWhenReady());
@@ -2857,6 +2901,43 @@ import java.util.concurrent.TimeoutException;
     }
   }
 
+  private boolean canUpdateMediaSourcesWithMediaItems(
+      int fromIndex, int toIndex, List<MediaItem> mediaItems) {
+    if (toIndex - fromIndex != mediaItems.size()) {
+      // Number of items doesn't match.
+      return false;
+    }
+    for (int i = fromIndex; i < toIndex; i++) {
+      MediaSource mediaSource = mediaSourceHolderSnapshots.get(i).mediaSource;
+      if (!mediaSource.canUpdateMediaItem(mediaItems.get(i - fromIndex))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void updateMediaSourcesWithMediaItems(
+      int fromIndex, int toIndex, List<MediaItem> mediaItems) {
+    pendingOperationAcks++;
+    internalPlayer.updateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems);
+    for (int i = fromIndex; i < toIndex; i++) {
+      MediaSourceHolderSnapshot snapshot = mediaSourceHolderSnapshots.get(i);
+      snapshot.updateTimeline(
+          new TimelineWithUpdatedMediaItem(snapshot.getTimeline(), mediaItems.get(i - fromIndex)));
+    }
+    Timeline newTimeline = createMaskingTimeline();
+    PlaybackInfo newPlaybackInfo = playbackInfo.copyWithTimeline(newTimeline);
+    updatePlaybackInfo(
+        newPlaybackInfo,
+        /* timelineChangeReason= */ TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
+        /* ignored */ PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+        /* ignored */ false,
+        /* ignored */ DISCONTINUITY_REASON_REMOVE,
+        /* ignored */ C.TIME_UNSET,
+        /* ignored */ C.INDEX_UNSET,
+        /* ignored */ false);
+  }
+
   private static DeviceInfo createDeviceInfo(@Nullable StreamVolumeManager streamVolumeManager) {
     return new DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_LOCAL)
         .setMinVolume(streamVolumeManager != null ? streamVolumeManager.getMinVolume() : 0)
@@ -2873,12 +2954,14 @@ import java.util.concurrent.TimeoutException;
   private static final class MediaSourceHolderSnapshot implements MediaSourceInfoHolder {
 
     private final Object uid;
+    private final MediaSource mediaSource;
 
     private Timeline timeline;
 
-    public MediaSourceHolderSnapshot(Object uid, Timeline timeline) {
+    public MediaSourceHolderSnapshot(Object uid, MaskingMediaSource mediaSource) {
       this.uid = uid;
-      this.timeline = timeline;
+      this.mediaSource = mediaSource;
+      this.timeline = mediaSource.getTimeline();
     }
 
     @Override
@@ -2889,6 +2972,10 @@ import java.util.concurrent.TimeoutException;
     @Override
     public Timeline getTimeline() {
       return timeline;
+    }
+
+    public void updateTimeline(Timeline timeline) {
+      this.timeline = timeline;
     }
   }
 
@@ -3034,6 +3121,16 @@ import java.util.concurrent.TimeoutException;
       analyticsCollector.onAudioCodecError(audioCodecError);
     }
 
+    @Override
+    public void onAudioTrackInitialized(AudioSink.AudioTrackConfig audioTrackConfig) {
+      analyticsCollector.onAudioTrackInitialized(audioTrackConfig);
+    }
+
+    @Override
+    public void onAudioTrackReleased(AudioSink.AudioTrackConfig audioTrackConfig) {
+      analyticsCollector.onAudioTrackReleased(audioTrackConfig);
+    }
+
     // TextOutput implementation
     @Override
     public void onCues(List<Cue> cues) {
@@ -3168,7 +3265,7 @@ import java.util.concurrent.TimeoutException;
     // Player.AudioOffloadListener implementation.
 
     @Override
-    public void onExperimentalSleepingForOffloadChanged(boolean sleepingForOffload) {
+    public void onSleepingForOffloadChanged(boolean sleepingForOffload) {
       updateWakeAndWifiLock();
     }
   }
@@ -3280,6 +3377,82 @@ import java.util.concurrent.TimeoutException;
         player.addAnalyticsListener(listener);
       }
       return new PlayerId(listener.getLogSessionId());
+    }
+  }
+
+  @RequiresApi(23)
+  private static final class Api23 {
+    private Api23() {}
+
+    @DoNotInline
+    public static boolean isSuitableAudioOutputPresentInAudioDeviceInfoList(
+        Context context, AudioDeviceInfo[] audioDeviceInfos) {
+      if (!Util.isWear(context)) {
+        return true;
+      }
+      for (AudioDeviceInfo device : audioDeviceInfos) {
+        if (device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            || device.getType() == AudioDeviceInfo.TYPE_LINE_ANALOG
+            || device.getType() == AudioDeviceInfo.TYPE_LINE_DIGITAL
+            || device.getType() == AudioDeviceInfo.TYPE_USB_DEVICE
+            || device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            || device.getType() == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
+          return true;
+        }
+        if (Util.SDK_INT >= 26 && device.getType() == AudioDeviceInfo.TYPE_USB_HEADSET) {
+          return true;
+        }
+        if (Util.SDK_INT >= 28 && device.getType() == AudioDeviceInfo.TYPE_HEARING_AID) {
+          return true;
+        }
+        if (Util.SDK_INT >= 31
+            && (device.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET
+                || device.getType() == AudioDeviceInfo.TYPE_BLE_SPEAKER)) {
+          return true;
+        }
+        if (Util.SDK_INT >= 33 && device.getType() == AudioDeviceInfo.TYPE_BLE_BROADCAST) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    @DoNotInline
+    public static void registerAudioDeviceCallback(
+        AudioManager audioManager, AudioDeviceCallback audioDeviceCallback, Handler handler) {
+      audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler);
+    }
+  }
+
+  /**
+   * A {@link AudioDeviceCallback} to change playback suppression reason when suitable audio outputs
+   * are either added in unsuitable output based playback suppression state or removed during an
+   * ongoing playback.
+   */
+  @RequiresApi(23)
+  private final class NoSuitableOutputPlaybackSuppressionAudioDeviceCallback
+      extends AudioDeviceCallback {
+
+    @Override
+    public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+      if (hasSupportedAudioOutput()
+          && playbackInfo.playbackSuppressionReason
+              == Player.PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT) {
+        updatePlaybackInfoForPlayWhenReadyAndSuppressionReasonStates(
+            playbackInfo.playWhenReady,
+            PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+            Player.PLAYBACK_SUPPRESSION_REASON_NONE);
+      }
+    }
+
+    @Override
+    public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+      if (!hasSupportedAudioOutput()) {
+        updatePlaybackInfoForPlayWhenReadyAndSuppressionReasonStates(
+            playbackInfo.playWhenReady,
+            PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+            Player.PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT);
+      }
     }
   }
 }

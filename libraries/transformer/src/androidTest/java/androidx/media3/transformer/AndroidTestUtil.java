@@ -21,9 +21,12 @@ import static androidx.media3.common.MimeTypes.VIDEO_H264;
 import static androidx.media3.common.MimeTypes.VIDEO_H265;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
+import static androidx.media3.common.util.Util.SDK_INT;
+import static org.junit.Assume.assumeFalse;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.media.Image;
 import android.media.MediaFormat;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
@@ -45,6 +48,9 @@ import androidx.media3.common.util.Util;
 import androidx.media3.effect.DefaultGlObjectsProvider;
 import androidx.media3.effect.ScaleAndRotateTransformation;
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
+import androidx.media3.test.utils.BitmapPixelTestUtil;
+import androidx.media3.test.utils.VideoDecodingWrapper;
+import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.FileWriter;
@@ -57,13 +63,6 @@ import org.json.JSONObject;
 public final class AndroidTestUtil {
   private static final String TAG = "AndroidTestUtil";
 
-  /** A realtime {@linkplain MediaFormat#KEY_PRIORITY encoder priority}. */
-  public static final int MEDIA_CODEC_PRIORITY_REALTIME = 0;
-  /**
-   * A non-realtime (as fast as possible) {@linkplain MediaFormat#KEY_PRIORITY encoder priority}.
-   */
-  public static final int MEDIA_CODEC_PRIORITY_NON_REALTIME = 1;
-
   /** An {@link Effects} instance that forces video transcoding. */
   public static final Effects FORCE_TRANSCODE_VIDEO_EFFECTS =
       new Effects(
@@ -74,6 +73,8 @@ public final class AndroidTestUtil {
   public static final String PNG_ASSET_URI_STRING =
       "asset:///media/bitmap/input_images/media3test.png";
   public static final String JPG_ASSET_URI_STRING = "asset:///media/bitmap/input_images/london.jpg";
+  public static final String JPG_PORTRAIT_ASSET_URI_STRING =
+      "asset:///media/bitmap/input_images/tokyo.jpg";
 
   public static final String MP4_ASSET_URI_STRING = "asset:///media/mp4/sample.mp4";
   public static final Format MP4_ASSET_FORMAT =
@@ -81,6 +82,21 @@ public final class AndroidTestUtil {
           .setSampleMimeType(VIDEO_H264)
           .setWidth(1080)
           .setHeight(720)
+          .setFrameRate(29.97f)
+          .setCodecs("avc1.64001F")
+          .build();
+
+  // Result of the following command for MP4_ASSET_URI_STRING
+  // ffprobe -count_frames -select_streams v:0 -show_entries stream=nb_read_frames sample.mp4
+  public static final int MP4_ASSET_FRAME_COUNT = 30;
+
+  public static final String MP4_PORTRAIT_ASSET_URI_STRING =
+      "asset:///media/mp4/sample_portrait.mp4";
+  public static final Format MP4_PORTRAIT_ASSET_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(720)
+          .setHeight(1080)
           .setFrameRate(29.97f)
           .setCodecs("avc1.64001F")
           .build();
@@ -229,9 +245,8 @@ public final class AndroidTestUtil {
           .setCodecs("avc1.64001F")
           .build();
 
-  public static final String MP4_REMOTE_8K24_URI_STRING =
-      "https://storage.googleapis.com/exoplayer-test-media-1/mp4/8k24fps_4s.mp4";
-  public static final Format MP4_REMOTE_8K24_FORMAT =
+  public static final String MP4_ASSET_8K24_URI_STRING = "asset:///media/mp4/8k24fps_300ms.mp4";
+  public static final Format MP4_ASSET_8K24_FORMAT =
       new Format.Builder()
           .setSampleMimeType(MimeTypes.VIDEO_H265)
           .setWidth(7680)
@@ -546,13 +561,13 @@ public final class AndroidTestUtil {
    * {@link EGLContext}.
    */
   public static EGLContext createOpenGlObjects() throws GlUtil.GlException {
-    EGLDisplay eglDisplay = GlUtil.createEglDisplay();
-    int[] configAttributes = GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888;
+    EGLDisplay eglDisplay = GlUtil.getDefaultEglDisplay();
     GlObjectsProvider glObjectsProvider =
         new DefaultGlObjectsProvider(/* sharedEglContext= */ null);
     EGLContext eglContext =
-        glObjectsProvider.createEglContext(eglDisplay, /* openGlVersion= */ 2, configAttributes);
-    glObjectsProvider.createFocusedPlaceholderEglSurface(eglContext, eglDisplay, configAttributes);
+        glObjectsProvider.createEglContext(
+            eglDisplay, /* openGlVersion= */ 2, GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888);
+    glObjectsProvider.createFocusedPlaceholderEglSurface(eglContext, eglDisplay);
     return eglContext;
   }
 
@@ -587,6 +602,27 @@ public final class AndroidTestUtil {
     testJson.put("skipReason", reason);
 
     writeTestSummaryToFile(context, testId, testJson);
+  }
+
+  public static ImmutableList<Bitmap> extractBitmapsFromVideo(Context context, String filePath)
+      throws IOException, InterruptedException {
+    // b/298599172 - runUntilComparisonFrameOrEnded fails on this device because reading decoder
+    //  output as a bitmap doesn't work.
+    assumeFalse(Util.SDK_INT == 21 && Ascii.toLowerCase(Util.MODEL).contains("nexus"));
+    ImmutableList.Builder<Bitmap> bitmaps = new ImmutableList.Builder<>();
+    try (VideoDecodingWrapper decodingWrapper =
+        new VideoDecodingWrapper(
+            context, filePath, /* comparisonInterval= */ 1, /* maxImagesAllowed= */ 1)) {
+      while (true) {
+        @Nullable Image image = decodingWrapper.runUntilComparisonFrameOrEnded();
+        if (image == null) {
+          break;
+        }
+        bitmaps.add(BitmapPixelTestUtil.createGrayscaleArgb8888BitmapFromYuv420888Image(image));
+        image.close();
+      }
+    }
+    return bitmaps.build();
   }
 
   /** A customizable forwarding {@link Codec.EncoderFactory} that forces encoding. */
@@ -843,7 +879,19 @@ public final class AndroidTestUtil {
       MediaFormatUtil.maybeSetInteger(
           mediaFormat, MediaFormat.KEY_PROFILE, codecProfileAndLevel.first);
     }
-    return EncoderUtil.findCodecForFormat(mediaFormat, /* isDecoder= */ true) != null;
+    return EncoderUtil.findCodecForFormat(mediaFormat, /* isDecoder= */ true) != null
+        && !deviceNeedsDisable8kWorkaround(format);
+  }
+
+  private static boolean deviceNeedsDisable8kWorkaround(Format format) {
+    // Fixed on API 31+. See http://b/278234847#comment40 for more information.
+    // Duplicate of DefaultDecoderFactory#deviceNeedsDisable8kWorkaround.
+    return SDK_INT < 31
+        && format.width >= 7680
+        && format.height >= 4320
+        && format.sampleMimeType != null
+        && format.sampleMimeType.equals(MimeTypes.VIDEO_H265)
+        && (Util.MODEL.equals("SM-F711U1") || Util.MODEL.equals("SM-F926U1"));
   }
 
   private static boolean canEncode(Format format) {

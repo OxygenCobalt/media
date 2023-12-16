@@ -18,12 +18,14 @@ package androidx.media3.session;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 
 import android.app.PendingIntent;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import androidx.annotation.Nullable;
 import androidx.core.app.BundleCompat;
 import androidx.media3.common.Bundleable;
 import androidx.media3.common.Player;
+import androidx.media3.common.util.BundleUtil;
 import androidx.media3.common.util.BundleableUtil;
 import androidx.media3.common.util.Util;
 import com.google.common.collect.ImmutableList;
@@ -69,13 +71,13 @@ import java.util.List;
     this.libraryVersion = libraryVersion;
     this.sessionInterfaceVersion = sessionInterfaceVersion;
     this.sessionBinder = sessionBinder;
+    this.sessionActivity = sessionActivity;
+    this.customLayout = customLayout;
     this.sessionCommands = sessionCommands;
     this.playerCommandsFromSession = playerCommandsFromSession;
     this.playerCommandsFromPlayer = playerCommandsFromPlayer;
-    this.sessionActivity = sessionActivity;
     this.tokenExtras = tokenExtras;
     this.playerInfo = playerInfo;
-    this.customLayout = customLayout;
   }
 
   // Bundleable implementation.
@@ -90,10 +92,16 @@ import java.util.List;
   private static final String FIELD_TOKEN_EXTRAS = Util.intToStringMaxRadix(6);
   private static final String FIELD_PLAYER_INFO = Util.intToStringMaxRadix(7);
   private static final String FIELD_SESSION_INTERFACE_VERSION = Util.intToStringMaxRadix(8);
-  // Next field key = 10
+  private static final String FIELD_IN_PROCESS_BINDER = Util.intToStringMaxRadix(10);
+
+  // Next field key = 11
 
   @Override
   public Bundle toBundle() {
+    return toBundle(Integer.MAX_VALUE);
+  }
+
+  public Bundle toBundle(int controllerInterfaceVersion) {
     Bundle bundle = new Bundle();
     bundle.putInt(FIELD_LIBRARY_VERSION, libraryVersion);
     BundleCompat.putBinder(bundle, FIELD_SESSION_BINDER, sessionBinder.asBinder());
@@ -110,9 +118,21 @@ import java.util.List;
         MediaUtils.intersect(playerCommandsFromSession, playerCommandsFromPlayer);
     bundle.putBundle(
         FIELD_PLAYER_INFO,
-        playerInfo.toBundle(
-            intersectedCommands, /* excludeTimeline= */ false, /* excludeTracks= */ false));
+        playerInfo
+            .filterByAvailableCommands(
+                intersectedCommands, /* excludeTimeline= */ false, /* excludeTracks= */ false)
+            .toBundle(controllerInterfaceVersion));
     bundle.putInt(FIELD_SESSION_INTERFACE_VERSION, sessionInterfaceVersion);
+    return bundle;
+  }
+
+  /**
+   * Returns a {@link Bundle} that stores a direct object reference to this class for in-process
+   * sharing.
+   */
+  public Bundle toBundleInProcess() {
+    Bundle bundle = new Bundle();
+    BundleUtil.putBinder(bundle, FIELD_IN_PROCESS_BINDER, new InProcessBinder());
     return bundle;
   }
 
@@ -120,6 +140,10 @@ import java.util.List;
   public static final Creator<ConnectionState> CREATOR = ConnectionState::fromBundle;
 
   private static ConnectionState fromBundle(Bundle bundle) {
+    @Nullable IBinder inProcessBinder = BundleUtil.getBinder(bundle, FIELD_IN_PROCESS_BINDER);
+    if (inProcessBinder instanceof InProcessBinder) {
+      return ((InProcessBinder) inProcessBinder).getConnectionState();
+    }
     int libraryVersion = bundle.getInt(FIELD_LIBRARY_VERSION, /* defaultValue= */ 0);
     int sessionInterfaceVersion =
         bundle.getInt(FIELD_SESSION_INTERFACE_VERSION, /* defaultValue= */ 0);
@@ -165,5 +189,11 @@ import java.util.List;
         playerCommandsFromPlayer,
         tokenExtras == null ? Bundle.EMPTY : tokenExtras,
         playerInfo);
+  }
+
+  private final class InProcessBinder extends Binder {
+    public ConnectionState getConnectionState() {
+      return ConnectionState.this;
+    }
   }
 }

@@ -20,6 +20,10 @@ import static android.Manifest.permission.READ_MEDIA_VIDEO;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.SDK_INT;
+import static androidx.media3.transformer.Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR;
+import static androidx.media3.transformer.Composition.HDR_MODE_KEEP_HDR;
+import static androidx.media3.transformer.Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC;
+import static androidx.media3.transformer.Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL;
 
 import android.app.Activity;
 import android.content.DialogInterface;
@@ -45,7 +49,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.transformer.TransformationRequest;
+import androidx.media3.transformer.Composition;
 import com.google.android.material.slider.RangeSlider;
 import com.google.android.material.slider.Slider;
 import com.google.common.collect.ImmutableMap;
@@ -114,6 +118,8 @@ public final class ConfigurationActivity extends AppCompatActivity {
   public static final int HIGH_PITCHED_INDEX = 0;
   public static final int SAMPLE_RATE_INDEX = 1;
   public static final int SKIP_SILENCE_INDEX = 2;
+  public static final int CHANNEL_MIXING_INDEX = 3;
+  public static final int VOLUME_SCALING_INDEX = 4;
 
   // Color filter options.
   public static final int COLOR_FILTER_GRAYSCALE = 0;
@@ -160,7 +166,11 @@ public final class ConfigurationActivity extends AppCompatActivity {
     "720p H264 video with no audio",
   };
   private static final String[] AUDIO_EFFECTS = {
-    "High pitched", "Sample rate of 48000Hz", "Skip silence"
+    "High pitched",
+    "Sample rate of 48000Hz",
+    "Skip silence",
+    "Mix channels into mono",
+    "Scale volume to 50%"
   };
   private static final String[] VIDEO_EFFECTS = {
     "Dizzy crop",
@@ -177,20 +187,13 @@ public final class ConfigurationActivity extends AppCompatActivity {
     "Custom Bitmap Overlay",
     "Custom Text Overlay",
   };
-  private static final ImmutableMap<String, @TransformationRequest.HdrMode Integer>
-      HDR_MODE_DESCRIPTIONS =
-          new ImmutableMap.Builder<String, @TransformationRequest.HdrMode Integer>()
-              .put("Keep HDR", TransformationRequest.HDR_MODE_KEEP_HDR)
-              .put(
-                  "MediaCodec tone-map HDR to SDR",
-                  TransformationRequest.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
-              .put(
-                  "OpenGL tone-map HDR to SDR",
-                  TransformationRequest.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
-              .put(
-                  "Force Interpret HDR as SDR",
-                  TransformationRequest.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR)
-              .build();
+  private static final ImmutableMap<String, @Composition.HdrMode Integer> HDR_MODE_DESCRIPTIONS =
+      new ImmutableMap.Builder<String, @Composition.HdrMode Integer>()
+          .put("Keep HDR", HDR_MODE_KEEP_HDR)
+          .put("MediaCodec tone-map HDR to SDR", HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
+          .put("OpenGL tone-map HDR to SDR", HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+          .put("Force Interpret HDR as SDR", HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR)
+          .build();
   private static final ImmutableMap<String, Integer> OVERLAY_COLORS =
       new ImmutableMap.Builder<String, Integer>()
           .put("BLACK", Color.BLACK)

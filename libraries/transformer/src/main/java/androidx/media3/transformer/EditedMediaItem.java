@@ -33,8 +33,7 @@ public final class EditedMediaItem {
   /** A builder for {@link EditedMediaItem} instances. */
   public static final class Builder {
 
-    private final MediaItem mediaItem;
-
+    private MediaItem mediaItem;
     private boolean removeAudio;
     private boolean removeVideo;
     private boolean flattenForSlowMotion;
@@ -55,6 +54,16 @@ public final class EditedMediaItem {
       durationUs = C.TIME_UNSET;
       frameRate = C.RATE_UNSET_INT;
       effects = Effects.EMPTY;
+    }
+
+    private Builder(EditedMediaItem editedMediaItem) {
+      this.mediaItem = editedMediaItem.mediaItem;
+      this.removeAudio = editedMediaItem.removeAudio;
+      this.removeVideo = editedMediaItem.removeVideo;
+      this.flattenForSlowMotion = editedMediaItem.flattenForSlowMotion;
+      this.durationUs = editedMediaItem.durationUs;
+      this.frameRate = editedMediaItem.frameRate;
+      this.effects = editedMediaItem.effects;
     }
 
     /**
@@ -158,6 +167,8 @@ public final class EditedMediaItem {
     /**
      * Sets the {@link Effects} to apply to the {@link MediaItem}.
      *
+     * <p>Callers should not interact with underlying {@link Effects#audioProcessors}.
+     *
      * <p>The default value is {@link Effects#EMPTY}.
      *
      * @param effects The {@link Effects} to apply.
@@ -180,14 +191,29 @@ public final class EditedMediaItem {
           frameRate,
           effects);
     }
+
+    /**
+     * Sets the {@link MediaItem} on which transformations are applied.
+     *
+     * @param mediaItem The {@link MediaItem}.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    /* package */ Builder setMediaItem(MediaItem mediaItem) {
+      this.mediaItem = mediaItem;
+      return this;
+    }
   }
 
   /** The {@link MediaItem} on which transformations are applied. */
   public final MediaItem mediaItem;
+
   /** Whether to remove the audio from the {@link #mediaItem}. */
   public final boolean removeAudio;
+
   /** Whether to remove the video from the {@link #mediaItem}. */
   public final boolean removeVideo;
+
   /**
    * Whether to flatten the {@link #mediaItem} if it contains slow motion markers.
    *
@@ -206,11 +232,14 @@ public final class EditedMediaItem {
    * </ul>
    */
   public final boolean flattenForSlowMotion;
+
   /** The duration of the image in the output video, in microseconds. */
   public final long durationUs;
+
   /** The frame rate of the image in the output video, in frames per second. */
-  @IntRange(from = 0)
+  @IntRange(from = 1)
   public final int frameRate;
+
   /** The {@link Effects} to apply to the {@link #mediaItem}. */
   public final Effects effects;
 
@@ -230,5 +259,10 @@ public final class EditedMediaItem {
     this.durationUs = durationUs;
     this.frameRate = frameRate;
     this.effects = effects;
+  }
+
+  /** Returns a {@link Builder} initialized with the values of this instance. */
+  /* package */ Builder buildUpon() {
+    return new Builder(this);
   }
 }

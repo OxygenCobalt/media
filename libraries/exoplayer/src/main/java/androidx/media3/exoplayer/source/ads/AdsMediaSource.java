@@ -31,6 +31,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSpec;
@@ -52,7 +53,6 @@ import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /**
@@ -79,12 +79,16 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
     @Target(TYPE_USE)
     @IntDef({TYPE_AD, TYPE_AD_GROUP, TYPE_ALL_ADS, TYPE_UNEXPECTED})
     public @interface Type {}
+
     /** Type for when an ad failed to load. The ad will be skipped. */
     public static final int TYPE_AD = 0;
+
     /** Type for when an ad group failed to load. The ad group will be skipped. */
     public static final int TYPE_AD_GROUP = 1;
+
     /** Type for when all ad groups failed to load. All ads will be skipped. */
     public static final int TYPE_ALL_ADS = 2;
+
     /** Type for when an unexpected error occurred while loading ads. All ads will be skipped. */
     public static final int TYPE_UNEXPECTED = 3;
 
@@ -185,6 +189,17 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
   @Override
   public MediaItem getMediaItem() {
     return contentMediaSource.getMediaItem();
+  }
+
+  @Override
+  public boolean canUpdateMediaItem(MediaItem mediaItem) {
+    return Util.areEqual(getAdsConfiguration(getMediaItem()), getAdsConfiguration(mediaItem))
+        && contentMediaSource.canUpdateMediaItem(mediaItem);
+  }
+
+  @Override
+  public void updateMediaItem(MediaItem mediaItem) {
+    contentMediaSource.updateMediaItem(mediaItem);
   }
 
   @Override
@@ -354,6 +369,13 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
       }
     }
     return adDurationsUs;
+  }
+
+  @Nullable
+  private static MediaItem.AdsConfiguration getAdsConfiguration(MediaItem mediaItem) {
+    return mediaItem.localConfiguration == null
+        ? null
+        : mediaItem.localConfiguration.adsConfiguration;
   }
 
   /** Listener for component events. All methods are called on the main thread. */

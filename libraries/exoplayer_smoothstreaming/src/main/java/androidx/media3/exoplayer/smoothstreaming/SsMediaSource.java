@@ -23,6 +23,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -326,6 +327,7 @@ public final class SsMediaSource extends BaseMediaSource
 
   /** The minimum period between manifest refreshes. */
   private static final int MINIMUM_MANIFEST_REFRESH_PERIOD_MS = 5000;
+
   /**
    * The minimum default start position for live streams, relative to the start of the live window.
    */
@@ -333,8 +335,6 @@ public final class SsMediaSource extends BaseMediaSource
 
   private final boolean sideloadedManifest;
   private final Uri manifestUri;
-  private final MediaItem.LocalConfiguration localConfiguration;
-  private final MediaItem mediaItem;
   private final DataSource.Factory manifestDataSourceFactory;
   private final SsChunkSource.Factory chunkSourceFactory;
   private final CompositeSequenceableLoaderFactory compositeSequenceableLoaderFactory;
@@ -350,11 +350,12 @@ public final class SsMediaSource extends BaseMediaSource
   private Loader manifestLoader;
   private LoaderErrorThrower manifestLoaderErrorThrower;
   @Nullable private TransferListener mediaTransferListener;
-
   private long manifestLoadStartTimestamp;
   private SsManifest manifest;
-
   private Handler manifestRefreshHandler;
+
+  @GuardedBy("this")
+  private MediaItem mediaItem;
 
   private SsMediaSource(
       MediaItem mediaItem,
@@ -369,7 +370,7 @@ public final class SsMediaSource extends BaseMediaSource
       long livePresentationDelayMs) {
     Assertions.checkState(manifest == null || !manifest.isLive);
     this.mediaItem = mediaItem;
-    localConfiguration = checkNotNull(mediaItem.localConfiguration);
+    MediaItem.LocalConfiguration localConfiguration = checkNotNull(mediaItem.localConfiguration);
     this.manifest = manifest;
     this.manifestUri =
         localConfiguration.uri.equals(Uri.EMPTY)
@@ -391,8 +392,24 @@ public final class SsMediaSource extends BaseMediaSource
   // MediaSource implementation.
 
   @Override
-  public MediaItem getMediaItem() {
+  public synchronized MediaItem getMediaItem() {
     return mediaItem;
+  }
+
+  @Override
+  public boolean canUpdateMediaItem(MediaItem mediaItem) {
+    MediaItem.LocalConfiguration existingConfiguration =
+        checkNotNull(getMediaItem().localConfiguration);
+    @Nullable MediaItem.LocalConfiguration newConfiguration = mediaItem.localConfiguration;
+    return newConfiguration != null
+        && newConfiguration.uri.equals(existingConfiguration.uri)
+        && newConfiguration.streamKeys.equals(existingConfiguration.streamKeys)
+        && Util.areEqual(newConfiguration.drmConfiguration, existingConfiguration.drmConfiguration);
+  }
+
+  @Override
+  public synchronized void updateMediaItem(MediaItem mediaItem) {
+    this.mediaItem = mediaItem;
   }
 
   @Override
@@ -566,7 +583,7 @@ public final class SsMediaSource extends BaseMediaSource
               /* isDynamic= */ manifest.isLive,
               /* useLiveConfiguration= */ manifest.isLive,
               manifest,
-              mediaItem);
+              getMediaItem());
     } else if (manifest.isLive) {
       if (manifest.dvrWindowLengthUs != C.TIME_UNSET && manifest.dvrWindowLengthUs > 0) {
         startTimeUs = max(startTimeUs, endTimeUs - manifest.dvrWindowLengthUs);
@@ -589,7 +606,7 @@ public final class SsMediaSource extends BaseMediaSource
               /* isDynamic= */ true,
               /* useLiveConfiguration= */ true,
               manifest,
-              mediaItem);
+              getMediaItem());
     } else {
       long durationUs =
           manifest.durationUs != C.TIME_UNSET ? manifest.durationUs : endTimeUs - startTimeUs;
@@ -603,7 +620,7 @@ public final class SsMediaSource extends BaseMediaSource
               /* isDynamic= */ false,
               /* useLiveConfiguration= */ false,
               manifest,
-              mediaItem);
+              getMediaItem());
     }
     refreshSourceInfo(timeline);
   }

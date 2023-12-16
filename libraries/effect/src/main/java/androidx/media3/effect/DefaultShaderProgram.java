@@ -54,7 +54,7 @@ import java.util.List;
  */
 @UnstableApi
 @SuppressWarnings("FunctionalInterfaceClash") // b/228192298
-/* package */ final class DefaultShaderProgram extends SingleFrameGlShaderProgram
+/* package */ final class DefaultShaderProgram extends BaseGlShaderProgram
     implements ExternalShaderProgram {
 
   private static final String VERTEX_SHADER_TRANSFORMATION_PATH =
@@ -101,27 +101,34 @@ import java.util.List;
 
   /** The {@link MatrixTransformation MatrixTransformations} to apply. */
   private final ImmutableList<GlMatrixTransformation> matrixTransformations;
+
   /** The {@link RgbMatrix RgbMatrices} to apply. */
   private final ImmutableList<RgbMatrix> rgbMatrices;
+
   /** Whether the frame is in HDR or not. */
   private final boolean useHdr;
+
   /**
    * The transformation matrices provided by the {@link MatrixTransformation MatrixTransformations}
    * for the most recent frame.
    */
   private final float[][] transformationMatrixCache;
+
   /** The RGB matrices provided by the {@link RgbMatrix RgbMatrices} for the most recent frame. */
   private final float[][] rgbMatrixCache;
+
   /**
    * The product of the {@link #transformationMatrixCache} for the most recent frame, to be applied
    * in the vertex shader.
    */
   private final float[] compositeTransformationMatrixArray;
+
   /**
    * The product of the {@link #rgbMatrixCache} for the most recent frame, to be applied in the
    * fragment shader.
    */
   private final float[] compositeRgbMatrixArray;
+
   /** Matrix for storing an intermediate calculation result. */
   private final float[] tempResultMatrix;
 
@@ -380,7 +387,7 @@ import java.util.List;
       checkArgument(
           outputColorTransfer == C.COLOR_TRANSFER_SDR
               || outputColorTransfer == C.COLOR_TRANSFER_LINEAR);
-      // The SDR shader automatically applies an COLOR_TRANSFER_SDR EOTF.
+      // The SDR shader automatically applies a COLOR_TRANSFER_SDR EOTF.
       glProgram.setIntUniform("uOutputColorTransfer", outputColorTransfer);
     }
 
@@ -410,7 +417,7 @@ import java.util.List;
       ImmutableList<RgbMatrix> rgbMatrices,
       int outputColorTransfer,
       boolean useHdr) {
-    super(useHdr);
+    super(/* useHighPrecisionColorComponents= */ useHdr, /* texturePoolCapacity= */ 1);
     this.glProgram = glProgram;
     this.outputColorTransfer = outputColorTransfer;
     this.matrixTransformations = matrixTransformations;
@@ -436,8 +443,7 @@ import java.util.List;
       throw new VideoFrameProcessingException(e);
     }
 
-    float[] identityMatrix = GlUtil.create4x4IdentityMatrix();
-    glProgram.setFloatsUniform("uTexTransformationMatrix", identityMatrix);
+    glProgram.setFloatsUniform("uTexTransformationMatrix", GlUtil.create4x4IdentityMatrix());
     return glProgram;
   }
 
@@ -454,7 +460,7 @@ import java.util.List;
   @Override
   public void drawFrame(int inputTexId, long presentationTimeUs)
       throws VideoFrameProcessingException {
-    updateCompositeRgbaMatrixArray(presentationTimeUs);
+    updateCompositeRgbMatrixArray(presentationTimeUs);
     updateCompositeTransformationMatrixAndVisiblePolygon(presentationTimeUs);
     if (visiblePolygon.size() < 3) {
       return; // Need at least three visible vertices for a triangle.
@@ -556,7 +562,7 @@ import java.util.List;
   }
 
   /** Updates {@link #compositeRgbMatrixArray} based on the given frame timestamp. */
-  private void updateCompositeRgbaMatrixArray(long presentationTimeUs) {
+  private void updateCompositeRgbMatrixArray(long presentationTimeUs) {
     float[][] matricesCurrTimestamp = new float[rgbMatrices.size()][16];
     for (int i = 0; i < rgbMatrices.size(); i++) {
       matricesCurrTimestamp[i] = rgbMatrices.get(i).getMatrix(presentationTimeUs, useHdr);
