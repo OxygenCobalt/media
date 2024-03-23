@@ -21,10 +21,10 @@ android.externalNativeBuild.cmake.version = '3.21.0+'
 
 task assembleFfmpeg(type: Exec) {
     def host = ""
-    if (Os.isFamily(Os.FAMILY_UNIX)) {
-        host = "linux-x86_64"
-    } else if (Os.isFamily(Os.FAMILY_MAC)) {
+    if (Os.isFamily(Os.FAMILY_MAC)) {
         host = "darwin-x86_64"
+    } else if (Os.isFamily(Os.FAMILY_UNIX)) {
+        host = "linux-x86_64"
     } else {
         throw UnsupportedOperationException(
                 "Building with Windows is not supported. " +
