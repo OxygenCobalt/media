@@ -53,7 +53,7 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>All methods must be called on the main thread.
  */
-/* package */ final class MediaNotificationManager {
+public final class MediaNotificationManager {
 
   /* package */ static final String KEY_MEDIA_NOTIFICATION_MANAGER =
       "androidx.media3.session.MediaNotificationManager";

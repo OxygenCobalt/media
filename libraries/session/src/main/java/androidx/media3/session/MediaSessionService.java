@@ -575,7 +575,7 @@ public abstract class MediaSessionService extends Service {
     return true;
   }
 
-  private MediaNotificationManager getMediaNotificationManager() {
+  public MediaNotificationManager getMediaNotificationManager() {
     synchronized (lock) {
       if (mediaNotificationManager == null) {
         if (mediaNotificationProvider == null) {
