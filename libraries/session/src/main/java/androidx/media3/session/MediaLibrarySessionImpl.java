@@ -117,22 +117,22 @@ import java.util.concurrent.Future;
 
   public ListenableFuture<LibraryResult<MediaItem>> onGetLibraryRootOnHandler(
       ControllerInfo browser, @Nullable LibraryParams params) {
-    if (params != null && params.isRecent && isSystemUiController(browser)) {
-      // Advertise support for playback resumption, if enabled.
-      return !canResumePlaybackOnStart()
-          ? Futures.immediateFuture(LibraryResult.ofError(RESULT_ERROR_NOT_SUPPORTED))
-          : Futures.immediateFuture(
-              LibraryResult.ofItem(
-                  new MediaItem.Builder()
-                      .setMediaId(RECENT_LIBRARY_ROOT_MEDIA_ID)
-                      .setMediaMetadata(
-                          new MediaMetadata.Builder()
-                              .setIsBrowsable(true)
-                              .setIsPlayable(false)
-                              .build())
-                      .build(),
-                  params));
-    }
+//    if (params != null && params.isRecent && isSystemUiController(browser)) {
+//      // Advertise support for playback resumption, if enabled.
+//      return !canResumePlaybackOnStart()
+//          ? Futures.immediateFuture(LibraryResult.ofError(RESULT_ERROR_NOT_SUPPORTED))
+//          : Futures.immediateFuture(
+//              LibraryResult.ofItem(
+//                  new MediaItem.Builder()
+//                      .setMediaId(RECENT_LIBRARY_ROOT_MEDIA_ID)
+//                      .setMediaMetadata(
+//                          new MediaMetadata.Builder()
+//                              .setIsBrowsable(true)
+//                              .setIsPlayable(false)
+//                              .build())
+//                      .build(),
+//                  params));
+//    }
     ListenableFuture<LibraryResult<MediaItem>> future =
         callback.onGetLibraryRoot(instance, resolveControllerInfoForCallback(browser), params);
     future.addListener(
