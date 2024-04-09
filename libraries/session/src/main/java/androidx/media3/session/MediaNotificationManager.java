@@ -61,7 +61,7 @@ public final class MediaNotificationManager {
 
   private final MediaSessionService mediaSessionService;
   private final MediaNotification.Provider mediaNotificationProvider;
-  private final MediaNotification.ActionFactory actionFactory;
+  public final MediaNotification.ActionFactory actionFactory;
   private final NotificationManagerCompat notificationManagerCompat;
   private final Executor mainExecutor;
   private final Intent startSelfIntent;

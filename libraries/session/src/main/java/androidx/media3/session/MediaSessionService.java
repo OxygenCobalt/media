@@ -174,7 +174,7 @@ public abstract class MediaSessionService extends Service {
   private @MonotonicNonNull MediaNotificationManager mediaNotificationManager;
 
   @GuardedBy("lock")
-  private MediaNotification.@MonotonicNonNull Provider mediaNotificationProvider;
+  public MediaNotification.@MonotonicNonNull Provider mediaNotificationProvider;
 
   @GuardedBy("lock")
   private @MonotonicNonNull DefaultActionFactory actionFactory;
