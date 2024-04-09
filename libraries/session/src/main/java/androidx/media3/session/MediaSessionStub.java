@@ -245,8 +245,8 @@ import java.util.concurrent.ExecutionException;
                       controller,
                       () -> {
                         if (!sessionImpl.isReleased()) {
-                          mediaItemPlayerTask.run(
-                              sessionImpl.getPlayerWrapper(), mediaItemsWithStartPosition);
+//                          mediaItemPlayerTask.run(
+//                              sessionImpl.getPlayerWrapper(), mediaItemsWithStartPosition);
                         }
                       }),
                   new SessionResult(SessionResult.RESULT_SUCCESS)));
