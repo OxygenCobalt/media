@@ -44,6 +44,7 @@ COMMON_OPTIONS="
     --enable-swresample
     --extra-ldexeflags=-pie
     --disable-v4l2-m2m
+    --disable-vulkan
     "
 TOOLCHAIN_PREFIX="${NDK_PATH}/toolchains/llvm/prebuilt/${HOST_PLATFORM}/bin"
 if [[ ! -d "${TOOLCHAIN_PREFIX}" ]]
