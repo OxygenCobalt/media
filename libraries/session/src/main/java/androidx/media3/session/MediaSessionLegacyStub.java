@@ -824,18 +824,18 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                       sessionImpl.callWithControllerForCurrentRequestSet(
                           controller,
                           () -> {
-//                            PlayerWrapper player = sessionImpl.getPlayerWrapper();
-//                            MediaUtils.setMediaItemsWithStartIndexAndPosition(
-//                                player, mediaItemsWithStartPosition);
-//                            @Player.State int playbackState = player.getPlaybackState();
-//                            if (playbackState == Player.STATE_IDLE) {
-//                              player.prepareIfCommandAvailable();
-//                            } else if (playbackState == Player.STATE_ENDED) {
-//                              player.seekToDefaultPositionIfCommandAvailable();
-//                            }
-//                            if (play) {
-//                              player.playIfCommandAvailable();
-//                            }
+                            PlayerWrapper player = sessionImpl.getPlayerWrapper();
+                            MediaUtils.setMediaItemsWithStartIndexAndPosition(
+                                player, mediaItemsWithStartPosition);
+                            @Player.State int playbackState = player.getPlaybackState();
+                            if (playbackState == Player.STATE_IDLE) {
+                              player.prepareIfCommandAvailable();
+                            } else if (playbackState == Player.STATE_ENDED) {
+                              player.seekToDefaultPositionIfCommandAvailable();
+                            }
+                            if (play) {
+                              player.playIfCommandAvailable();
+                            }
                           }));
                 }
 
@@ -874,11 +874,11 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                       sessionImpl.callWithControllerForCurrentRequestSet(
                           controller,
                           () -> {
-//                            if (index == C.INDEX_UNSET) {
-//                              sessionImpl.getPlayerWrapper().addMediaItems(mediaItems);
-//                            } else {
-//                              sessionImpl.getPlayerWrapper().addMediaItems(index, mediaItems);
-//                            }
+                            if (index == C.INDEX_UNSET) {
+                              sessionImpl.getPlayerWrapper().addMediaItems(mediaItems);
+                            } else {
+                              sessionImpl.getPlayerWrapper().addMediaItems(index, mediaItems);
+                            }
                           }));
                 }
 
