@@ -30,16 +30,12 @@ import android.media.Image;
 import android.media.MediaFormat;
 import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
-import android.opengl.GLES20;
-import android.opengl.GLUtils;
-import android.os.Build;
 import android.util.Pair;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.GlObjectsProvider;
-import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Log;
@@ -55,7 +51,6 @@ import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -75,6 +70,9 @@ public final class AndroidTestUtil {
   public static final String JPG_ASSET_URI_STRING = "asset:///media/bitmap/input_images/london.jpg";
   public static final String JPG_PORTRAIT_ASSET_URI_STRING =
       "asset:///media/bitmap/input_images/tokyo.jpg";
+
+  public static final String MP4_TRIM_OPTIMIZATION_URI_STRING =
+      "asset:///media/mp4/internal_emulator_transformer_output.mp4";
 
   public static final String MP4_ASSET_URI_STRING = "asset:///media/mp4/sample.mp4";
   public static final Format MP4_ASSET_FORMAT =
@@ -143,6 +141,17 @@ public final class AndroidTestUtil {
           .setHeight(240)
           .setFrameRate(30.472f)
           .setCodecs("avc1.64000D")
+          .build();
+
+  public static final String MP4_ASSET_SEF_H265_URI_STRING =
+      "asset:///media/mp4/sample_sef_slow_motion_hevc.mp4";
+  public static final Format MP4_ASSET_SEF_H265_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H265)
+          .setWidth(1920)
+          .setHeight(1080)
+          .setFrameRate(30.01679f)
+          .setCodecs("hvc1.1.6.L120.B0")
           .build();
 
   public static final String MP4_ASSET_BT2020_SDR = "asset:///media/mp4/bt2020-sdr.mp4";
@@ -554,7 +563,7 @@ public final class AndroidTestUtil {
           .setCodecs("hvc1.1.6.L183.B0")
           .build();
 
-  public static final String MP3_ASSET_URI_STRING = "asset:///media/mp3/test.mp3";
+  public static final String MP3_ASSET_URI_STRING = "asset:///media/mp3/test-cbr-info-header.mp3";
 
   /**
    * Creates the GL objects needed to set up a GL environment including an {@link EGLDisplay} and an
@@ -578,13 +587,7 @@ public final class AndroidTestUtil {
    * <p>Must have a GL context set up.
    */
   public static int generateTextureFromBitmap(Bitmap bitmap) throws GlUtil.GlException {
-    int texId =
-        GlUtil.createTexture(
-            bitmap.getWidth(), bitmap.getHeight(), /* useHighPrecisionColorComponents= */ false);
-    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texId);
-    GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, /* level= */ 0, bitmap, /* border= */ 0);
-    GlUtil.checkGlError();
-    return texId;
+    return GlUtil.createTexture(bitmap);
   }
 
   /**
@@ -665,68 +668,6 @@ public final class AndroidTestUtil {
   }
 
   /**
-   * Returns a {@link JSONObject} containing device specific details from {@link Build}, including
-   * manufacturer, model, SDK version and build fingerprint.
-   */
-  public static JSONObject getDeviceDetailsAsJsonObject() throws JSONException {
-    return new JSONObject()
-        .put("manufacturer", Build.MANUFACTURER)
-        .put("model", Build.MODEL)
-        .put("sdkVersion", Build.VERSION.SDK_INT)
-        .put("fingerprint", Build.FINGERPRINT);
-  }
-
-  /**
-   * Creates a {@link JSONArray} from {@link ExportResult.ProcessedInput processed inputs}.
-   *
-   * @param processedInputs The list of {@link ExportResult.ProcessedInput} instances.
-   * @return A {@link JSONArray} containing {@link JSONObject} instances representing the {@link
-   *     ExportResult.ProcessedInput} instances.
-   */
-  public static JSONArray processedInputsAsJsonArray(
-      ImmutableList<ExportResult.ProcessedInput> processedInputs) throws JSONException {
-    JSONArray jsonArray = new JSONArray();
-    for (int i = 0; i < processedInputs.size(); i++) {
-      ExportResult.ProcessedInput processedInput = processedInputs.get(i);
-      JSONObject jsonObject = new JSONObject();
-      @Nullable
-      MediaItem.LocalConfiguration localConfiguration = processedInput.mediaItem.localConfiguration;
-      if (localConfiguration != null) {
-        jsonObject.put("mediaItemUri", localConfiguration.uri);
-      }
-      jsonObject.putOpt("audioDecoderName", processedInput.audioDecoderName);
-      jsonObject.putOpt("videoDecoderName", processedInput.videoDecoderName);
-      jsonArray.put(jsonObject);
-    }
-    return jsonArray;
-  }
-
-  /**
-   * Creates a {@link JSONObject} from the {@link Exception}.
-   *
-   * <p>If the exception is an {@link ExportException}, {@code errorCode} is included.
-   *
-   * @param exception The {@link Exception}.
-   * @return The {@link JSONObject} containing the exception details, or {@code null} if the
-   *     exception was {@code null}.
-   */
-  @Nullable
-  public static JSONObject exceptionAsJsonObject(@Nullable Exception exception)
-      throws JSONException {
-    if (exception == null) {
-      return null;
-    }
-    JSONObject exceptionJson = new JSONObject();
-    exceptionJson.put("message", exception.getMessage());
-    exceptionJson.put("type", exception.getClass());
-    if (exception instanceof ExportException) {
-      exceptionJson.put("errorCode", ((ExportException) exception).errorCode);
-    }
-    exceptionJson.put("stackTrace", Log.getThrowableString(exception));
-    return exceptionJson;
-  }
-
-  /**
    * Writes the summary of a test run to the application cache file.
    *
    * <p>The cache filename follows the pattern {@code <testId>-result.txt}.
@@ -737,7 +678,7 @@ public final class AndroidTestUtil {
    */
   public static void writeTestSummaryToFile(Context context, String testId, JSONObject testJson)
       throws IOException, JSONException {
-    testJson.put("testId", testId).put("device", getDeviceDetailsAsJsonObject());
+    testJson.put("testId", testId).put("device", JsonUtil.getDeviceDetailsAsJsonObject());
 
     String analysisContents = testJson.toString(/* indentSpaces= */ 2);
 
@@ -809,6 +750,8 @@ public final class AndroidTestUtil {
         return MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S_FORMAT;
       case MP4_ASSET_SEF_URI_STRING:
         return MP4_ASSET_SEF_FORMAT;
+      case MP4_ASSET_SEF_H265_URI_STRING:
+        return MP4_ASSET_SEF_H265_FORMAT;
       case MP4_ASSET_4K60_PORTRAIT_URI_STRING:
         return MP4_ASSET_4K60_PORTRAIT_FORMAT;
       case MP4_REMOTE_10_SECONDS_URI_STRING:

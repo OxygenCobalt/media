@@ -165,6 +165,7 @@ public abstract class DecoderAudioRenderer<
   private long outputStreamOffsetUs;
   private final long[] pendingOutputStreamOffsetsUs;
   private int pendingOutputStreamOffsetCount;
+  private boolean hasPendingReportedSkippedSilence;
 
   public DecoderAudioRenderer() {
     this(/* eventHandler= */ null, /* eventListener= */ null);
@@ -373,6 +374,18 @@ public abstract class DecoderAudioRenderer<
   protected abstract Format getOutputFormat(T decoder);
 
   /**
+   * Returns the channel layout mapping that should be applied when sending this data to the output,
+   * or null to not change the channel layout.
+   *
+   * @param decoder The decoder.
+   */
+  @ForOverride
+  @Nullable
+  protected int[] getChannelMapping(T decoder) {
+    return null;
+  }
+
+  /**
    * Evaluates whether the existing decoder can be reused for a new {@link Format}.
    *
    * <p>The default implementation does not allow decoder reuse.
@@ -438,11 +451,12 @@ public abstract class DecoderAudioRenderer<
               .setMetadata(inputFormat.metadata)
               .setId(inputFormat.id)
               .setLabel(inputFormat.label)
+              .setLabels(inputFormat.labels)
               .setLanguage(inputFormat.language)
               .setSelectionFlags(inputFormat.selectionFlags)
               .setRoleFlags(inputFormat.roleFlags)
               .build();
-      audioSink.configure(outputFormat, /* specifiedBufferSize= */ 0, /* outputChannels= */ null);
+      audioSink.configure(outputFormat, /* specifiedBufferSize= */ 0, getChannelMapping(decoder));
       audioTrackNeedsConfigure = false;
     }
 
@@ -578,6 +592,13 @@ public abstract class DecoderAudioRenderer<
   }
 
   @Override
+  public boolean hasSkippedSilenceSinceLastCall() {
+    boolean hasPendingReportedSkippedSilence = this.hasPendingReportedSkippedSilence;
+    this.hasPendingReportedSkippedSilence = false;
+    return hasPendingReportedSkippedSilence;
+  }
+
+  @Override
   public void setPlaybackParameters(PlaybackParameters playbackParameters) {
     audioSink.setPlaybackParameters(playbackParameters);
   }
@@ -606,6 +627,7 @@ public abstract class DecoderAudioRenderer<
     audioSink.flush();
 
     currentPositionUs = positionUs;
+    hasPendingReportedSkippedSilence = false;
     allowPositionDiscontinuity = true;
     inputStreamEnded = false;
     outputStreamEnded = false;
@@ -630,6 +652,7 @@ public abstract class DecoderAudioRenderer<
     inputFormat = null;
     audioTrackNeedsConfigure = true;
     setOutputStreamOffsetUs(C.TIME_UNSET);
+    hasPendingReportedSkippedSilence = false;
     try {
       setSourceDrmSession(null);
       releaseDecoder();
@@ -827,6 +850,11 @@ public abstract class DecoderAudioRenderer<
     @Override
     public void onPositionDiscontinuity() {
       DecoderAudioRenderer.this.onPositionDiscontinuity();
+    }
+
+    @Override
+    public void onSilenceSkipped() {
+      hasPendingReportedSkippedSilence = true;
     }
 
     @Override

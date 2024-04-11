@@ -16,7 +16,7 @@
 package androidx.media3.common;
 
 import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.BundleableUtil.toBundleArrayList;
+import static androidx.media3.common.util.BundleCollectionUtil.toBundleArrayList;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
@@ -29,7 +29,7 @@ import android.view.accessibility.CaptioningManager;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
-import androidx.media3.common.util.BundleableUtil;
+import androidx.media3.common.util.BundleCollectionUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.common.collect.ImmutableList;
@@ -49,6 +49,7 @@ import java.util.Set;
 import org.checkerframework.checker.initialization.qual.UnknownInitialization;
 import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 
+// LINT.IfChange(javadoc)
 /**
  * Parameters for controlling track selection.
  *
@@ -58,12 +59,12 @@ import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
  *
  * <pre>{@code
  * // Build on the current parameters.
- * TrackSelectionParameters currentParameters = player.getTrackSelectionParameters()
+ * TrackSelectionParameters currentParameters = player.getTrackSelectionParameters();
  * // Build the resulting parameters.
  * TrackSelectionParameters newParameters = currentParameters
  *     .buildUpon()
  *     .setMaxVideoSizeSd()
- *     .setPreferredAudioLanguage("deu")
+ *     .setPreferredAudioLanguage("de")
  *     .build();
  * // Set the new parameters.
  * player.setTrackSelectionParameters(newParameters);
@@ -102,6 +103,8 @@ public class TrackSelectionParameters implements Bundleable {
     private @C.RoleFlags int preferredTextRoleFlags;
     private @C.SelectionFlags int ignoredTextSelectionFlags;
     private boolean selectUndeterminedTextLanguage;
+    // Image
+    private boolean isPrioritizeImageOverVideoEnabled;
     // General
     private boolean forceLowestBitrate;
     private boolean forceHighestSupportedBitrate;
@@ -137,6 +140,8 @@ public class TrackSelectionParameters implements Bundleable {
       preferredTextRoleFlags = 0;
       ignoredTextSelectionFlags = 0;
       selectUndeterminedTextLanguage = false;
+      // Image
+      isPrioritizeImageOverVideoEnabled = false;
       // General
       forceLowestBitrate = false;
       forceHighestSupportedBitrate = false;
@@ -223,6 +228,11 @@ public class TrackSelectionParameters implements Bundleable {
           bundle.getBoolean(
               FIELD_SELECT_UNDETERMINED_TEXT_LANGUAGE,
               DEFAULT_WITHOUT_CONTEXT.selectUndeterminedTextLanguage);
+      // Image
+      isPrioritizeImageOverVideoEnabled =
+          bundle.getBoolean(
+              FIELD_IS_PREFER_IMAGE_OVER_VIDEO_ENABLED,
+              DEFAULT_WITHOUT_CONTEXT.isPrioritizeImageOverVideoEnabled);
 
       // General
       forceLowestBitrate =
@@ -236,7 +246,8 @@ public class TrackSelectionParameters implements Bundleable {
       List<TrackSelectionOverride> overrideList =
           overrideBundleList == null
               ? ImmutableList.of()
-              : BundleableUtil.fromBundleList(TrackSelectionOverride.CREATOR, overrideBundleList);
+              : BundleCollectionUtil.fromBundleList(
+                  TrackSelectionOverride::fromBundle, overrideBundleList);
       overrides = new HashMap<>();
       for (int i = 0; i < overrideList.size(); i++) {
         TrackSelectionOverride override = overrideList.get(i);
@@ -307,6 +318,8 @@ public class TrackSelectionParameters implements Bundleable {
       preferredTextRoleFlags = parameters.preferredTextRoleFlags;
       ignoredTextSelectionFlags = parameters.ignoredTextSelectionFlags;
       selectUndeterminedTextLanguage = parameters.selectUndeterminedTextLanguage;
+      // Image
+      isPrioritizeImageOverVideoEnabled = parameters.isPrioritizeImageOverVideoEnabled;
       // General
       forceLowestBitrate = parameters.forceLowestBitrate;
       forceHighestSupportedBitrate = parameters.forceHighestSupportedBitrate;
@@ -688,6 +701,22 @@ public class TrackSelectionParameters implements Bundleable {
     @CanIgnoreReturnValue
     public Builder setSelectUndeterminedTextLanguage(boolean selectUndeterminedTextLanguage) {
       this.selectUndeterminedTextLanguage = selectUndeterminedTextLanguage;
+      return this;
+    }
+
+    // Image
+
+    /**
+     * Sets whether an image track would be selected over a video track if both are available.
+     *
+     * @param isPrioritizeImageOverVideoEnabled Whether an image track would be selected over a
+     *     video track if both are available.
+     * @return This builder.
+     */
+    @UnstableApi
+    @CanIgnoreReturnValue
+    public Builder setPrioritizeImageOverVideoEnabled(boolean isPrioritizeImageOverVideoEnabled) {
+      this.isPrioritizeImageOverVideoEnabled = isPrioritizeImageOverVideoEnabled;
       return this;
     }
 
@@ -1204,6 +1233,13 @@ public class TrackSelectionParameters implements Bundleable {
    */
   public final boolean selectUndeterminedTextLanguage;
 
+  // Image
+  /**
+   * Whether an image track will be selected over a video track if both are available. The default
+   * value is {@code false}.
+   */
+  @UnstableApi public final boolean isPrioritizeImageOverVideoEnabled;
+
   // General
   /**
    * Whether to force selection of the single lowest bitrate audio and video tracks that comply with
@@ -1255,6 +1291,8 @@ public class TrackSelectionParameters implements Bundleable {
     this.preferredTextRoleFlags = builder.preferredTextRoleFlags;
     this.ignoredTextSelectionFlags = builder.ignoredTextSelectionFlags;
     this.selectUndeterminedTextLanguage = builder.selectUndeterminedTextLanguage;
+    // Image
+    this.isPrioritizeImageOverVideoEnabled = builder.isPrioritizeImageOverVideoEnabled;
     // General
     this.forceLowestBitrate = builder.forceLowestBitrate;
     this.forceHighestSupportedBitrate = builder.forceHighestSupportedBitrate;
@@ -1303,6 +1341,8 @@ public class TrackSelectionParameters implements Bundleable {
         && preferredTextRoleFlags == other.preferredTextRoleFlags
         && ignoredTextSelectionFlags == other.ignoredTextSelectionFlags
         && selectUndeterminedTextLanguage == other.selectUndeterminedTextLanguage
+        // Image
+        && isPrioritizeImageOverVideoEnabled == other.isPrioritizeImageOverVideoEnabled
         // General
         && forceLowestBitrate == other.forceLowestBitrate
         && forceHighestSupportedBitrate == other.forceHighestSupportedBitrate
@@ -1339,6 +1379,8 @@ public class TrackSelectionParameters implements Bundleable {
     result = 31 * result + preferredTextRoleFlags;
     result = 31 * result + ignoredTextSelectionFlags;
     result = 31 * result + (selectUndeterminedTextLanguage ? 1 : 0);
+    // Image
+    result = 31 * result + (isPrioritizeImageOverVideoEnabled ? 1 : 0);
     // General
     result = 31 * result + (forceLowestBitrate ? 1 : 0);
     result = 31 * result + (forceHighestSupportedBitrate ? 1 : 0);
@@ -1379,10 +1421,12 @@ public class TrackSelectionParameters implements Bundleable {
   private static final String FIELD_IS_GAPLESS_SUPPORT_REQUIRED = Util.intToStringMaxRadix(28);
   private static final String FIELD_IS_SPEED_CHANGE_SUPPORT_REQUIRED = Util.intToStringMaxRadix(29);
   private static final String FIELD_AUDIO_OFFLOAD_PREFERENCES = Util.intToStringMaxRadix(30);
+  private static final String FIELD_IS_PREFER_IMAGE_OVER_VIDEO_ENABLED =
+      Util.intToStringMaxRadix(31);
 
   /**
    * Defines a minimum field ID value for subclasses to use when implementing {@link #toBundle()}
-   * and {@link Bundleable.Creator}.
+   * and delegating to {@link Builder#Builder(Bundle)}.
    *
    * <p>Subclasses should obtain keys for their {@link Bundle} representation by applying a
    * non-negative offset on this constant and passing the result to {@link
@@ -1430,10 +1474,14 @@ public class TrackSelectionParameters implements Bundleable {
         FIELD_IS_SPEED_CHANGE_SUPPORT_REQUIRED,
         audioOffloadPreferences.isSpeedChangeSupportRequired);
     bundle.putBundle(FIELD_AUDIO_OFFLOAD_PREFERENCES, audioOffloadPreferences.toBundle());
+    // Image
+    bundle.putBoolean(FIELD_IS_PREFER_IMAGE_OVER_VIDEO_ENABLED, isPrioritizeImageOverVideoEnabled);
     // General
     bundle.putBoolean(FIELD_FORCE_LOWEST_BITRATE, forceLowestBitrate);
     bundle.putBoolean(FIELD_FORCE_HIGHEST_SUPPORTED_BITRATE, forceHighestSupportedBitrate);
-    bundle.putParcelableArrayList(FIELD_SELECTION_OVERRIDES, toBundleArrayList(overrides.values()));
+    bundle.putParcelableArrayList(
+        FIELD_SELECTION_OVERRIDES,
+        toBundleArrayList(overrides.values(), TrackSelectionOverride::toBundle));
     bundle.putIntArray(FIELD_DISABLED_TRACK_TYPE, Ints.toArray(disabledTrackTypes));
 
     return bundle;
@@ -1447,7 +1495,9 @@ public class TrackSelectionParameters implements Bundleable {
   /**
    * @deprecated Use {@link #fromBundle(Bundle)} instead.
    */
-  @UnstableApi @Deprecated
+  @UnstableApi
+  @Deprecated
+  @SuppressWarnings("deprecation") // Deprecated instance of deprecated class
   public static final Creator<TrackSelectionParameters> CREATOR =
       TrackSelectionParameters::fromBundle;
 }

@@ -69,33 +69,34 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpable {
 
   private final Context context;
-  private final boolean addImageRenderer;
   private final CapturingMediaCodecAdapter.Factory mediaCodecAdapterFactory;
   private final CapturingAudioSink audioSink;
   private final CapturingImageOutput imageOutput;
-
-  /**
-   * Creates an instance.
-   *
-   * <p>The factory will not include an {@link ImageRenderer}.
-   */
-  public CapturingRenderersFactory(Context context) {
-    this(context, /* addImageRenderer= */ false);
-  }
+  private ImageDecoder.Factory imageDecoderFactory;
 
   /**
    * Creates an instance.
    *
    * @param context The {@link Context}.
-   * @param addImageRenderer Whether to add the image renderer to the list of renderers created in
-   *     {@link #createRenderers}.
    */
-  public CapturingRenderersFactory(Context context, boolean addImageRenderer) {
+  public CapturingRenderersFactory(Context context) {
     this.context = context;
-    this.mediaCodecAdapterFactory = new CapturingMediaCodecAdapter.Factory();
+    this.mediaCodecAdapterFactory = new CapturingMediaCodecAdapter.Factory(context);
     this.audioSink = new CapturingAudioSink(new DefaultAudioSink.Builder(context).build());
     this.imageOutput = new CapturingImageOutput();
-    this.addImageRenderer = addImageRenderer;
+    this.imageDecoderFactory = ImageDecoder.Factory.DEFAULT;
+  }
+
+  /**
+   * Sets the {@link ImageDecoder.Factory} used by the {@link ImageRenderer}.
+   *
+   * @param imageDecoderFactory The {@link ImageDecoder.Factory}.
+   * @return This factory, for convenience.
+   */
+  public CapturingRenderersFactory setImageDecoderFactory(
+      ImageDecoder.Factory imageDecoderFactory) {
+    this.imageDecoderFactory = imageDecoderFactory;
+    return this;
   }
 
   @Override
@@ -105,8 +106,8 @@ public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpa
       AudioRendererEventListener audioRendererEventListener,
       TextOutput textRendererOutput,
       MetadataOutput metadataRendererOutput) {
-    ArrayList<Renderer> temp = new ArrayList<>();
-    temp.add(
+    ArrayList<Renderer> renderers = new ArrayList<>();
+    renderers.add(
         new MediaCodecVideoRenderer(
             context,
             mediaCodecAdapterFactory,
@@ -136,7 +137,7 @@ public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpa
             return false;
           }
         });
-    temp.add(
+    renderers.add(
         new MediaCodecAudioRenderer(
             context,
             mediaCodecAdapterFactory,
@@ -145,22 +146,18 @@ public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpa
             eventHandler,
             audioRendererEventListener,
             audioSink));
-    temp.add(new TextRenderer(textRendererOutput, eventHandler.getLooper()));
-    temp.add(new MetadataRenderer(metadataRendererOutput, eventHandler.getLooper()));
+    renderers.add(new TextRenderer(textRendererOutput, eventHandler.getLooper()));
+    renderers.add(new MetadataRenderer(metadataRendererOutput, eventHandler.getLooper()));
+    renderers.add(new ImageRenderer(imageDecoderFactory, imageOutput));
 
-    if (addImageRenderer) {
-      temp.add(new ImageRenderer(ImageDecoder.Factory.DEFAULT, imageOutput));
-    }
-    return temp.toArray(new Renderer[] {});
+    return renderers.toArray(new Renderer[] {});
   }
 
   @Override
   public void dump(Dumper dumper) {
     mediaCodecAdapterFactory.dump(dumper);
     audioSink.dump(dumper);
-    if (addImageRenderer) {
-      imageOutput.dump(dumper);
-    }
+    imageOutput.dump(dumper);
   }
 
   /**
@@ -171,9 +168,11 @@ public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpa
 
     private static class Factory implements MediaCodecAdapter.Factory, Dumper.Dumpable {
 
+      private final Context context;
       private final List<CapturingMediaCodecAdapter> constructedAdapters;
 
-      private Factory() {
+      private Factory(Context context) {
+        this.context = context;
         constructedAdapters = new ArrayList<>();
       }
 
@@ -182,7 +181,7 @@ public class CapturingRenderersFactory implements RenderersFactory, Dumper.Dumpa
       public MediaCodecAdapter createAdapter(Configuration configuration) throws IOException {
         CapturingMediaCodecAdapter adapter =
             new CapturingMediaCodecAdapter(
-                MediaCodecAdapter.Factory.DEFAULT.createAdapter(configuration),
+                MediaCodecAdapter.Factory.getDefault(context).createAdapter(configuration),
                 configuration.codecInfo.name);
         constructedAdapters.add(adapter);
         return adapter;

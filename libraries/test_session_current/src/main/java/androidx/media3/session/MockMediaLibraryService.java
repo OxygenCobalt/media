@@ -337,7 +337,8 @@ public class MockMediaLibraryService extends MediaLibraryService {
       assertLibraryParams(params);
       if (Objects.equals(parentId, PARENT_ID_NO_CHILDREN)) {
         return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.of(), params));
-      } else if (Objects.equals(parentId, PARENT_ID)) {
+      } else if (Objects.equals(parentId, PARENT_ID)
+          || Objects.equals(parentId, SUBSCRIBE_PARENT_ID_2)) {
         return Futures.immediateFuture(
             LibraryResult.ofItemList(
                 getPaginatedResult(GET_CHILDREN_RESULT, page, pageSize), params));
@@ -472,7 +473,7 @@ public class MockMediaLibraryService extends MediaLibraryService {
           @Nullable Bundle paramsBundle = args.getBundle(CUSTOM_ACTION_ASSERT_PARAMS);
           @Nullable
           LibraryParams params =
-              paramsBundle == null ? null : LibraryParams.CREATOR.fromBundle(paramsBundle);
+              paramsBundle == null ? null : LibraryParams.fromBundle(paramsBundle);
           setAssertLibraryParams(params);
           return Futures.immediateFuture(new SessionResult(SessionResult.RESULT_SUCCESS));
         default: // fall out

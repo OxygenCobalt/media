@@ -37,7 +37,7 @@ task assembleFfmpeg(type: Exec) {
         commandLine "true"
         return
     }
-    commandLine "sh", "-c", "$jniDir/build_ffmpeg.sh $projectDir/src/main $android.ndkDirectory $host flac alac"
+    commandLine "sh", "-c", "$jniDir/build_ffmpeg.sh $projectDir/src/main $android.ndkDirectory $host 21 flac alac"
 }
 
 afterEvaluate {

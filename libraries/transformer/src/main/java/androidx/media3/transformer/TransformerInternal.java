@@ -23,14 +23,13 @@ import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.contains;
 import static androidx.media3.transformer.AssetLoader.SUPPORTED_OUTPUT_TYPE_DECODED;
 import static androidx.media3.transformer.AssetLoader.SUPPORTED_OUTPUT_TYPE_ENCODED;
-import static androidx.media3.transformer.Composition.HDR_MODE_KEEP_HDR;
 import static androidx.media3.transformer.ExportException.ERROR_CODE_FAILED_RUNTIME_CHECK;
 import static androidx.media3.transformer.ExportException.ERROR_CODE_MUXING_FAILED;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_NOT_STARTED;
-import static androidx.media3.transformer.TransformerUtil.areVideoEffectsAllNoOp;
-import static androidx.media3.transformer.TransformerUtil.containsSlowMotionData;
 import static androidx.media3.transformer.TransformerUtil.getProcessedTrackType;
+import static androidx.media3.transformer.TransformerUtil.shouldTranscodeAudio;
+import static androidx.media3.transformer.TransformerUtil.shouldTranscodeVideo;
 import static java.lang.Math.max;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
@@ -42,17 +41,17 @@ import android.util.Log;
 import android.util.SparseArray;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.IntDef;
+import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.DebugViewProvider;
-import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.common.util.HandlerWrapper;
-import androidx.media3.effect.ScaleAndRotateTransformation;
 import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
@@ -102,7 +101,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   private static final int MSG_REGISTER_SAMPLE_EXPORTER = 1;
   private static final int MSG_DRAIN_EXPORTERS = 2;
   private static final int MSG_END = 3;
-  private static final int MSG_UPDATE_PROGRESS = 4;
 
   private static final String TAG = "TransformerInternal";
   private static final int DRAIN_EXPORTERS_DELAY_MS = 10;
@@ -130,16 +128,45 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   private final AssetLoaderInputTracker assetLoaderInputTracker;
 
   private final List<SampleExporter> sampleExporters;
-  private final Object setMaxSequenceDurationUsLock;
   private final MuxerWrapper muxerWrapper;
-  private final ConditionVariable transformerConditionVariable;
+  private final ConditionVariable canceledConditionVariable;
+  private final Object setMaxSequenceDurationUsLock;
+  private final Object progressLock;
+  private final ProgressHolder internalProgressHolder;
 
   private boolean isDrainingExporters;
+
+  @GuardedBy("setMaxSequenceDurationUsLock")
   private long currentMaxSequenceDurationUs;
+
+  @GuardedBy("setMaxSequenceDurationUsLock")
   private int nonLoopingSequencesWithNonFinalDuration;
-  private @Transformer.ProgressState int progressState;
+
   private @MonotonicNonNull RuntimeException cancelException;
 
+  /**
+   * The current {@link Transformer.ProgressState}.
+   *
+   * <p>Accessed and modified on the application and internal thread.
+   */
+  @GuardedBy("progressLock")
+  private @Transformer.ProgressState int progressState;
+
+  /**
+   * The current progress value, from 0 to 100.
+   *
+   * <p>Accessed and modified on the application and internal thread.
+   */
+  @GuardedBy("progressLock")
+  @IntRange(from = 0, to = 100)
+  private int progressValue;
+
+  /**
+   * The boolean tracking if this component has been released.
+   *
+   * <p>Modified on the internal thread. Accessed on the application thread (in {@link #getProgress}
+   * and {@link #cancel()}).
+   */
   private volatile boolean released;
 
   public TransformerInternal(
@@ -198,9 +225,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
     compositionHasLoopingSequence =
         nonLoopingSequencesWithNonFinalDuration != composition.sequences.size();
-    sampleExporters = new ArrayList<>();
     setMaxSequenceDurationUsLock = new Object();
-    transformerConditionVariable = new ConditionVariable();
+    canceledConditionVariable = new ConditionVariable();
+    progressLock = new Object();
+    internalProgressHolder = new ProgressHolder();
+    sampleExporters = new ArrayList<>();
+
     // It's safe to use "this" because we don't send a message before exiting the constructor.
     @SuppressWarnings("nullness:methodref.receiver.bound")
     HandlerWrapper internalHandler =
@@ -211,18 +241,23 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public void start() {
     verifyInternalThreadAlive();
     internalHandler.sendEmptyMessage(MSG_START);
+    synchronized (progressLock) {
+      progressState = Transformer.PROGRESS_STATE_WAITING_FOR_AVAILABILITY;
+      progressValue = 0;
+    }
   }
 
   public @Transformer.ProgressState int getProgress(ProgressHolder progressHolder) {
     if (released) {
       return PROGRESS_STATE_NOT_STARTED;
     }
-    verifyInternalThreadAlive();
-    internalHandler.obtainMessage(MSG_UPDATE_PROGRESS, progressHolder).sendToTarget();
-    // TODO: figure out why calling clock.onThreadBlocked() here makes the tests fail.
-    transformerConditionVariable.blockUninterruptible();
-    transformerConditionVariable.close();
-    return progressState;
+
+    synchronized (progressLock) {
+      if (progressState == PROGRESS_STATE_AVAILABLE) {
+        progressHolder.progress = progressValue;
+      }
+      return progressState;
+    }
   }
 
   public void cancel() {
@@ -234,8 +269,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         .obtainMessage(MSG_END, END_REASON_CANCELLED, /* unused */ 0, /* exportException */ null)
         .sendToTarget();
     clock.onThreadBlocked();
-    transformerConditionVariable.blockUninterruptible();
-    transformerConditionVariable.close();
+    canceledConditionVariable.blockUninterruptible();
+    canceledConditionVariable.close();
     if (cancelException != null) {
       throw cancelException;
     }
@@ -266,7 +301,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     // handled to report release timeouts and to unblock the transformer condition variable in case
     // of cancellation. Progress update messages must be handled to unblock the transformer
     // condition variable.
-    if (released && msg.what != MSG_END && msg.what != MSG_UPDATE_PROGRESS) {
+    if (released && msg.what != MSG_END) {
       return true;
     }
     try {
@@ -282,9 +317,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
           break;
         case MSG_END:
           endInternal(/* endReason= */ msg.arg1, /* exportException= */ (ExportException) msg.obj);
-          break;
-        case MSG_UPDATE_PROGRESS:
-          updateProgressInternal(/* progressHolder= */ (ProgressHolder) msg.obj);
           break;
         default:
           return false;
@@ -316,6 +348,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       while (sampleExporters.get(i).processData()) {}
     }
 
+    updateProgressInternal();
+
     if (!muxerWrapper.isEnded()) {
       internalHandler.sendEmptyMessageDelayed(MSG_DRAIN_EXPORTERS, DRAIN_EXPORTERS_DELAY_MS);
     }
@@ -333,6 +367,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     boolean releasedPreviously = released;
     if (!released) {
       released = true;
+      synchronized (progressLock) {
+        progressState = PROGRESS_STATE_NOT_STARTED;
+        progressValue = 0;
+      }
+
       // VideoSampleExporter can hold buffers from the asset loader's decoder in a surface texture,
       // so we release the VideoSampleExporter first to avoid releasing the codec while its buffers
       // are pending processing.
@@ -375,12 +414,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       internalHandler.post(internalHandlerThread::quitSafely);
     }
 
-    // Update progress before opening variable to avoid getProgress returning an invalid combination
-    // of state and progress.
-    progressState = PROGRESS_STATE_NOT_STARTED;
-    transformerConditionVariable.open();
-
     if (forCancellation) {
+      canceledConditionVariable.open();
       return;
     }
 
@@ -421,31 +456,43 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
   }
 
-  private void updateProgressInternal(ProgressHolder progressHolder) {
+  private void updateProgressInternal() {
+    if (released) {
+      return;
+    }
+
     int progressSum = 0;
     int progressCount = 0;
-    ProgressHolder individualProgressHolder = new ProgressHolder();
     for (int i = 0; i < sequenceAssetLoaders.size(); i++) {
       if (composition.sequences.get(i).isLooping) {
         // Looping sequence progress is always unavailable. Skip it.
         continue;
       }
-      progressState = sequenceAssetLoaders.get(i).getProgress(individualProgressHolder);
-      if (progressState != PROGRESS_STATE_AVAILABLE) {
-        transformerConditionVariable.open();
+      internalProgressHolder.progress = 0;
+      @Transformer.ProgressState
+      int assetLoaderProgressState =
+          sequenceAssetLoaders.get(i).getProgress(internalProgressHolder);
+      if (assetLoaderProgressState != PROGRESS_STATE_AVAILABLE) {
+        // TODO - b/322136131 : Check for inconsistent state transitions.
+        synchronized (progressLock) {
+          progressState = assetLoaderProgressState;
+          progressValue = 0;
+        }
         return;
       }
-      progressSum += individualProgressHolder.progress;
+      progressSum += internalProgressHolder.progress;
       progressCount++;
     }
-    progressHolder.progress = progressSum / progressCount;
-    transformerConditionVariable.open();
+    synchronized (progressLock) {
+      progressState = PROGRESS_STATE_AVAILABLE;
+      progressValue = progressSum / progressCount;
+    }
   }
 
   private final class SequenceAssetLoaderListener implements AssetLoader.Listener {
 
     private final int sequenceIndex;
-    private final ImmutableList<EditedMediaItem> editedMediaItems;
+    private final EditedMediaItem firstEditedMediaItem;
     private final Composition composition;
     private final TransformationRequest transformationRequest;
     private final AudioMixer.Factory audioMixerFactory;
@@ -463,7 +510,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         FallbackListener fallbackListener,
         DebugViewProvider debugViewProvider) {
       this.sequenceIndex = sequenceIndex;
-      this.editedMediaItems = composition.sequences.get(sequenceIndex).editedMediaItems;
+      this.firstEditedMediaItem = composition.sequences.get(sequenceIndex).editedMediaItems.get(0);
       this.composition = composition;
       this.transformationRequest = transformationRequest;
       this.audioMixerFactory = audioMixerFactory;
@@ -535,7 +582,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         }
 
         GraphInput sampleExporterInput =
-            sampleExporter.getInput(editedMediaItems.get(0), assetLoaderOutputFormat);
+            sampleExporter.getInput(firstEditedMediaItem, assetLoaderOutputFormat);
         OnMediaItemChangedListener onMediaItemChangedListener =
             (editedMediaItem, durationUs, trackFormat, isLast) -> {
               onMediaItemChanged(trackType, durationUs, isLast);
@@ -581,7 +628,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
                 firstAssetLoaderInputFormat,
                 /* firstInputFormat= */ assetLoaderOutputFormat,
                 transformationRequest,
-                editedMediaItems.get(0),
+                firstEditedMediaItem,
                 audioMixerFactory,
                 encoderFactory,
                 muxerWrapper,
@@ -617,7 +664,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
               assetLoaderInputTracker.getAssetLoaderInputFormat(sequenceIndex, trackType),
               transformationRequest,
               muxerWrapper,
-              fallbackListener));
+              fallbackListener,
+              videoSampleTimestampOffsetUs));
     }
 
     /**
@@ -679,95 +727,35 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       if (!assetLoaderCanOutputEncoded) {
         shouldTranscode = true;
       } else if (trackType == TRACK_TYPE_AUDIO) {
-        shouldTranscode = shouldTranscodeAudio(inputFormat);
+        shouldTranscode =
+            shouldTranscodeAudio(
+                inputFormat,
+                composition,
+                sequenceIndex,
+                transformationRequest,
+                encoderFactory,
+                muxerWrapper);
       } else if (trackType == C.TRACK_TYPE_VIDEO) {
-        shouldTranscode = shouldTranscodeVideo(inputFormat);
+        shouldTranscode =
+            shouldTranscodeVideo(
+                    inputFormat,
+                    composition,
+                    sequenceIndex,
+                    transformationRequest,
+                    encoderFactory,
+                    muxerWrapper)
+                || clippingRequiresTranscode(firstEditedMediaItem.mediaItem);
       }
 
       checkState(!shouldTranscode || assetLoaderCanOutputDecoded);
 
       return shouldTranscode;
     }
+  }
 
-    private boolean shouldTranscodeAudio(Format inputFormat) {
-      if (composition.sequences.size() > 1 || editedMediaItems.size() > 1) {
-        return !composition.transmuxAudio;
-      }
-      if (encoderFactory.audioNeedsEncoding()) {
-        return true;
-      }
-      if (transformationRequest.audioMimeType != null
-          && !transformationRequest.audioMimeType.equals(inputFormat.sampleMimeType)) {
-        return true;
-      }
-      if (transformationRequest.audioMimeType == null
-          && !muxerWrapper.supportsSampleMimeType(inputFormat.sampleMimeType)) {
-        return true;
-      }
-      EditedMediaItem firstEditedMediaItem = editedMediaItems.get(0);
-      if (firstEditedMediaItem.flattenForSlowMotion && containsSlowMotionData(inputFormat)) {
-        return true;
-      }
-      if (!firstEditedMediaItem.effects.audioProcessors.isEmpty()) {
-        return true;
-      }
-      return false;
-    }
-
-    private boolean shouldTranscodeVideo(Format inputFormat) {
-      if (composition.sequences.size() > 1 || editedMediaItems.size() > 1) {
-        return !composition.transmuxVideo;
-      }
-      EditedMediaItem firstEditedMediaItem = editedMediaItems.get(0);
-      if (firstEditedMediaItem.mediaItem.clippingConfiguration.startPositionMs > 0
-          && !firstEditedMediaItem.mediaItem.clippingConfiguration.startsAtKeyFrame) {
-        return true;
-      }
-      if (encoderFactory.videoNeedsEncoding()) {
-        return true;
-      }
-      if (transformationRequest.hdrMode != HDR_MODE_KEEP_HDR) {
-        return true;
-      }
-      if (transformationRequest.videoMimeType != null
-          && !transformationRequest.videoMimeType.equals(inputFormat.sampleMimeType)) {
-        return true;
-      }
-      if (transformationRequest.videoMimeType == null
-          && !muxerWrapper.supportsSampleMimeType(inputFormat.sampleMimeType)) {
-        return true;
-      }
-      if (inputFormat.pixelWidthHeightRatio != 1f) {
-        return true;
-      }
-      ImmutableList<Effect> videoEffects = firstEditedMediaItem.effects.videoEffects;
-      return !videoEffects.isEmpty()
-          && !areVideoEffectsAllNoOp(videoEffects, inputFormat)
-          && !hasOnlyRegularRotationEffect(videoEffects);
-    }
-
-    private boolean hasOnlyRegularRotationEffect(ImmutableList<Effect> videoEffects) {
-      if (videoEffects.size() != 1) {
-        return false;
-      }
-      Effect videoEffect = videoEffects.get(0);
-      if (!(videoEffect instanceof ScaleAndRotateTransformation)) {
-        return false;
-      }
-      ScaleAndRotateTransformation scaleAndRotateTransformation =
-          (ScaleAndRotateTransformation) videoEffect;
-      if (scaleAndRotateTransformation.scaleX != 1f || scaleAndRotateTransformation.scaleY != 1f) {
-        return false;
-      }
-      float rotationDegrees = scaleAndRotateTransformation.rotationDegrees;
-      if (rotationDegrees == 90f || rotationDegrees == 180f || rotationDegrees == 270f) {
-        // The MuxerWrapper rotation is clockwise while the ScaleAndRotateTransformation rotation
-        // is counterclockwise.
-        muxerWrapper.setAdditionalRotationDegrees(360 - Math.round(rotationDegrees));
-        return true;
-      }
-      return false;
-    }
+  private static boolean clippingRequiresTranscode(MediaItem mediaItem) {
+    return mediaItem.clippingConfiguration.startPositionMs > 0
+        && !mediaItem.clippingConfiguration.startsAtKeyFrame;
   }
 
   /** Tracks the inputs and outputs of {@link AssetLoader AssetLoaders}. */

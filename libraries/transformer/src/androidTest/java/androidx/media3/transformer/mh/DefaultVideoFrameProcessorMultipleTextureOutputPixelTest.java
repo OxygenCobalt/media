@@ -24,7 +24,6 @@ import static com.google.common.truth.Truth.assertThat;
 
 import android.graphics.Bitmap;
 import android.util.Pair;
-import androidx.media3.common.ColorInfo;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.effect.DefaultVideoFrameProcessor;
 import androidx.media3.test.utils.BitmapPixelTestUtil;
@@ -119,6 +118,32 @@ public class DefaultVideoFrameProcessorMultipleTextureOutputPixelTest {
         .isAtMost(MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE_DIFFERENT_DEVICE);
   }
 
+  // This tests a condition that is difficult to synchronize, and is subject to a race
+  // condition. It may flake/fail if any queued frames are processed in the VideoFrameProcessor
+  // thread, before flush begins and cancels these pending frames. However, this is better than not
+  // testing this behavior at all, and in practice has succeeded every time on a 1000-time run.
+  // TODO: b/302695659 - Make this test more deterministic.
+  @Test
+  public void textureOutput_queueFiveBitmapsAndFlush_outputsOnlyAfterFlush() throws Exception {
+    String testId = "textureOutput_queueFiveBitmapsAndFlush_outputsOnlyAfterFlush";
+    videoFrameProcessorTestRunner = getFrameProcessorTestRunnerBuilder(testId).build();
+    ImmutableList<Long> inputTimestamps1 = ImmutableList.of(1_000_000L, 2_000_000L, 3_000_000L);
+    ImmutableList<Long> inputTimestamps2 = ImmutableList.of(4_000_000L, 5_000_000L, 6_000_000L);
+
+    queueBitmaps(videoFrameProcessorTestRunner, ORIGINAL_PNG_ASSET_PATH, inputTimestamps1);
+    videoFrameProcessorTestRunner.flush();
+    queueBitmaps(videoFrameProcessorTestRunner, MEDIA3_TEST_PNG_ASSET_PATH, inputTimestamps2);
+    videoFrameProcessorTestRunner.endFrameProcessing();
+
+    TextureBitmapReader textureBitmapReader = checkNotNull(this.textureBitmapReader);
+    Set<Long> actualOutputTimestamps = textureBitmapReader.getOutputTimestamps();
+    assertThat(actualOutputTimestamps).containsAtLeastElementsIn(inputTimestamps2).inOrder();
+    // This assertion is subject to flaking, per test comments. If it flakes, consider increasing
+    // the number of elements in inputTimestamps2.
+    assertThat(actualOutputTimestamps.size())
+        .isLessThan(inputTimestamps1.size() + inputTimestamps2.size());
+  }
+
   private void queueBitmaps(
       VideoFrameProcessorTestRunner videoFrameProcessorTestRunner,
       String bitmapAssetPath,
@@ -145,7 +170,6 @@ public class DefaultVideoFrameProcessorMultipleTextureOutputPixelTest {
     return new VideoFrameProcessorTestRunner.Builder()
         .setTestId(testId)
         .setVideoFrameProcessorFactory(defaultVideoFrameProcessorFactory)
-        .setInputColorInfo(ColorInfo.SRGB_BT709_FULL)
         .setBitmapReader(textureBitmapReader);
   }
 }

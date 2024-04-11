@@ -526,6 +526,7 @@ import java.util.List;
     super.replaceMediaItems(fromIndex, toIndex, mediaItems);
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public boolean hasPrevious() {
@@ -533,6 +534,7 @@ import java.util.List;
     return super.hasPrevious();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public boolean hasNext() {
@@ -540,6 +542,7 @@ import java.util.List;
     return super.hasNext();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public boolean hasPreviousWindow() {
@@ -547,6 +550,7 @@ import java.util.List;
     return super.hasPreviousWindow();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public boolean hasNextWindow() {
@@ -566,6 +570,7 @@ import java.util.List;
     return super.hasNextMediaItem();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public void previous() {
@@ -573,6 +578,7 @@ import java.util.List;
     super.previous();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public void next() {
@@ -580,6 +586,7 @@ import java.util.List;
     super.next();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public void seekToPreviousWindow() {
@@ -587,6 +594,7 @@ import java.util.List;
     super.seekToPreviousWindow();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public void seekToNextWindow() {
@@ -687,6 +695,7 @@ import java.util.List;
     return super.getMediaItemAt(index);
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public int getCurrentWindowIndex() {
@@ -700,6 +709,7 @@ import java.util.List;
     return super.getCurrentMediaItemIndex();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public int getPreviousWindowIndex() {
@@ -713,6 +723,7 @@ import java.util.List;
     return super.getPreviousMediaItemIndex();
   }
 
+  @SuppressWarnings("deprecation") // Forwarding deprecated call
   @Deprecated
   @Override
   public int getNextWindowIndex() {
@@ -998,7 +1009,8 @@ import java.util.List;
           .build();
     }
     @Nullable PlaybackException playerError = getPlayerError();
-    int state = MediaUtils.convertToPlaybackStateCompatState(/* player= */ this, playIfSuppressed);
+    int state =
+        LegacyConversions.convertToPlaybackStateCompatState(/* player= */ this, playIfSuppressed);
     // Always advertise ACTION_SET_RATING.
     long actions = PlaybackStateCompat.ACTION_SET_RATING;
     Commands availableCommands = intersect(availablePlayerCommands, getAvailableCommands());
@@ -1007,7 +1019,7 @@ import java.util.List;
     }
     long queueItemId =
         isCommandAvailable(COMMAND_GET_TIMELINE)
-            ? MediaUtils.convertToQueueItemId(getCurrentMediaItemIndex())
+            ? LegacyConversions.convertToQueueItemId(getCurrentMediaItemIndex())
             : MediaSessionCompat.QueueItem.UNKNOWN_ID;
     float playbackSpeed = getPlaybackParameters().speed;
     float sessionPlaybackSpeed = isPlaying() ? playbackSpeed : 0f;

@@ -300,7 +300,7 @@ public class MediaSessionServiceTest {
         new MediaControllerCompat(
             ApplicationProvider.getApplicationContext(), mediaSession.getSessionCompat());
     ImmutableList<CommandButton> initialCustomLayoutInControllerCompat =
-        MediaUtils.convertToCustomLayout(mediaControllerCompat.getPlaybackState());
+        LegacyConversions.convertToCustomLayout(mediaControllerCompat.getPlaybackState());
 
     // Start the service by creating a remote controller.
     RemoteMediaController remoteController =
@@ -312,7 +312,7 @@ public class MediaSessionServiceTest {
                 .get(0)
                 .getConnectionHints()
                 .getBoolean(
-                    MediaNotificationManager.KEY_MEDIA_NOTIFICATION_MANAGER,
+                    MediaController.KEY_MEDIA_NOTIFICATION_CONTROLLER_FLAG,
                     /* defaultValue= */ false))
         .isTrue();
     assertThat(TestUtils.equals(controllerInfoList.get(1).getConnectionHints(), testHints))
@@ -321,7 +321,7 @@ public class MediaSessionServiceTest {
         .isEqualTo(PlaybackStateCompat.ACTION_SET_RATING);
     assertThat(remoteController.getCustomLayout()).containsExactly(button1, button2).inOrder();
     assertThat(initialCustomLayoutInControllerCompat).isEmpty();
-    assertThat(MediaUtils.convertToCustomLayout(mediaControllerCompat.getPlaybackState()))
+    assertThat(LegacyConversions.convertToCustomLayout(mediaControllerCompat.getPlaybackState()))
         .containsExactly(button1.copyWithIsEnabled(true), button3.copyWithIsEnabled(true))
         .inOrder();
     mediaSession.release();

@@ -59,7 +59,7 @@ import java.util.List;
  *       thread} unless indicated otherwise. Callbacks in registered listeners are called on the
  *       same thread.
  *   <li>The available functionality can be limited. Player instances provide a set of {@link
- *       #getAvailableCommands() availabe commands} to signal feature support and users of the
+ *       #getAvailableCommands() available commands} to signal feature support and users of the
  *       interface must only call methods if the corresponding {@link Command} is available.
  *   <li>Users can register {@link Player.Listener} callbacks that get informed about state changes.
  *   <li>Player instances need to update the visible state immediately after each method call, even
@@ -473,15 +473,23 @@ public interface Player {
       return toBundle(Integer.MAX_VALUE);
     }
 
-    /** Object that can restore {@link PositionInfo} from a {@link Bundle}. */
-    @UnstableApi public static final Creator<PositionInfo> CREATOR = PositionInfo::fromBundle;
+    /**
+     * Object that can restore {@link PositionInfo} from a {@link Bundle}.
+     *
+     * @deprecated Use {@link #fromBundle} instead.
+     */
+    @UnstableApi
+    @Deprecated
+    @SuppressWarnings("deprecation") // Deprecated instance of deprecated class
+    public static final Creator<PositionInfo> CREATOR = PositionInfo::fromBundle;
 
-    private static PositionInfo fromBundle(Bundle bundle) {
+    /** Restores a {@code PositionInfo} from a {@link Bundle}. */
+    @UnstableApi
+    public static PositionInfo fromBundle(Bundle bundle) {
       int mediaItemIndex = bundle.getInt(FIELD_MEDIA_ITEM_INDEX, /* defaultValue= */ 0);
       @Nullable Bundle mediaItemBundle = bundle.getBundle(FIELD_MEDIA_ITEM);
       @Nullable
-      MediaItem mediaItem =
-          mediaItemBundle == null ? null : MediaItem.CREATOR.fromBundle(mediaItemBundle);
+      MediaItem mediaItem = mediaItemBundle == null ? null : MediaItem.fromBundle(mediaItemBundle);
       int periodIndex = bundle.getInt(FIELD_PERIOD_INDEX, /* defaultValue= */ 0);
       long positionMs = bundle.getLong(FIELD_POSITION_MS, /* defaultValue= */ 0);
       long contentPositionMs = bundle.getLong(FIELD_CONTENT_POSITION_MS, /* defaultValue= */ 0);
@@ -512,6 +520,7 @@ public interface Player {
     @UnstableApi
     public static final class Builder {
 
+      @SuppressWarnings("deprecation") // Includes deprecated commands
       private static final @Command int[] SUPPORTED_COMMANDS = {
         COMMAND_PLAY_PAUSE,
         COMMAND_PREPARE,
@@ -751,10 +760,19 @@ public interface Player {
       return bundle;
     }
 
-    /** Object that can restore {@link Commands} from a {@link Bundle}. */
-    @UnstableApi public static final Creator<Commands> CREATOR = Commands::fromBundle;
+    /**
+     * Object that can restore {@link Commands} from a {@link Bundle}.
+     *
+     * @deprecated Use {@link #fromBundle} instead.
+     */
+    @UnstableApi
+    @Deprecated
+    @SuppressWarnings("deprecation") // Deprecated instance of deprecated class
+    public static final Creator<Commands> CREATOR = Commands::fromBundle;
 
-    private static Commands fromBundle(Bundle bundle) {
+    /** Restores a {@code Commands} from a {@link Bundle}. */
+    @UnstableApi
+    public static Commands fromBundle(Bundle bundle) {
       @Nullable ArrayList<Integer> commands = bundle.getIntegerArrayList(FIELD_COMMANDS);
       if (commands == null) {
         return Commands.EMPTY;
@@ -1298,6 +1316,7 @@ public interface Player {
    */
   // @Target list includes both 'default' targets and TYPE_USE, to ensure backwards compatibility
   // with Kotlin usages from before TYPE_USE was added.
+  @SuppressWarnings("deprecation") // Includes deprecated command
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target({FIELD, METHOD, PARAMETER, LOCAL_VARIABLE, TYPE_USE})
@@ -1378,7 +1397,8 @@ public interface Player {
     DISCONTINUITY_REASON_SEEK_ADJUSTMENT,
     DISCONTINUITY_REASON_SKIP,
     DISCONTINUITY_REASON_REMOVE,
-    DISCONTINUITY_REASON_INTERNAL
+    DISCONTINUITY_REASON_INTERNAL,
+    DISCONTINUITY_REASON_SILENCE_SKIP
   })
   @interface DiscontinuityReason {}
 
@@ -1409,6 +1429,9 @@ public interface Player {
 
   /** Discontinuity introduced internally (e.g. by the source). */
   int DISCONTINUITY_REASON_INTERNAL = 5;
+
+  /** Discontinuity introduced by a skipped silence. */
+  int DISCONTINUITY_REASON_SILENCE_SKIP = 6;
 
   /**
    * Reasons for timeline changes. One of {@link #TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED} or {@link
@@ -2152,6 +2175,9 @@ public interface Player {
    * Clears the playlist, adds the specified {@linkplain MediaItem media items} and resets the
    * position to the default position.
    *
+   * <p>To replace a span of media items (possibly seamlessly) without clearing the playlist, use
+   * {@link #replaceMediaItems}.
+   *
    * <p>This method must only be called if {@link #COMMAND_CHANGE_MEDIA_ITEMS} is {@linkplain
    * #getAvailableCommands() available}.
    *
@@ -2161,6 +2187,9 @@ public interface Player {
 
   /**
    * Clears the playlist and adds the specified {@linkplain MediaItem media items}.
+   *
+   * <p>To replace a span of media items (possibly seamlessly) without clearing the playlist, use
+   * {@link #replaceMediaItems}.
    *
    * <p>This method must only be called if {@link #COMMAND_CHANGE_MEDIA_ITEMS} is {@linkplain
    * #getAvailableCommands() available}.
@@ -2174,6 +2203,9 @@ public interface Player {
 
   /**
    * Clears the playlist and adds the specified {@linkplain MediaItem media items}.
+   *
+   * <p>To replace a span of media items (possibly seamlessly) without clearing the playlist, use
+   * {@link #replaceMediaItems}.
    *
    * <p>This method must only be called if {@link #COMMAND_CHANGE_MEDIA_ITEMS} is {@linkplain
    * #getAvailableCommands() available}.
@@ -2194,6 +2226,9 @@ public interface Player {
    * Clears the playlist, adds the specified {@link MediaItem} and resets the position to the
    * default position.
    *
+   * <p>To replace a media item (possibly seamlessly) without clearing the playlist, use {@link
+   * #replaceMediaItem}.
+   *
    * <p>This method must only be called if {@link #COMMAND_SET_MEDIA_ITEM} is {@linkplain
    * #getAvailableCommands() available}.
    *
@@ -2203,6 +2238,9 @@ public interface Player {
 
   /**
    * Clears the playlist and adds the specified {@link MediaItem}.
+   *
+   * <p>To replace a media item (possibly seamlessly) without clearing the playlist, use {@link
+   * #replaceMediaItem}.
    *
    * <p>This method must only be called if {@link #COMMAND_SET_MEDIA_ITEM} is {@linkplain
    * #getAvailableCommands() available}.
@@ -2215,6 +2253,9 @@ public interface Player {
 
   /**
    * Clears the playlist and adds the specified {@link MediaItem}.
+   *
+   * <p>To replace a media item (possibly seamlessly) without clearing the playlist, use {@link
+   * #replaceMediaItem}.
    *
    * <p>This method must only be called if {@link #COMMAND_SET_MEDIA_ITEM} is {@linkplain
    * #getAvailableCommands() available}.
@@ -2302,6 +2343,10 @@ public interface Player {
   /**
    * Replaces the media item at the given index of the playlist.
    *
+   * <p>Implementations of this method may attempt to seamlessly continue playback if the currently
+   * playing media item is replaced with a compatible one (e.g. same URL, only metadata has
+   * changed).
+   *
    * <p>This method must only be called if {@link #COMMAND_CHANGE_MEDIA_ITEMS} is {@linkplain
    * #getAvailableCommands() available}.
    *
@@ -2313,6 +2358,10 @@ public interface Player {
 
   /**
    * Replaces the media items at the given range of the playlist.
+   *
+   * <p>Implementations of this method may attempt to seamlessly continue playback if the currently
+   * playing media item is replaced with a compatible one (e.g. same URL, only metadata has
+   * changed).
    *
    * <p>This method must only be called if {@link #COMMAND_CHANGE_MEDIA_ITEMS} is {@linkplain
    * #getAvailableCommands() available}.
@@ -2851,6 +2900,7 @@ public interface Player {
    */
   TrackSelectionParameters getTrackSelectionParameters();
 
+  // LINT.IfChange(set_track_selection_parameters)
   /**
    * Sets the parameters constraining the track selection.
    *
@@ -3309,6 +3359,12 @@ public interface Player {
    * Sets the {@link TextureView} onto which video will be rendered. The player will track the
    * lifecycle of the surface automatically.
    *
+   * <p>Consider using {@link SurfaceView} via {@link #setVideoSurfaceView} instead of {@link
+   * TextureView}. {@link SurfaceView} generally causes lower battery consumption, and has better
+   * handling for HDR and secure content. See <a
+   * href="https://developer.android.com/guide/topics/media/ui/playerview#surfacetype">Choosing a
+   * surface type</a> for more information.
+   *
    * <p>The thread that calls the {@link TextureView.SurfaceTextureListener} methods must be the
    * thread associated with {@link #getApplicationLooper()}.
    *
@@ -3408,7 +3464,7 @@ public interface Player {
    * @param volume The volume to set.
    * @param flags Either 0 or a bitwise combination of one or more {@link C.VolumeFlags}.
    */
-  void setDeviceVolume(@IntRange(from = 0) int volume, int flags);
+  void setDeviceVolume(@IntRange(from = 0) int volume, @C.VolumeFlags int flags);
 
   /**
    * @deprecated Use {@link #increaseDeviceVolume(int)} instead.
