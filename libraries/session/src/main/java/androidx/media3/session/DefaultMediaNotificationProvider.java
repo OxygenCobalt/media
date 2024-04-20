@@ -309,9 +309,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         new ImmutableList.Builder<>();
     for (int i = 0; i < customLayout.size(); i++) {
       CommandButton button = customLayout.get(i);
-      if (button.sessionCommand != null
-          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
-          && button.isEnabled) {
+      if (button.isEnabled) {
         customLayoutWithEnabledCommandButtonsOnly.add(customLayout.get(i));
       }
     }
@@ -338,7 +336,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       MediaMetadata metadata = player.getMediaMetadata();
       builder
           .setContentTitle(getNotificationContentTitle(metadata))
-          .setContentText(getNotificationContentText(metadata));
+          .setContentText(getNotificationContentText(metadata))
+          .setSubText(getNotificationTicker(metadata));
       @Nullable
       ListenableFuture<Bitmap> bitmapFuture =
           mediaSession.getBitmapLoader().loadBitmapFromMetadata(metadata);
@@ -454,53 +453,50 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       boolean showPauseButton) {
     // Skip to previous action.
     ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
-    if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
-      Bundle commandButtonExtras = new Bundle();
-      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-      commandButtons.add(
-          new CommandButton.Builder()
-              .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-              .setIconResId(R.drawable.media3_notification_seek_to_previous)
-              .setDisplayName(
-                  context.getString(R.string.media3_controls_seek_to_previous_description))
-              .setExtras(commandButtonExtras)
-              .build());
-    }
-    if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
-      Bundle commandButtonExtras = new Bundle();
-      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-      commandButtons.add(
-          new CommandButton.Builder()
-              .setPlayerCommand(COMMAND_PLAY_PAUSE)
-              .setIconResId(
-                  showPauseButton
-                      ? R.drawable.media3_notification_pause
-                      : R.drawable.media3_notification_play)
-              .setExtras(commandButtonExtras)
-              .setDisplayName(
-                  showPauseButton
-                      ? context.getString(R.string.media3_controls_pause_description)
-                      : context.getString(R.string.media3_controls_play_description))
-              .build());
-    }
-    // Skip to next action.
-    if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
-      Bundle commandButtonExtras = new Bundle();
-      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-      commandButtons.add(
-          new CommandButton.Builder()
-              .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-              .setIconResId(R.drawable.media3_notification_seek_to_next)
-              .setExtras(commandButtonExtras)
-              .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
-              .build());
-    }
+//    if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
+//      Bundle commandButtonExtras = new Bundle();
+//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+//      commandButtons.add(
+//          new CommandButton.Builder()
+//              .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+//              .setIconResId(R.drawable.media3_notification_seek_to_previous)
+//              .setDisplayName(
+//                  context.getString(R.string.media3_controls_seek_to_previous_description))
+//              .setExtras(commandButtonExtras)
+//              .build());
+//    }
+//    if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
+//      Bundle commandButtonExtras = new Bundle();
+//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+//      commandButtons.add(
+//          new CommandButton.Builder()
+//              .setPlayerCommand(COMMAND_PLAY_PAUSE)
+//              .setIconResId(
+//                  showPauseButton
+//                      ? R.drawable.media3_notification_pause
+//                      : R.drawable.media3_notification_play)
+//              .setExtras(commandButtonExtras)
+//              .setDisplayName(
+//                  showPauseButton
+//                      ? context.getString(R.string.media3_controls_pause_description)
+//                      : context.getString(R.string.media3_controls_play_description))
+//              .build());
+//    }
+//    // Skip to next action.
+//    if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
+//      Bundle commandButtonExtras = new Bundle();
+//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+//      commandButtons.add(
+//          new CommandButton.Builder()
+//              .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+//              .setIconResId(R.drawable.media3_notification_seek_to_next)
+//              .setExtras(commandButtonExtras)
+//              .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
+//              .build());
+//    }
     for (int i = 0; i < customLayout.size(); i++) {
       CommandButton button = customLayout.get(i);
-      if (button.sessionCommand != null
-          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM) {
-        commandButtons.add(button);
-      }
+      commandButtons.add(button);
     }
     return commandButtons.build();
   }
@@ -628,6 +624,12 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
   @Nullable
   protected CharSequence getNotificationContentText(MediaMetadata metadata) {
     return metadata.artist;
+  }
+
+  @Nullable
+  protected CharSequence getNotificationTicker(MediaMetadata metadata) {
+      return metadata.extras != null ?
+              metadata.extras.getString("parent", null) : null;
   }
 
   private void ensureNotificationChannel() {
