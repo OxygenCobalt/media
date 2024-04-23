@@ -1,5 +1,177 @@
 # Release notes
 
+=======
+### Unreleased changes
+
+*   Common Library:
+    *   Forward presumed no-op seek calls to the protected `BasePlayer.seekTo`
+        and `SimpleBasePlayer.handleSeek` methods instead of ignoring them. If
+        you are implementing these methods in a custom player, you may need to
+        handle these additional calls with `mediaItemIndex == C.INDEX_UNSET`.
+*   ExoPlayer:
+    *   Add `reset` to `BasePreloadManager` to release all the holding sources
+        while keep the preload manager instance.
+*   Transformer:
+    *   Work around a decoder bug where the number of audio channels was capped
+        at stereo when handling PCM input.
+    *   When selecting tracks in `ExoPlayerAssetLoader`, ignore audio channel
+        count constraints as they only apply for playback.
+*   Track Selection:
+*   Extractors:
+*   Audio:
+*   Video:
+*   Text:
+*   Metadata:
+    *   Fix mapping of MP4 to ID3 sort tags. Previously the 'album sort'
+        (`soal`), 'artist sort' (`soar`) and 'album artist sort' (`soaa`) MP4
+        tags were wrongly mapped to the `TSO2`, `TSOA` and `TSOP` ID3 tags
+        ([#1302](https://github.com/androidx/media/issues/1302)).
+*   Image:
+*   DRM:
+    *   Allow setting a `LoadErrorHandlingPolicy` on
+        `DefaultDrmSessionManagerProvider`
+        ([#1271](https://github.com/androidx/media/issues/1271)).
+*   Effect:
+    *   Fix bug where `TimestampWrapper` crashes when used with
+        `ExoPlayer#setVideoEffects`
+        ([#821](https://github.com/androidx/media/issues/821)).
+*   Muxers:
+*   IMA extension:
+    *   Promote API that is required for apps to play
+        [DAI ad streams](https://developers.google.com/ad-manager/dynamic-ad-insertion/full-service)
+        to stable.
+    *   Add `replaceAdTagParameters(Map <String, String>)` to
+        `ImaServerSideAdInsertionMediaSource.AdLoader` that allows replacing ad
+        tag parameters at runtime.
+*   Session:
+    *   Hide seekbar in the media notification for live streams by not setting
+        the duration into the platform session metadata
+        ([#1256](https://github.com/androidx/media/issues/1256)).
+*   UI:
+*   Downloads:
+*   OkHttp Extension:
+*   Cronet Extension:
+    *   Fix `SocketTimeoutException` in `CronetDataSource`. In some versions of
+        Cronet, the request provided by the callback is not always the same.
+        This leads to callback not completing and request timing out
+        (https://issuetracker.google.com/328442628).
+*   RTMP Extension:
+*   HLS Extension:
+    *   Fix bug where pending EMSG samples waiting for a discontinuity were
+        delegated in `HlsSampleStreamWrapper` with an incorrect offset causing
+        an `IndexOutOfBoundsException` or an `IllegalArgumentException`
+        ([#1002](https://github.com/androidx/media/issues/1002)).
+    *   Fix bug where non-primary playlists keep reloading for LL-HLS streams
+        ([#1240](https://github.com/androidx/media/issues/1240)).
+*   DASH Extension:
+*   Smooth Streaming Extension:
+*   RTSP Extension:
+*   Decoder Extensions (FFmpeg, VP9, AV1, MIDI, etc.):
+*   Leanback extension:
+*   Cast Extension:
+    *   Fix bug that converted the album title of the `MediaQueueItem` to the
+        artist in the Media3 media item
+        ([#1255](https://github.com/androidx/media/pull/1255)).
+*   Test Utilities:
+*   Remove deprecated symbols:
+*   Demo app:
+    *   Allow setting repeat mode with `Intent` arguments from command line
+        ([#1266](https://github.com/androidx/media/pull/1266)).
+
+## 1.4
+
+### 1.4.0-alpha01 (2024-04-11)
+
+This release includes the following changes since the
+[1.3.1 release](#131-2024-04-11):
+
+*   ExoPlayer:
+    *   Add `BasePreloadManager` which coordinates the preloading for multiple
+        sources based on the priorities defined by their `rankingData`.
+        Customization is possible by extending this class. Add
+        `DefaultPreloadManager` which uses `PreloadMediaSource` to preload media
+        samples of the sources into memory, and uses an integer `rankingData`
+        that indicates the index of an item on the UI.
+    *   Add `PlayerId` to most methods of `LoadControl` to enable `LoadControl`
+        implementations to support multiple players.
+    *   Remove `Buffer.isDecodeOnly()` and `C.BUFFER_FLAG_DECODE_ONLY`. There is
+        no need to set this flag as renderers and decoders will decide to skip
+        buffers based on timestamp. Custom `Renderer` implementations should
+        check if the buffer time is at least
+        `BaseRenderer.getLastResetPositionUs()` to decide whether a sample
+        should be shown. Custom `SimpleDecoder` implementations can check
+        `isAtLeastOutputStartTimeUs` if needed or mark other buffers with
+        `DecoderOutputBuffer.shouldBeSkipped` to skip them.
+    *   Allow a null value to be returned by
+        `TargetPreloadStatusControl.getTargetPreloadStatus(T)` to indicate not
+        to preload a `MediaSource` with the given `rankingData`.
+    *   Add `remove(MediaSource)` to `BasePreloadManager`.
+*   Transformer:
+    *   Add `audioConversionProcess` and `videoConversionProcess` to
+        `ExportResult` indicating how the respective track in the output file
+        was made.
+    *   Relax trim optimization H.264 level checks.
+    *   Add support for changing between SDR and HDR input media in a sequence.
+    *   Add support for composition-level audio effects.
+    *   Add support for transcoding Ultra HDR images into HDR videos.
+    *   Fix issue where the `DefaultAudioMixer` does not output the correct
+        amount of bytes after being reset and reused.
+*   Video:
+    *   Fix issue where `Listener.onRenderedFirstFrame()` arrives too early when
+        switching surfaces mid-playback.
+*   DataSource:
+    *   Implement support for `android.resource://package/id` raw resource URIs
+        where `package` is different to the package of the current application.
+        This wasn't previously documented to work, but is a more efficient way
+        of accessing resources in another package than by name.
+    *   Eagerly check `url` is non-null in the `DataSpec` constructors. This
+        parameter was already annotated to be non-null.
+*   Effect:
+    *   Support multiple speed changes within the same `EditedMediaItem` or
+        `Composition` in `SpeedChangeEffect`.
+    *   Support for HLG and PQ output from ultra HDR bitmap input.
+    *   Add support for EGL_GL_COLORSPACE_BT2020_HLG_EXT, which improves HLG
+        surface output in ExoPlayer.setVideoEffect and Transformer's Debug
+        SurfaceView.
+    *   Update Overlay matrix implementation to make it consistent with the
+        documentation by flipping the x and y values applied in
+        `setOverlayFrameAnchor()`. If using
+        `OverlaySettings.Builder.setOverlayFrameAnchor()`, flip their x and y
+        values by multiplying them by `-1`.
+*   Session:
+    *   Change default of `CommandButton.enabled` to `true` and ensure the value
+        can stay false for controllers even if the associated command is
+        available.
+    *   Add icon constants for `CommandButton` that should be used instead of
+        custom icon resources.
+    *   Add `MediaSessionService.isPlaybackOngoing()` to let apps query whether
+        the service needs to be stopped in `onTaskRemoved()`
+        ([#1219](https://github.com/androidx/media/issues/1219)).
+    *   Add `MediaSessionService.pauseAllPlayersAndStopSelf()` that conveniently
+        allows to pause playback of all sessions and call `stopSelf` to
+        terminate the lifecycle of the `MediaSessionService`.
+    *   Override `MediaSessionService.onTaskRemoved(Intent)` to provide a safe
+        default implementation that keeps the service running in the foreground
+        if playback is ongoing or stops the service otherwise.
+*   Downloads:
+    *   Ensure that `DownloadHelper` does not leak unreleased `Renderer`
+        instances, which can eventually result in an app crashing with
+        `IllegalStateException: Too many receivers, total of 1000, registered
+        for pid` ([#1224](https://github.com/androidx/media/issues/1224)).
+*   Test Utilities:
+    *   Implement `onInit()` and `onRelease()` in `FakeRenderer`.
+    *   Change `TestPlayerRunHelper.runUntil/playUntil` methods to fail on
+        nonfatal errors (e.g. those reported to
+        `AnalyticsListener.onVideoCodecError`). Use the new
+        `TestPlayerRunHelper.run(player).ignoringNonFatalErrors().untilXXX()`
+        method chain to disable this behavior.
+*   Demo app:
+    *   Use `DefaultPreloadManager` in the short form demo app.
+*   Remove deprecated symbols:
+    *   Remove `CronetDataSourceFactory`. Use `CronetDataSource.Factory`
+        instead.
+    *   Remove some `DataSpec` constructors. Use `DataSpec.Builder` instead.
+
 ## 1.3
 
 ### 1.3.1 (2024-04-11)
