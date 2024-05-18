@@ -51,6 +51,8 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -411,7 +413,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       builder
           .setContentTitle(getNotificationContentTitle(metadata))
           .setContentText(getNotificationContentText(metadata))
-          .setSubText(getNotificationTicker(metadata));
+              .setSubText(getNotificationSubText(metadata));
       @Nullable
       ListenableFuture<Bitmap> bitmapFuture =
           mediaSession.getBitmapLoader().loadBitmapFromMetadata(metadata);
@@ -526,7 +528,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       ImmutableList<CommandButton> customLayout,
       boolean showPauseButton) {
     // Skip to previous action.
-    ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
+    ArrayList<CommandButton> commandButtons = new ArrayList<>();
     if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
@@ -568,14 +570,20 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
               .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
               .build());
     }
+    boolean frontBack = true;
     for (int i = 0; i < customLayout.size(); i++) {
       CommandButton button = customLayout.get(i);
       if (button.sessionCommand != null
           && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM) {
-        commandButtons.add(button);
+        if (frontBack) {
+          commandButtons.add(0, button);
+        } else {
+            commandButtons.add(button);
+        }
+        frontBack = !frontBack;
       }
     }
-    return commandButtons.build();
+    return ImmutableList.copyOf(commandButtons);
   }
 
   /**
@@ -703,11 +711,11 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     return metadata.artist;
   }
 
-  @Nullable
-  protected CharSequence getNotificationTicker(MediaMetadata metadata) {
-      return metadata.extras != null ?
-              metadata.extras.getString("parent", null) : null;
-  }
+   @Nullable
+   protected CharSequence getNotificationSubText(MediaMetadata metadata) {
+       return metadata.extras != null ?
+               metadata.extras.getString("parent", null) : null;
+   }
 
   private void ensureNotificationChannel() {
     if (Util.SDK_INT < 26 || notificationManager.getNotificationChannel(channelId) != null) {
