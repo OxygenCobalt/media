@@ -29,6 +29,7 @@ import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -128,6 +129,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     @DrawableRes private int pauseDrawableResourceId;
     @DrawableRes private int skipNextDrawableResourceId;
     @DrawableRes private int skipPrevDrawableResourceId;
+    PendingIntent contentIntent;
     private boolean built;
 
     /**
@@ -247,6 +249,12 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       return this;
     }
 
+    @CanIgnoreReturnValue
+    public Builder setContentIntent(PendingIntent contentIntent) {
+      this.contentIntent = contentIntent;
+      return this;
+    }
+
     /**
      * Builds the {@link DefaultMediaNotificationProvider}. The method can be called at most once.
      */
@@ -310,6 +318,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
   @DrawableRes private final int skipNextDrawableResourceId;
   @DrawableRes private final int skipPrevDrawableResourceId;
   private final NotificationManager notificationManager;
+  private final PendingIntent contentIntent;
 
   private @MonotonicNonNull OnBitmapLoadedFutureCallback pendingOnBitmapLoadedFutureCallback;
   @DrawableRes private int smallIconResourceId;
@@ -327,7 +336,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             R.drawable.media3_notification_play,
             R.drawable.media3_notification_pause,
             R.drawable.media3_notification_seek_to_next,
-            R.drawable.media3_notification_seek_to_previous);
+            R.drawable.media3_notification_seek_to_previous,
+            null);
   }
 
   /**
@@ -342,7 +352,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       int playDrawableResourceId,
       int pauseDrawableResourceId,
       int skipNextDrawableResourceId,
-      int skipPrevDrawableResourceId) {
+      int skipPrevDrawableResourceId,
+      PendingIntent contentIntent) {
     this.context = context;
     this.notificationIdProvider = notificationIdProvider;
     this.channelId = channelId;
@@ -351,6 +362,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     this.pauseDrawableResourceId = pauseDrawableResourceId;
     this.skipNextDrawableResourceId = skipNextDrawableResourceId;
     this.skipPrevDrawableResourceId = skipPrevDrawableResourceId;
+    this.contentIntent = contentIntent;
     notificationManager =
         checkStateNotNull(
             (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
@@ -366,7 +378,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             builder.playDrawableResourceId,
             builder.pauseDrawableResourceId,
             builder.skipNextDrawableResourceId,
-            builder.skipPrevDrawableResourceId);
+            builder.skipPrevDrawableResourceId,
+            builder.contentIntent);
   }
 
   // MediaNotification.Provider implementation
@@ -413,7 +426,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       builder
           .setContentTitle(getNotificationContentTitle(metadata))
           .setContentText(getNotificationContentText(metadata))
-              .setSubText(getNotificationSubText(metadata));
+          .setSubText(getNotificationSubText(metadata));
       @Nullable
       ListenableFuture<Bitmap> bitmapFuture =
           mediaSession.getBitmapLoader().loadBitmapFromMetadata(metadata);
@@ -469,6 +482,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(false)
             .setGroup(GROUP_KEY)
+            .setContentIntent(contentIntent)
             .build();
     return new MediaNotification(notificationId, notification);
   }
