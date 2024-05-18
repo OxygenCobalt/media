@@ -122,6 +122,10 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     private NotificationIdProvider notificationIdProvider;
     private String channelId;
     @StringRes private int channelNameResourceId;
+    @DrawableRes private int playDrawableResourceId;
+    @DrawableRes private int pauseDrawableResourceId;
+    @DrawableRes private int skipNextDrawableResourceId;
+    @DrawableRes private int skipPrevDrawableResourceId;
     private boolean built;
 
     /**
@@ -194,6 +198,54 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     }
 
     /**
+     * Sets the resource ID of the play icon.
+     *
+     * @param playDrawableResourceId The resource ID of the play icon.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setPlayDrawableResourceId(@DrawableRes int playDrawableResourceId) {
+      this.playDrawableResourceId = playDrawableResourceId;
+      return this;
+    }
+
+    /**
+     * Sets the resource ID of the pause icon.
+     *
+     * @param pauseDrawableResourceId The resource ID of the pause icon.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setPauseDrawableResourceId(@DrawableRes int pauseDrawableResourceId) {
+      this.pauseDrawableResourceId = pauseDrawableResourceId;
+      return this;
+    }
+
+    /**
+     * Sets the resource ID of the skip to next icon.
+     *
+     * @param skipNextDrawableResourceId The resource ID of the skip to next icon.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setSkipNextDrawableResourceId(@DrawableRes int skipNextDrawableResourceId) {
+      this.skipNextDrawableResourceId = skipNextDrawableResourceId;
+      return this;
+    }
+
+    /**
+     * Sets the resource ID of the skip to previous icon.
+     *
+     * @param skipPrevDrawableResourceId The resource ID of the skip to previous icon.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setSkipPrevDrawableResourceId(@DrawableRes int skipPrevDrawableResourceId) {
+      this.skipPrevDrawableResourceId = skipPrevDrawableResourceId;
+      return this;
+    }
+
+    /**
      * Builds the {@link DefaultMediaNotificationProvider}. The method can be called at most once.
      */
     public DefaultMediaNotificationProvider build() {
@@ -251,6 +303,10 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
   private final NotificationIdProvider notificationIdProvider;
   private final String channelId;
   @StringRes private final int channelNameResourceId;
+  @DrawableRes private final int playDrawableResourceId;
+  @DrawableRes private final int pauseDrawableResourceId;
+  @DrawableRes private final int skipNextDrawableResourceId;
+  @DrawableRes private final int skipPrevDrawableResourceId;
   private final NotificationManager notificationManager;
 
   private @MonotonicNonNull OnBitmapLoadedFutureCallback pendingOnBitmapLoadedFutureCallback;
@@ -265,7 +321,11 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         context,
         session -> DEFAULT_NOTIFICATION_ID,
         DEFAULT_CHANNEL_ID,
-        DEFAULT_CHANNEL_NAME_RESOURCE_ID);
+        DEFAULT_CHANNEL_NAME_RESOURCE_ID,
+            R.drawable.media3_notification_play,
+            R.drawable.media3_notification_pause,
+            R.drawable.media3_notification_seek_to_next,
+            R.drawable.media3_notification_seek_to_previous);
   }
 
   /**
@@ -276,11 +336,19 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Context context,
       NotificationIdProvider notificationIdProvider,
       String channelId,
-      int channelNameResourceId) {
+      int channelNameResourceId,
+      int playDrawableResourceId,
+      int pauseDrawableResourceId,
+      int skipNextDrawableResourceId,
+      int skipPrevDrawableResourceId) {
     this.context = context;
     this.notificationIdProvider = notificationIdProvider;
     this.channelId = channelId;
     this.channelNameResourceId = channelNameResourceId;
+    this.playDrawableResourceId = playDrawableResourceId;
+    this.pauseDrawableResourceId = pauseDrawableResourceId;
+    this.skipNextDrawableResourceId = skipNextDrawableResourceId;
+    this.skipPrevDrawableResourceId = skipPrevDrawableResourceId;
     notificationManager =
         checkStateNotNull(
             (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
@@ -292,7 +360,11 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         builder.context,
         builder.notificationIdProvider,
         builder.channelId,
-        builder.channelNameResourceId);
+        builder.channelNameResourceId,
+            builder.playDrawableResourceId,
+            builder.pauseDrawableResourceId,
+            builder.skipNextDrawableResourceId,
+            builder.skipPrevDrawableResourceId);
   }
 
   // MediaNotification.Provider implementation
@@ -309,7 +381,9 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         new ImmutableList.Builder<>();
     for (int i = 0; i < customLayout.size(); i++) {
       CommandButton button = customLayout.get(i);
-      if (button.isEnabled) {
+      if (button.sessionCommand != null
+          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
+          && button.isEnabled) {
         customLayoutWithEnabledCommandButtonsOnly.add(customLayout.get(i));
       }
     }
@@ -453,50 +527,53 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       boolean showPauseButton) {
     // Skip to previous action.
     ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
-//    if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
-//      Bundle commandButtonExtras = new Bundle();
-//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-//      commandButtons.add(
-//          new CommandButton.Builder()
-//              .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-//              .setIconResId(R.drawable.media3_notification_seek_to_previous)
-//              .setDisplayName(
-//                  context.getString(R.string.media3_controls_seek_to_previous_description))
-//              .setExtras(commandButtonExtras)
-//              .build());
-//    }
-//    if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
-//      Bundle commandButtonExtras = new Bundle();
-//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-//      commandButtons.add(
-//          new CommandButton.Builder()
-//              .setPlayerCommand(COMMAND_PLAY_PAUSE)
-//              .setIconResId(
-//                  showPauseButton
-//                      ? R.drawable.media3_notification_pause
-//                      : R.drawable.media3_notification_play)
-//              .setExtras(commandButtonExtras)
-//              .setDisplayName(
-//                  showPauseButton
-//                      ? context.getString(R.string.media3_controls_pause_description)
-//                      : context.getString(R.string.media3_controls_play_description))
-//              .build());
-//    }
-//    // Skip to next action.
-//    if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
-//      Bundle commandButtonExtras = new Bundle();
-//      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-//      commandButtons.add(
-//          new CommandButton.Builder()
-//              .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-//              .setIconResId(R.drawable.media3_notification_seek_to_next)
-//              .setExtras(commandButtonExtras)
-//              .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
-//              .build());
-//    }
+    if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
+      Bundle commandButtonExtras = new Bundle();
+      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+      commandButtons.add(
+          new CommandButton.Builder()
+              .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+              .setIconResId(skipPrevDrawableResourceId)
+              .setDisplayName(
+                  context.getString(R.string.media3_controls_seek_to_previous_description))
+              .setExtras(commandButtonExtras)
+              .build());
+    }
+    if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
+      Bundle commandButtonExtras = new Bundle();
+      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+      commandButtons.add(
+          new CommandButton.Builder()
+              .setPlayerCommand(COMMAND_PLAY_PAUSE)
+              .setIconResId(
+                  showPauseButton
+                      ? pauseDrawableResourceId
+                      : playDrawableResourceId)
+              .setExtras(commandButtonExtras)
+              .setDisplayName(
+                  showPauseButton
+                      ? context.getString(R.string.media3_controls_pause_description)
+                      : context.getString(R.string.media3_controls_play_description))
+              .build());
+    }
+    // Skip to next action.
+    if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
+      Bundle commandButtonExtras = new Bundle();
+      commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
+      commandButtons.add(
+          new CommandButton.Builder()
+              .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+              .setIconResId(skipNextDrawableResourceId)
+              .setExtras(commandButtonExtras)
+              .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
+              .build());
+    }
     for (int i = 0; i < customLayout.size(); i++) {
       CommandButton button = customLayout.get(i);
-      commandButtons.add(button);
+      if (button.sessionCommand != null
+          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM) {
+        commandButtons.add(button);
+      }
     }
     return commandButtons.build();
   }
