@@ -1160,67 +1160,9 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         setQueue(sessionCompat, /* queue= */ null);
         return;
       }
-      List<MediaItem> mediaItemList = LegacyConversions.convertToMediaItemList(timeline);
-      List<@NullableType ListenableFuture<Bitmap>> bitmapFutures = new ArrayList<>();
-      final AtomicInteger resultCount = new AtomicInteger(0);
-      Runnable handleBitmapFuturesTask =
-          () -> {
-            int completedBitmapFutureCount = resultCount.incrementAndGet();
-            if (completedBitmapFutureCount == mediaItemList.size()) {
-              handleBitmapFuturesAllCompletedAndSetQueue(bitmapFutures, timeline, mediaItemList);
-            }
-          };
-
-      for (int i = 0; i < mediaItemList.size(); i++) {
-        MediaItem mediaItem = mediaItemList.get(i);
-        MediaMetadata metadata = mediaItem.mediaMetadata;
-        if (metadata.artworkData == null) {
-          bitmapFutures.add(null);
-          handleBitmapFuturesTask.run();
-        } else {
-          ListenableFuture<Bitmap> bitmapFuture =
-              sessionImpl.getBitmapLoader().decodeBitmap(metadata.artworkData);
-          bitmapFutures.add(bitmapFuture);
-          bitmapFuture.addListener(
-              handleBitmapFuturesTask, sessionImpl.getApplicationHandler()::post);
-        }
-      }
-    }
-
-    private void handleBitmapFuturesAllCompletedAndSetQueue(
-        List<@NullableType ListenableFuture<Bitmap>> bitmapFutures,
-        Timeline timeline,
-        List<MediaItem> mediaItems) {
-      List<QueueItem> queueItemList = new ArrayList<>();
-      for (int i = 0; i < bitmapFutures.size(); i++) {
-        @Nullable ListenableFuture<Bitmap> future = bitmapFutures.get(i);
-        @Nullable Bitmap bitmap = null;
-        if (future != null) {
-          try {
-            bitmap = Futures.getDone(future);
-          } catch (CancellationException | ExecutionException e) {
-            Log.d(TAG, "Failed to get bitmap", e);
-          }
-        }
-        queueItemList.add(LegacyConversions.convertToQueueItem(mediaItems.get(i), i, bitmap));
-      }
-
-      if (Util.SDK_INT < 21) {
-        // In order to avoid TransactionTooLargeException for below API 21, we need to
-        // cut the list so that it doesn't exceed the binder transaction limit.
-        List<QueueItem> truncatedList =
-            MediaUtils.truncateListBySize(queueItemList, TRANSACTION_SIZE_LIMIT_IN_BYTES);
-        if (truncatedList.size() != timeline.getWindowCount()) {
-          Log.i(
-              TAG,
-              "Sending " + truncatedList.size() + " items out of " + timeline.getWindowCount());
-        }
-        setQueue(sessionCompat, truncatedList);
-      } else {
-        // Framework MediaSession#setQueue() uses ParceledListSlice,
-        // which means we can safely send long lists.
-        setQueue(sessionCompat, queueItemList);
-      }
+      List<QueueItem> queueItemList = LegacyConversions.convertToQueueItemList(
+              timeline, sessionImpl.getPlayerWrapper().getShuffleModeEnabled());
+      setQueue(sessionCompat, queueItemList);
     }
 
     @Override
@@ -1239,6 +1181,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         throws RemoteException {
       sessionCompat.setShuffleMode(
           LegacyConversions.convertToPlaybackStateCompatShuffleMode(shuffleModeEnabled));
+      updateQueue(sessionImpl.getPlayerWrapper().getCurrentTimeline());
     }
 
     @Override

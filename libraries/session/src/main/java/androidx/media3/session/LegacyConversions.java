@@ -253,14 +253,18 @@ import java.util.concurrent.TimeoutException;
     return builder.build();
   }
 
-  /** Converts a {@link Timeline} to a list of {@link MediaItem MediaItems}. */
-  public static List<MediaItem> convertToMediaItemList(Timeline timeline) {
-    List<MediaItem> mediaItems = new ArrayList<>();
+  /** Converts a {@link Timeline} to a list of {@link QueueItem MediaItems}. */
+  public static List<QueueItem> convertToQueueItemList(Timeline timeline, boolean shuffleModeEnabled) {
+    List<QueueItem> queueItems = new ArrayList<>();
     Window window = new Window();
-    for (int i = 0; i < timeline.getWindowCount(); i++) {
-      mediaItems.add(timeline.getWindow(i, window).mediaItem);
-    }
-    return mediaItems;
+    int mediaItemIndex = timeline.getFirstWindowIndex(shuffleModeEnabled);
+    do {
+      timeline.getWindow(mediaItemIndex, window);
+      MediaItem mediaItem = window.mediaItem;
+      queueItems.add(convertToQueueItem(mediaItem, mediaItemIndex, /* artworkBitmap= */ null));
+      mediaItemIndex = timeline.getNextWindowIndex(mediaItemIndex, Player.REPEAT_MODE_OFF, shuffleModeEnabled);
+    } while (mediaItemIndex != C.INDEX_UNSET);
+    return queueItems;
   }
 
   /**
