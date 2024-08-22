@@ -14,7 +14,7 @@
 import org.apache.tools.ant.taskdefs.condition.Os
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 
-android.ndkVersion = "25.2.9519653"
+android.ndkVersion = "26.1.10909125"
 android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
 // Should match cmake_minimum_required.
 android.externalNativeBuild.cmake.version = '3.21.0+'
