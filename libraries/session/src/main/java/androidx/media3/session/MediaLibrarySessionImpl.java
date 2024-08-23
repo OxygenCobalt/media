@@ -132,33 +132,7 @@ import java.util.concurrent.Future;
 
   public ListenableFuture<LibraryResult<MediaItem>> onGetLibraryRootOnHandler(
       ControllerInfo browser, @Nullable LibraryParams params) {
-//    if (params != null && params.isRecent && isSystemUiController(browser)) {
-//      // Advertise support for playback resumption, if enabled.
-//      return !canResumePlaybackOnStart()
-//          ? Futures.immediateFuture(LibraryResult.ofError(RESULT_ERROR_NOT_SUPPORTED))
-//          : Futures.immediateFuture(
-//              LibraryResult.ofItem(
-//                  new MediaItem.Builder()
-//                      .setMediaId(RECENT_LIBRARY_ROOT_MEDIA_ID)
-//                      .setMediaMetadata(
-//                          new MediaMetadata.Builder()
-//                              .setIsBrowsable(true)
-//                              .setIsPlayable(false)
-//                              .build())
-//                      .build(),
-//                  params));
-//    }
-    ListenableFuture<LibraryResult<MediaItem>> future =
-        callback.onGetLibraryRoot(instance, resolveControllerInfoForCallback(browser), params);
-    future.addListener(
-        () -> {
-          @Nullable LibraryResult<MediaItem> result = tryGetFutureResult(future);
-          if (result != null) {
-            maybeUpdateLegacyErrorState(result);
-          }
-        },
-        this::postOrRunOnApplicationHandler);
-    return future;
+    return callback.onGetLibraryRoot(instance, resolveControllerInfoForCallback(browser), params);
   }
 
   public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> onGetChildrenOnHandler(
@@ -168,39 +142,11 @@ import java.util.concurrent.Future;
       int pageSize,
       @Nullable LibraryParams params) {
     if (Objects.equals(parentId, RECENT_LIBRARY_ROOT_MEDIA_ID)) {
-//      if (!canResumePlaybackOnStart()) {
         return Futures.immediateFuture(LibraryResult.ofError(RESULT_ERROR_NOT_SUPPORTED));
-//      }
-//      // Advertise support for playback resumption. If STATE_IDLE, the request arrives at boot time
-//      // to get the full item data to build a notification. If not STATE_IDLE we don't need to
-//      // deliver the full media item, so we do the minimal viable effort.
-//      return getPlayerWrapper().getPlaybackState() == Player.STATE_IDLE
-//          ? getRecentMediaItemAtDeviceBootTime(browser, params)
-//          : Futures.immediateFuture(
-//              LibraryResult.ofItemList(
-//                  ImmutableList.of(
-//                      new MediaItem.Builder()
-//                          .setMediaId("androidx.media3.session.recent.item")
-//                          .setMediaMetadata(
-//                              new MediaMetadata.Builder()
-//                                  .setIsBrowsable(false)
-//                                  .setIsPlayable(true)
-//                                  .build())
-//                          .build()),
-//                  params));
     }
     ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> future =
         callback.onGetChildren(
             instance, resolveControllerInfoForCallback(browser), parentId, page, pageSize, params);
-    future.addListener(
-        () -> {
-          @Nullable LibraryResult<ImmutableList<MediaItem>> result = tryGetFutureResult(future);
-          if (result != null) {
-            maybeUpdateLegacyErrorState(browser, result);
-            verifyResultItems(result, pageSize);
-          }
-        },
-        this::postOrRunOnApplicationHandler);
     return future;
   }
 
