@@ -333,10 +333,10 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         session -> DEFAULT_NOTIFICATION_ID,
         DEFAULT_CHANNEL_ID,
         DEFAULT_CHANNEL_NAME_RESOURCE_ID,
-            R.drawable.media3_notification_play,
-            R.drawable.media3_notification_pause,
-            R.drawable.media3_notification_seek_to_next,
-            R.drawable.media3_notification_seek_to_previous,
+            R.drawable.media3_icon_play,
+            R.drawable.media3_icon_pause,
+            R.drawable.media3_icon_next,
+            R.drawable.media3_icon_previous,
             null);
   }
 
