@@ -53,6 +53,7 @@ import androidx.media3.exoplayer.ExoPlaybackException;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -61,29 +62,73 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executor;
-import org.checkerframework.checker.initialization.qual.Initialized;
 import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
+import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** Handles composition of video sinks. */
 @UnstableApi
 @RestrictTo({Scope.LIBRARY_GROUP})
-public final class CompositingVideoSinkProvider
-    implements VideoSinkProvider, VideoGraph.Listener, VideoFrameRenderControl.FrameRenderer {
+public final class CompositingVideoSinkProvider implements VideoSinkProvider, VideoGraph.Listener {
+
+  /** Listener for {@link CompositingVideoSinkProvider} events. */
+  public interface Listener {
+    /**
+     * Called when the video frame processor renders the first frame.
+     *
+     * @param compositingVideoSinkProvider The compositing video sink provider which triggered this
+     *     event.
+     */
+    void onFirstFrameRendered(CompositingVideoSinkProvider compositingVideoSinkProvider);
+
+    /**
+     * Called when the video frame processor dropped a frame.
+     *
+     * @param compositingVideoSinkProvider The compositing video sink provider which triggered this
+     *     event.
+     */
+    void onFrameDropped(CompositingVideoSinkProvider compositingVideoSinkProvider);
+
+    /**
+     * Called before a frame is rendered for the first time since setting the surface, and each time
+     * there's a change in the size, rotation or pixel aspect ratio of the video being rendered.
+     *
+     * @param compositingVideoSinkProvider The compositing video sink provider which triggered this
+     *     event.
+     * @param videoSize The video size.
+     */
+    void onVideoSizeChanged(
+        CompositingVideoSinkProvider compositingVideoSinkProvider, VideoSize videoSize);
+
+    /**
+     * Called when the video frame processor encountered an error.
+     *
+     * @param compositingVideoSinkProvider The compositing video sink provider which triggered this
+     *     event.
+     * @param videoFrameProcessingException The error.
+     */
+    void onError(
+        CompositingVideoSinkProvider compositingVideoSinkProvider,
+        VideoFrameProcessingException videoFrameProcessingException);
+  }
 
   /** A builder for {@link CompositingVideoSinkProvider} instances. */
   public static final class Builder {
     private final Context context;
+    private final VideoFrameReleaseControl videoFrameReleaseControl;
 
     private VideoFrameProcessor.@MonotonicNonNull Factory videoFrameProcessorFactory;
     private PreviewingVideoGraph.@MonotonicNonNull Factory previewingVideoGraphFactory;
+    private Clock clock;
     private boolean built;
 
-    /** Creates a builder with the supplied {@linkplain Context application context}. */
-    public Builder(Context context) {
-      this.context = context;
+    /** Creates a builder. */
+    public Builder(Context context, VideoFrameReleaseControl videoFrameReleaseControl) {
+      this.context = context.getApplicationContext();
+      this.videoFrameReleaseControl = videoFrameReleaseControl;
+      clock = Clock.DEFAULT;
     }
 
     /**
@@ -96,6 +141,7 @@ public final class CompositingVideoSinkProvider
      * @param videoFrameProcessorFactory The {@link VideoFrameProcessor.Factory}.
      * @return This builder, for convenience.
      */
+    @CanIgnoreReturnValue
     public Builder setVideoFrameProcessorFactory(
         VideoFrameProcessor.Factory videoFrameProcessorFactory) {
       this.videoFrameProcessorFactory = videoFrameProcessorFactory;
@@ -111,9 +157,24 @@ public final class CompositingVideoSinkProvider
      * @param previewingVideoGraphFactory The {@link PreviewingVideoGraph.Factory}.
      * @return This builder, for convenience.
      */
+    @CanIgnoreReturnValue
     public Builder setPreviewingVideoGraphFactory(
         PreviewingVideoGraph.Factory previewingVideoGraphFactory) {
       this.previewingVideoGraphFactory = previewingVideoGraphFactory;
+      return this;
+    }
+
+    /**
+     * Sets the {@link Clock} that will be used.
+     *
+     * <p>By default, {@link Clock#DEFAULT} will be used.
+     *
+     * @param clock The {@link Clock}.
+     * @return This builder, for convenience.
+     */
+    @CanIgnoreReturnValue
+    public Builder setClock(Clock clock) {
+      this.clock = clock;
       return this;
     }
 
@@ -153,80 +214,91 @@ public final class CompositingVideoSinkProvider
   private static final Executor NO_OP_EXECUTOR = runnable -> {};
 
   private final Context context;
+  private final VideoSinkImpl videoSinkImpl;
+  private final VideoFrameReleaseControl videoFrameReleaseControl;
+  private final VideoFrameRenderControl videoFrameRenderControl;
   private final PreviewingVideoGraph.Factory previewingVideoGraphFactory;
+  private final Clock clock;
+  private final CopyOnWriteArraySet<CompositingVideoSinkProvider.Listener> listeners;
 
-  private Clock clock;
-  private @MonotonicNonNull VideoFrameReleaseControl videoFrameReleaseControl;
-  private @MonotonicNonNull VideoFrameRenderControl videoFrameRenderControl;
   private @MonotonicNonNull Format outputFormat;
   private @MonotonicNonNull VideoFrameMetadataListener videoFrameMetadataListener;
   private @MonotonicNonNull HandlerWrapper handler;
   private @MonotonicNonNull PreviewingVideoGraph videoGraph;
-  private @MonotonicNonNull VideoSinkImpl videoSinkImpl;
-  private @MonotonicNonNull List<Effect> videoEffects;
   @Nullable private Pair<Surface, Size> currentSurfaceAndSize;
-  private VideoSink.Listener listener;
-  private Executor listenerExecutor;
   private int pendingFlushCount;
   private @State int state;
 
+  /**
+   * Converts the buffer timestamp (the player position, with renderer offset) to the composition
+   * timestamp, in microseconds. The composition time starts from zero, add this adjustment to
+   * buffer timestamp to get the composition time.
+   */
+  private long bufferTimestampAdjustmentUs;
+
   private CompositingVideoSinkProvider(Builder builder) {
-    this.context = builder.context;
-    this.previewingVideoGraphFactory = checkStateNotNull(builder.previewingVideoGraphFactory);
-    clock = Clock.DEFAULT;
-    listener = VideoSink.Listener.NO_OP;
-    listenerExecutor = NO_OP_EXECUTOR;
+    context = builder.context;
+    videoSinkImpl = new VideoSinkImpl(context);
+    clock = builder.clock;
+    videoFrameReleaseControl = builder.videoFrameReleaseControl;
+    videoFrameReleaseControl.setClock(clock);
+    videoFrameRenderControl =
+        new VideoFrameRenderControl(new FrameRendererImpl(), videoFrameReleaseControl);
+    previewingVideoGraphFactory = checkStateNotNull(builder.previewingVideoGraphFactory);
+    listeners = new CopyOnWriteArraySet<>();
     state = STATE_CREATED;
+    addListener(videoSinkImpl);
+  }
+
+  /**
+   * Adds a {@link CompositingVideoSinkProvider.Listener}.
+   *
+   * @param listener The listener to be added.
+   */
+  public void addListener(CompositingVideoSinkProvider.Listener listener) {
+    listeners.add(listener);
+  }
+
+  /**
+   * Removes a {@link CompositingVideoSinkProvider.Listener}.
+   *
+   * @param listener The listener to be removed.
+   */
+  public void removeListener(CompositingVideoSinkProvider.Listener listener) {
+    listeners.remove(listener);
   }
 
   // VideoSinkProvider methods
 
   @Override
-  public void initialize(Format sourceFormat) throws VideoSink.VideoSinkException {
-    checkState(state == STATE_CREATED);
-    checkStateNotNull(videoEffects);
-    checkState(videoFrameRenderControl != null && videoFrameReleaseControl != null);
-
-    // Lazily initialize the handler here so it's initialized on the playback looper.
-    handler = clock.createHandler(checkStateNotNull(Looper.myLooper()), /* callback= */ null);
-
-    ColorInfo inputColorInfo = getAdjustedInputColorInfo(sourceFormat.colorInfo);
-    ColorInfo outputColorInfo = inputColorInfo;
-    if (inputColorInfo.colorTransfer == C.COLOR_TRANSFER_HLG) {
-      // SurfaceView only supports BT2020 PQ input. Therefore, convert HLG to PQ.
-      outputColorInfo =
-          inputColorInfo.buildUpon().setColorTransfer(C.COLOR_TRANSFER_ST2084).build();
-    }
-    try {
-      @SuppressWarnings("nullness:assignment")
-      VideoGraph.@Initialized Listener thisRef = this;
-      videoGraph =
-          previewingVideoGraphFactory.create(
-              context,
-              inputColorInfo,
-              outputColorInfo,
-              DebugViewProvider.NONE,
-              /* listener= */ thisRef,
-              /* listenerExecutor= */ handler::post,
-              /* compositionEffects= */ ImmutableList.of(),
-              /* initialTimestampOffsetUs= */ 0);
-      if (currentSurfaceAndSize != null) {
-        Surface surface = currentSurfaceAndSize.first;
-        Size size = currentSurfaceAndSize.second;
-        maybeSetOutputSurfaceInfo(surface, size.getWidth(), size.getHeight());
-      }
-      videoSinkImpl =
-          new VideoSinkImpl(context, /* compositingVideoSinkProvider= */ this, videoGraph);
-    } catch (VideoFrameProcessingException e) {
-      throw new VideoSink.VideoSinkException(e, sourceFormat);
-    }
-    videoSinkImpl.setVideoEffects(checkNotNull(videoEffects));
-    state = STATE_INITIALIZED;
+  public VideoFrameReleaseControl getVideoFrameReleaseControl() {
+    return videoFrameReleaseControl;
   }
 
   @Override
-  public boolean isInitialized() {
-    return state == STATE_INITIALIZED;
+  public VideoSink getSink() {
+    return videoSinkImpl;
+  }
+
+  @Override
+  public void setOutputSurfaceInfo(Surface outputSurface, Size outputResolution) {
+    if (currentSurfaceAndSize != null
+        && currentSurfaceAndSize.first.equals(outputSurface)
+        && currentSurfaceAndSize.second.equals(outputResolution)) {
+      return;
+    }
+    currentSurfaceAndSize = Pair.create(outputSurface, outputResolution);
+    maybeSetOutputSurfaceInfo(
+        outputSurface, outputResolution.getWidth(), outputResolution.getHeight());
+  }
+
+  @Override
+  public void clearOutputSurfaceInfo() {
+    maybeSetOutputSurfaceInfo(
+        /* surface= */ null,
+        /* width= */ Size.UNKNOWN.getWidth(),
+        /* height= */ Size.UNKNOWN.getHeight());
+    currentSurfaceAndSize = null;
   }
 
   @Override
@@ -246,94 +318,24 @@ public final class CompositingVideoSinkProvider
     state = STATE_RELEASED;
   }
 
-  @Override
-  public VideoSink getSink() {
-    return checkStateNotNull(videoSinkImpl);
-  }
-
-  @Override
-  public void setVideoEffects(List<Effect> videoEffects) {
-    this.videoEffects = videoEffects;
-    if (isInitialized()) {
-      checkStateNotNull(videoSinkImpl).setVideoEffects(videoEffects);
-    }
-  }
-
-  @Override
-  public void setPendingVideoEffects(List<Effect> videoEffects) {
-    this.videoEffects = videoEffects;
-    if (isInitialized()) {
-      checkStateNotNull(videoSinkImpl).setPendingVideoEffects(videoEffects);
-    }
-  }
-
-  @Override
-  public void setStreamOffsetUs(long streamOffsetUs) {
-    checkStateNotNull(videoSinkImpl).setStreamOffsetUs(streamOffsetUs);
-  }
-
-  @Override
-  public void setOutputSurfaceInfo(Surface outputSurface, Size outputResolution) {
-    if (currentSurfaceAndSize != null
-        && currentSurfaceAndSize.first.equals(outputSurface)
-        && currentSurfaceAndSize.second.equals(outputResolution)) {
-      return;
-    }
-    currentSurfaceAndSize = Pair.create(outputSurface, outputResolution);
-    maybeSetOutputSurfaceInfo(
-        outputSurface, outputResolution.getWidth(), outputResolution.getHeight());
-  }
-
-  @Override
-  public void setVideoFrameReleaseControl(VideoFrameReleaseControl videoFrameReleaseControl) {
-    checkState(!isInitialized());
-    this.videoFrameReleaseControl = videoFrameReleaseControl;
-    videoFrameRenderControl =
-        new VideoFrameRenderControl(/* frameRenderer= */ this, videoFrameReleaseControl);
-  }
-
-  @Override
-  public void clearOutputSurfaceInfo() {
-    maybeSetOutputSurfaceInfo(
-        /* surface= */ null,
-        /* width= */ Size.UNKNOWN.getWidth(),
-        /* height= */ Size.UNKNOWN.getHeight());
-    currentSurfaceAndSize = null;
-  }
-
-  @Override
-  public void setVideoFrameMetadataListener(VideoFrameMetadataListener videoFrameMetadataListener) {
-    this.videoFrameMetadataListener = videoFrameMetadataListener;
-  }
-
-  @Override
-  @Nullable
-  public VideoFrameReleaseControl getVideoFrameReleaseControl() {
-    return videoFrameReleaseControl;
-  }
-
-  @Override
-  public void setClock(Clock clock) {
-    checkState(!isInitialized());
-    this.clock = clock;
-  }
-
   // VideoGraph.Listener
 
   @Override
   public void onOutputSizeChanged(int width, int height) {
     // We forward output size changes to render control even if we are still flushing.
-    checkStateNotNull(videoFrameRenderControl).onOutputSizeChanged(width, height);
+    videoFrameRenderControl.onOutputSizeChanged(width, height);
   }
 
   @Override
-  public void onOutputFrameAvailableForRendering(long presentationTimeUs) {
+  public void onOutputFrameAvailableForRendering(long framePresentationTimeUs) {
     if (pendingFlushCount > 0) {
       // Ignore available frames while the sink provider is flushing
       return;
     }
-    checkStateNotNull(videoFrameRenderControl)
-        .onOutputFrameAvailableForRendering(presentationTimeUs);
+    // The frame presentation time is relative to the start of the Composition and without the
+    // renderer offset
+    videoFrameRenderControl.onOutputFrameAvailableForRendering(
+        framePresentationTimeUs - bufferTimestampAdjustmentUs);
   }
 
   @Override
@@ -343,59 +345,9 @@ public final class CompositingVideoSinkProvider
 
   @Override
   public void onError(VideoFrameProcessingException exception) {
-    VideoSink.Listener currentListener = this.listener;
-    listenerExecutor.execute(
-        () -> {
-          VideoSinkImpl videoSink = checkStateNotNull(videoSinkImpl);
-          currentListener.onError(
-              videoSink,
-              new VideoSink.VideoSinkException(
-                  exception, checkStateNotNull(videoSink.inputFormat)));
-        });
-  }
-
-  // FrameRenderer methods
-
-  @Override
-  public void onVideoSizeChanged(VideoSize videoSize) {
-    outputFormat =
-        new Format.Builder()
-            .setWidth(videoSize.width)
-            .setHeight(videoSize.height)
-            .setSampleMimeType(MimeTypes.VIDEO_RAW)
-            .build();
-    VideoSinkImpl videoSink = checkStateNotNull(videoSinkImpl);
-    VideoSink.Listener currentListener = this.listener;
-    listenerExecutor.execute(() -> currentListener.onVideoSizeChanged(videoSink, videoSize));
-  }
-
-  @Override
-  public void renderFrame(
-      long renderTimeNs, long presentationTimeUs, long streamOffsetUs, boolean isFirstFrame) {
-    if (isFirstFrame && listenerExecutor != NO_OP_EXECUTOR) {
-      VideoSinkImpl videoSink = checkStateNotNull(videoSinkImpl);
-      VideoSink.Listener currentListener = this.listener;
-      listenerExecutor.execute(() -> currentListener.onFirstFrameRendered(videoSink));
+    for (CompositingVideoSinkProvider.Listener listener : listeners) {
+      listener.onError(/* compositingVideoSinkProvider= */ this, exception);
     }
-    if (videoFrameMetadataListener != null) {
-      // TODO b/292111083 - outputFormat is initialized after the first frame is rendered because
-      //  onVideoSizeChanged is announced after the first frame is available for rendering.
-      Format format = outputFormat == null ? new Format.Builder().build() : outputFormat;
-      videoFrameMetadataListener.onVideoFrameAboutToBeRendered(
-          /* presentationTimeUs= */ presentationTimeUs - streamOffsetUs,
-          clock.nanoTime(),
-          format,
-          /* mediaFormat= */ null);
-    }
-    checkStateNotNull(videoGraph).renderOutputFrame(renderTimeNs);
-  }
-
-  @Override
-  public void dropFrame() {
-    VideoSink.Listener currentListener = this.listener;
-    listenerExecutor.execute(
-        () -> currentListener.onFrameDropped(checkStateNotNull(videoSinkImpl)));
-    checkStateNotNull(videoGraph).renderOutputFrame(VideoFrameProcessor.DROP_OUTPUT_FRAME);
   }
 
   // Other public methods
@@ -409,7 +361,7 @@ public final class CompositingVideoSinkProvider
    */
   public void render(long positionUs, long elapsedRealtimeUs) throws ExoPlaybackException {
     if (pendingFlushCount == 0) {
-      checkStateNotNull(videoFrameRenderControl).render(positionUs, elapsedRealtimeUs);
+      videoFrameRenderControl.render(positionUs, elapsedRealtimeUs);
     }
   }
 
@@ -425,14 +377,44 @@ public final class CompositingVideoSinkProvider
 
   // Internal methods
 
-  private void setListener(VideoSink.Listener listener, Executor executor) {
-    if (Objects.equals(listener, this.listener)) {
-      checkState(Objects.equals(executor, listenerExecutor));
-      return;
-    }
+  private VideoFrameProcessor initialize(Format sourceFormat) throws VideoSink.VideoSinkException {
+    checkState(state == STATE_CREATED);
 
-    this.listener = listener;
-    this.listenerExecutor = executor;
+    ColorInfo inputColorInfo = getAdjustedInputColorInfo(sourceFormat.colorInfo);
+    ColorInfo outputColorInfo = inputColorInfo;
+    if (inputColorInfo.colorTransfer == C.COLOR_TRANSFER_HLG && Util.SDK_INT < 34) {
+      // PQ SurfaceView output is supported from API 33, but HLG output is supported from API 34.
+      // Therefore, convert HLG to PQ below API 34, so that HLG input can be displayed properly on
+      // API 33.
+      outputColorInfo =
+          inputColorInfo.buildUpon().setColorTransfer(C.COLOR_TRANSFER_ST2084).build();
+    }
+    handler = clock.createHandler(checkStateNotNull(Looper.myLooper()), /* callback= */ null);
+    try {
+      videoGraph =
+          previewingVideoGraphFactory.create(
+              context,
+              outputColorInfo,
+              DebugViewProvider.NONE,
+              /* listener= */ this,
+              /* listenerExecutor= */ handler::post,
+              /* compositionEffects= */ ImmutableList.of(),
+              /* initialTimestampOffsetUs= */ 0);
+      if (currentSurfaceAndSize != null) {
+        Surface surface = currentSurfaceAndSize.first;
+        Size size = currentSurfaceAndSize.second;
+        maybeSetOutputSurfaceInfo(surface, size.getWidth(), size.getHeight());
+      }
+      videoGraph.registerInput(/* inputIndex= */ 0);
+    } catch (VideoFrameProcessingException e) {
+      throw new VideoSink.VideoSinkException(e, sourceFormat);
+    }
+    state = STATE_INITIALIZED;
+    return videoGraph.getProcessor(/* inputIndex= */ 0);
+  }
+
+  private boolean isInitialized() {
+    return state == STATE_INITIALIZED;
   }
 
   private void maybeSetOutputSurfaceInfo(@Nullable Surface surface, int width, int height) {
@@ -440,24 +422,26 @@ public final class CompositingVideoSinkProvider
       // Update the surface on the video graph and the video frame release control together.
       SurfaceInfo surfaceInfo = surface != null ? new SurfaceInfo(surface, width, height) : null;
       videoGraph.setOutputSurfaceInfo(surfaceInfo);
-      checkNotNull(videoFrameReleaseControl).setOutputSurface(surface);
+      videoFrameReleaseControl.setOutputSurface(surface);
     }
   }
 
   private boolean isReady() {
-    return pendingFlushCount == 0 && checkStateNotNull(videoFrameRenderControl).isReady();
+    return pendingFlushCount == 0 && videoFrameRenderControl.isReady();
   }
 
   private boolean hasReleasedFrame(long presentationTimeUs) {
-    return pendingFlushCount == 0
-        && checkStateNotNull(videoFrameRenderControl).hasReleasedFrame(presentationTimeUs);
+    return pendingFlushCount == 0 && videoFrameRenderControl.hasReleasedFrame(presentationTimeUs);
   }
 
   private void flush() {
+    if (!isInitialized()) {
+      return;
+    }
     pendingFlushCount++;
     // Flush the render control now to ensure it has no data, eg calling isReady() must return false
     // and render() should not render any frames.
-    checkStateNotNull(videoFrameRenderControl).flush();
+    videoFrameRenderControl.flush();
     // Finish flushing after handling pending video graph callbacks to ensure video size changes
     // reach the video render control.
     checkStateNotNull(handler).post(this::flushInternal);
@@ -472,36 +456,44 @@ public final class CompositingVideoSinkProvider
       throw new IllegalStateException(String.valueOf(pendingFlushCount));
     }
     // Flush the render control again.
-    checkStateNotNull(videoFrameRenderControl).flush();
+    videoFrameRenderControl.flush();
+  }
+
+  private void setVideoFrameMetadataListener(
+      VideoFrameMetadataListener videoFrameMetadataListener) {
+    this.videoFrameMetadataListener = videoFrameMetadataListener;
   }
 
   private void setPlaybackSpeed(float speed) {
-    checkStateNotNull(videoFrameRenderControl).setPlaybackSpeed(speed);
+    videoFrameRenderControl.setPlaybackSpeed(speed);
   }
 
-  private void onStreamOffsetChange(long bufferPresentationTimeUs, long streamOffsetUs) {
-    checkStateNotNull(videoFrameRenderControl)
-        .onStreamOffsetChange(bufferPresentationTimeUs, streamOffsetUs);
+  private void onStreamOffsetChange(
+      long bufferTimestampAdjustmentUs, long bufferPresentationTimeUs, long streamOffsetUs) {
+    this.bufferTimestampAdjustmentUs = bufferTimestampAdjustmentUs;
+    videoFrameRenderControl.onStreamOffsetChange(bufferPresentationTimeUs, streamOffsetUs);
   }
 
   private static ColorInfo getAdjustedInputColorInfo(@Nullable ColorInfo inputColorInfo) {
-    return inputColorInfo != null && ColorInfo.isTransferHdr(inputColorInfo)
-        ? inputColorInfo
-        : ColorInfo.SDR_BT709_LIMITED;
+    if (inputColorInfo == null || !inputColorInfo.isDataSpaceValid()) {
+      return ColorInfo.SDR_BT709_LIMITED;
+    }
+
+    return inputColorInfo;
   }
 
   /** Receives input from an ExoPlayer renderer and forwards it to the video graph. */
-  private static final class VideoSinkImpl implements VideoSink {
+  private final class VideoSinkImpl implements VideoSink, CompositingVideoSinkProvider.Listener {
     private final Context context;
-    private final CompositingVideoSinkProvider compositingVideoSinkProvider;
-    private final VideoFrameProcessor videoFrameProcessor;
     private final int videoFrameProcessorMaxPendingFrameCount;
     private final ArrayList<Effect> videoEffects;
     @Nullable private Effect rotationEffect;
 
+    private @MonotonicNonNull VideoFrameProcessor videoFrameProcessor;
     @Nullable private Format inputFormat;
     private @InputType int inputType;
     private long inputStreamOffsetUs;
+    private long inputBufferTimestampAdjustmentUs;
     private boolean pendingInputStreamOffsetChange;
 
     /** The buffer presentation time, in microseconds, of the final frame in the stream. */
@@ -514,38 +506,78 @@ public final class CompositingVideoSinkProvider
 
     private boolean hasRegisteredFirstInputStream;
     private long pendingInputStreamBufferPresentationTimeUs;
+    private VideoSink.Listener listener;
+    private Executor listenerExecutor;
 
     /** Creates a new instance. */
-    public VideoSinkImpl(
-        Context context,
-        CompositingVideoSinkProvider compositingVideoSinkProvider,
-        PreviewingVideoGraph videoGraph)
-        throws VideoFrameProcessingException {
+    public VideoSinkImpl(Context context) {
       this.context = context;
-      this.compositingVideoSinkProvider = compositingVideoSinkProvider;
       // TODO b/226330223 - Investigate increasing frame count when frame dropping is
       //  allowed.
       // TODO b/278234847 - Evaluate whether limiting frame count when frame dropping is not allowed
       //  reduces decoder timeouts, and consider restoring.
       videoFrameProcessorMaxPendingFrameCount =
           Util.getMaxPendingFramesCountForMediaCodecDecoders(context);
-      int videoGraphInputId = videoGraph.registerInput();
-      videoFrameProcessor = videoGraph.getProcessor(videoGraphInputId);
 
       videoEffects = new ArrayList<>();
       finalBufferPresentationTimeUs = C.TIME_UNSET;
       lastBufferPresentationTimeUs = C.TIME_UNSET;
+      listener = VideoSink.Listener.NO_OP;
+      listenerExecutor = NO_OP_EXECUTOR;
     }
 
     // VideoSink impl
 
     @Override
-    public void flush() {
-      videoFrameProcessor.flush();
+    public void onRendererEnabled(boolean mayRenderStartOfStream) {
+      videoFrameReleaseControl.onEnabled(mayRenderStartOfStream);
+    }
+
+    @Override
+    public void onRendererDisabled() {
+      videoFrameReleaseControl.onDisabled();
+    }
+
+    @Override
+    public void onRendererStarted() {
+      videoFrameReleaseControl.onStarted();
+    }
+
+    @Override
+    public void onRendererStopped() {
+      videoFrameReleaseControl.onStopped();
+    }
+
+    @Override
+    public void setListener(Listener listener, Executor executor) {
+      this.listener = listener;
+      listenerExecutor = executor;
+    }
+
+    @Override
+    public void initialize(Format sourceFormat) throws VideoSinkException {
+      checkState(!isInitialized());
+      videoFrameProcessor = CompositingVideoSinkProvider.this.initialize(sourceFormat);
+    }
+
+    @Override
+    @EnsuresNonNullIf(result = true, expression = "videoFrameProcessor")
+    public boolean isInitialized() {
+      return videoFrameProcessor != null;
+    }
+
+    @Override
+    public void flush(boolean resetPosition) {
+      if (isInitialized()) {
+        videoFrameProcessor.flush();
+      }
       hasRegisteredFirstInputStream = false;
       finalBufferPresentationTimeUs = C.TIME_UNSET;
       lastBufferPresentationTimeUs = C.TIME_UNSET;
-      compositingVideoSinkProvider.flush();
+      CompositingVideoSinkProvider.this.flush();
+      if (resetPosition) {
+        videoFrameReleaseControl.reset();
+      }
       // Don't change input stream offset or reset the pending input stream offset change so that
       // it's announced with the next input frame.
       // Don't reset pendingInputStreamBufferPresentationTimeUs because it's not guaranteed to
@@ -554,17 +586,19 @@ public final class CompositingVideoSinkProvider
 
     @Override
     public boolean isReady() {
-      return compositingVideoSinkProvider.isReady();
+      return isInitialized() && CompositingVideoSinkProvider.this.isReady();
     }
 
     @Override
     public boolean isEnded() {
-      return finalBufferPresentationTimeUs != C.TIME_UNSET
-          && compositingVideoSinkProvider.hasReleasedFrame(finalBufferPresentationTimeUs);
+      return isInitialized()
+          && finalBufferPresentationTimeUs != C.TIME_UNSET
+          && CompositingVideoSinkProvider.this.hasReleasedFrame(finalBufferPresentationTimeUs);
     }
 
     @Override
     public void registerInputStream(@InputType int inputType, Format format) {
+      checkState(isInitialized());
       switch (inputType) {
         case INPUT_TYPE_SURFACE:
         case INPUT_TYPE_BITMAP:
@@ -572,6 +606,7 @@ public final class CompositingVideoSinkProvider
         default:
           throw new UnsupportedOperationException("Unsupported input type " + inputType);
       }
+      videoFrameReleaseControl.setFrameRate(format.frameRate);
       // MediaCodec applies rotation after API 21.
       if (inputType == INPUT_TYPE_SURFACE
           && Util.SDK_INT < 21
@@ -605,28 +640,77 @@ public final class CompositingVideoSinkProvider
     }
 
     @Override
-    public void setListener(Listener listener, Executor executor) {
-      compositingVideoSinkProvider.setListener(listener, executor);
-    }
-
-    @Override
     public boolean isFrameDropAllowedOnInput() {
       return Util.isFrameDropAllowedOnSurfaceInput(context);
     }
 
     @Override
     public Surface getInputSurface() {
-      return videoFrameProcessor.getInputSurface();
+      checkState(isInitialized());
+      return checkStateNotNull(videoFrameProcessor).getInputSurface();
+    }
+
+    @Override
+    public void setVideoFrameMetadataListener(
+        VideoFrameMetadataListener videoFrameMetadataListener) {
+      CompositingVideoSinkProvider.this.setVideoFrameMetadataListener(videoFrameMetadataListener);
+    }
+
+    @Override
+    public void setPlaybackSpeed(@FloatRange(from = 0, fromInclusive = false) float speed) {
+      CompositingVideoSinkProvider.this.setPlaybackSpeed(speed);
+    }
+
+    @Override
+    public void setVideoEffects(List<Effect> videoEffects) {
+      if (this.videoEffects.equals(videoEffects)) {
+        return;
+      }
+      setPendingVideoEffects(videoEffects);
+      maybeRegisterInputStream();
+    }
+
+    @Override
+    public void setPendingVideoEffects(List<Effect> videoEffects) {
+      this.videoEffects.clear();
+      this.videoEffects.addAll(videoEffects);
+    }
+
+    @Override
+    public void setStreamOffsetAndAdjustmentUs(
+        long streamOffsetUs, long bufferTimestampAdjustmentUs) {
+      // Ors because this method could be called multiple times on a stream offset change.
+      pendingInputStreamOffsetChange |=
+          inputStreamOffsetUs != streamOffsetUs
+              || inputBufferTimestampAdjustmentUs != bufferTimestampAdjustmentUs;
+      inputStreamOffsetUs = streamOffsetUs;
+      inputBufferTimestampAdjustmentUs = bufferTimestampAdjustmentUs;
+    }
+
+    @Override
+    public void setOutputSurfaceInfo(Surface outputSurface, Size outputResolution) {
+      CompositingVideoSinkProvider.this.setOutputSurfaceInfo(outputSurface, outputResolution);
+    }
+
+    @Override
+    public void clearOutputSurfaceInfo() {
+      CompositingVideoSinkProvider.this.clearOutputSurfaceInfo();
+    }
+
+    @Override
+    public void enableMayRenderStartOfStream() {
+      videoFrameReleaseControl.allowReleaseFirstFrameBeforeStarted();
     }
 
     @Override
     public long registerInputFrame(long framePresentationTimeUs, boolean isLastFrame) {
+      checkState(isInitialized());
       checkState(videoFrameProcessorMaxPendingFrameCount != C.LENGTH_UNSET);
 
       // An input stream is fully decoded, wait until all of its frames are released before queueing
       // input frame from the next input stream.
       if (pendingInputStreamBufferPresentationTimeUs != C.TIME_UNSET) {
-        if (compositingVideoSinkProvider.hasReleasedFrame(
+        if (CompositingVideoSinkProvider.this.hasReleasedFrame(
             pendingInputStreamBufferPresentationTimeUs)) {
           maybeRegisterInputStream();
           pendingInputStreamBufferPresentationTimeUs = C.TIME_UNSET;
@@ -635,11 +719,11 @@ public final class CompositingVideoSinkProvider
         }
       }
 
-      if (videoFrameProcessor.getPendingInputFrameCount()
+      if (checkStateNotNull(videoFrameProcessor).getPendingInputFrameCount()
           >= videoFrameProcessorMaxPendingFrameCount) {
         return C.TIME_UNSET;
       }
-      if (!videoFrameProcessor.registerInputFrame()) {
+      if (!checkStateNotNull(videoFrameProcessor).registerInputFrame()) {
         return C.TIME_UNSET;
       }
       // The sink takes in frames with monotonically increasing, non-offset frame
@@ -648,30 +732,50 @@ public final class CompositingVideoSinkProvider
       // timestamp of the said frame would be 0s, but the streamOffset is incremented 10s to include
       // the duration of the first video. Thus this correction is need to correct for the different
       // handling of presentation timestamps in ExoPlayer and VideoFrameProcessor.
-      long bufferPresentationTimeUs = framePresentationTimeUs + inputStreamOffsetUs;
-      if (pendingInputStreamOffsetChange) {
-        compositingVideoSinkProvider.onStreamOffsetChange(
-            /* bufferPresentationTimeUs= */ bufferPresentationTimeUs,
-            /* streamOffsetUs= */ inputStreamOffsetUs);
-        pendingInputStreamOffsetChange = false;
-      }
+      //
+      // inputBufferTimestampAdjustmentUs adjusts the frame presentation time (which is relative to
+      // the start of a composition, to the buffer timestamp that is offset, and correspond to the
+      // player position).
+      long bufferPresentationTimeUs = framePresentationTimeUs - inputBufferTimestampAdjustmentUs;
+      maybeSetStreamOffsetChange(bufferPresentationTimeUs);
       lastBufferPresentationTimeUs = bufferPresentationTimeUs;
       if (isLastFrame) {
         finalBufferPresentationTimeUs = bufferPresentationTimeUs;
       }
-      return bufferPresentationTimeUs * 1000;
+      return framePresentationTimeUs * 1000;
     }
 
     @Override
     public boolean queueBitmap(Bitmap inputBitmap, TimestampIterator timestampIterator) {
-      return checkStateNotNull(videoFrameProcessor)
-          .queueInputBitmap(inputBitmap, timestampIterator);
+      checkState(isInitialized());
+
+      if (!maybeRegisterPendingInputStream()) {
+        return false;
+      }
+
+      if (!checkStateNotNull(videoFrameProcessor)
+          .queueInputBitmap(inputBitmap, timestampIterator)) {
+        return false;
+      }
+
+      // Create a copy of iterator because we need to take the next timestamp but we must not alter
+      // the state of the iterator.
+      TimestampIterator copyTimestampIterator = timestampIterator.copyOf();
+      long bufferPresentationTimeUs = copyTimestampIterator.next();
+      // TimestampIterator generates frame time.
+      long lastBufferPresentationTimeUs =
+          copyTimestampIterator.getLastTimestampUs() - inputBufferTimestampAdjustmentUs;
+      checkState(lastBufferPresentationTimeUs != C.TIME_UNSET);
+      maybeSetStreamOffsetChange(bufferPresentationTimeUs);
+      this.lastBufferPresentationTimeUs = lastBufferPresentationTimeUs;
+      finalBufferPresentationTimeUs = lastBufferPresentationTimeUs;
+      return true;
     }
 
     @Override
     public void render(long positionUs, long elapsedRealtimeUs) throws VideoSinkException {
       try {
-        compositingVideoSinkProvider.render(positionUs, elapsedRealtimeUs);
+        CompositingVideoSinkProvider.this.render(positionUs, elapsedRealtimeUs);
       } catch (ExoPlaybackException e) {
         throw new VideoSinkException(
             e, inputFormat != null ? inputFormat : new Format.Builder().build());
@@ -679,31 +783,40 @@ public final class CompositingVideoSinkProvider
     }
 
     @Override
-    public void setPlaybackSpeed(@FloatRange(from = 0, fromInclusive = false) float speed) {
-      compositingVideoSinkProvider.setPlaybackSpeed(speed);
+    public void release() {
+      CompositingVideoSinkProvider.this.release();
     }
 
     // Other methods
 
-    /** Sets the {@linkplain Effect video effects}. */
-    public void setVideoEffects(List<Effect> videoEffects) {
-      setPendingVideoEffects(videoEffects);
-      maybeRegisterInputStream();
+    private void maybeSetStreamOffsetChange(long bufferPresentationTimeUs) {
+      if (pendingInputStreamOffsetChange) {
+        CompositingVideoSinkProvider.this.onStreamOffsetChange(
+            inputBufferTimestampAdjustmentUs,
+            bufferPresentationTimeUs,
+            /* streamOffsetUs= */ inputStreamOffsetUs);
+        pendingInputStreamOffsetChange = false;
+      }
     }
 
     /**
-     * Sets the {@linkplain Effect video effects} to apply when the next stream is {@linkplain
-     * #registerInputStream(int, Format) registered}.
+     * Attempt to register any pending input stream to the video graph input and returns {@code
+     * true} if a pending stream was registered and/or there is no pending input stream waiting for
+     * registration, hence it's safe to queue images or frames to the video graph input.
      */
-    public void setPendingVideoEffects(List<Effect> videoEffects) {
-      this.videoEffects.clear();
-      this.videoEffects.addAll(videoEffects);
-    }
-
-    /** Sets the stream offset, in microseconds. */
-    public void setStreamOffsetUs(long streamOffsetUs) {
-      pendingInputStreamOffsetChange = inputStreamOffsetUs != streamOffsetUs;
-      inputStreamOffsetUs = streamOffsetUs;
+    private boolean maybeRegisterPendingInputStream() {
+      if (pendingInputStreamBufferPresentationTimeUs == C.TIME_UNSET) {
+        return true;
+      }
+      // An input stream is fully decoded, wait until all of its frames are released before queueing
+      // input frame from the next input stream.
+      if (CompositingVideoSinkProvider.this.hasReleasedFrame(
+          pendingInputStreamBufferPresentationTimeUs)) {
+        maybeRegisterInputStream();
+        pendingInputStreamBufferPresentationTimeUs = C.TIME_UNSET;
+        return true;
+      }
+      return false;
     }
 
     private void maybeRegisterInputStream() {
@@ -717,54 +830,101 @@ public final class CompositingVideoSinkProvider
       }
       effects.addAll(videoEffects);
       Format inputFormat = checkNotNull(this.inputFormat);
-      videoFrameProcessor.registerInputStream(
-          inputType,
-          effects,
-          new FrameInfo.Builder(
-                  getAdjustedInputColorInfo(inputFormat.colorInfo),
-                  inputFormat.width,
-                  inputFormat.height)
-              .setPixelWidthHeightRatio(inputFormat.pixelWidthHeightRatio)
-              .build());
+      checkStateNotNull(videoFrameProcessor)
+          .registerInputStream(
+              inputType,
+              effects,
+              new FrameInfo.Builder(
+                      getAdjustedInputColorInfo(inputFormat.colorInfo),
+                      inputFormat.width,
+                      inputFormat.height)
+                  .setPixelWidthHeightRatio(inputFormat.pixelWidthHeightRatio)
+                  .build());
+      finalBufferPresentationTimeUs = C.TIME_UNSET;
     }
 
-    private static final class ScaleAndRotateAccessor {
-      private static @MonotonicNonNull Constructor<?>
-          scaleAndRotateTransformationBuilderConstructor;
-      private static @MonotonicNonNull Method setRotationMethod;
-      private static @MonotonicNonNull Method buildScaleAndRotateTransformationMethod;
+    // CompositingVideoSinkProvider.Listener implementation
 
-      public static Effect createRotationEffect(float rotationDegrees) {
-        try {
-          prepare();
-          Object builder = scaleAndRotateTransformationBuilderConstructor.newInstance();
-          setRotationMethod.invoke(builder, rotationDegrees);
-          return (Effect) checkNotNull(buildScaleAndRotateTransformationMethod.invoke(builder));
-        } catch (Exception e) {
-          throw new IllegalStateException(e);
+    @Override
+    public void onFirstFrameRendered(CompositingVideoSinkProvider compositingVideoSinkProvider) {
+      VideoSink.Listener currentListener = listener;
+      listenerExecutor.execute(() -> currentListener.onFirstFrameRendered(/* videoSink= */ this));
+    }
+
+    @Override
+    public void onFrameDropped(CompositingVideoSinkProvider compositingVideoSinkProvider) {
+      VideoSink.Listener currentListener = listener;
+      listenerExecutor.execute(
+          () -> currentListener.onFrameDropped(checkStateNotNull(/* reference= */ this)));
+    }
+
+    @Override
+    public void onVideoSizeChanged(
+        CompositingVideoSinkProvider compositingVideoSinkProvider, VideoSize videoSize) {
+      VideoSink.Listener currentListener = listener;
+      listenerExecutor.execute(
+          () -> currentListener.onVideoSizeChanged(/* videoSink= */ this, videoSize));
+    }
+
+    @Override
+    public void onError(
+        CompositingVideoSinkProvider compositingVideoSinkProvider,
+        VideoFrameProcessingException videoFrameProcessingException) {
+      VideoSink.Listener currentListener = listener;
+      listenerExecutor.execute(
+          () ->
+              currentListener.onError(
+                  /* videoSink= */ this,
+                  new VideoSinkException(
+                      videoFrameProcessingException, checkStateNotNull(this.inputFormat))));
+    }
+  }
+
+  private final class FrameRendererImpl implements VideoFrameRenderControl.FrameRenderer {
+
+    @Override
+    public void onVideoSizeChanged(VideoSize videoSize) {
+      outputFormat =
+          new Format.Builder()
+              .setWidth(videoSize.width)
+              .setHeight(videoSize.height)
+              .setSampleMimeType(MimeTypes.VIDEO_RAW)
+              .build();
+      for (CompositingVideoSinkProvider.Listener listener : listeners) {
+        listener.onVideoSizeChanged(CompositingVideoSinkProvider.this, videoSize);
+      }
+    }
+
+    @Override
+    public void renderFrame(
+        long renderTimeNs,
+        long bufferPresentationTimeUs,
+        long streamOffsetUs,
+        boolean isFirstFrame) {
+      if (isFirstFrame && currentSurfaceAndSize != null) {
+        for (CompositingVideoSinkProvider.Listener listener : listeners) {
+          listener.onFirstFrameRendered(CompositingVideoSinkProvider.this);
         }
       }
-
-      @EnsuresNonNull({
-        "scaleAndRotateTransformationBuilderConstructor",
-        "setRotationMethod",
-        "buildScaleAndRotateTransformationMethod"
-      })
-      private static void prepare() throws NoSuchMethodException, ClassNotFoundException {
-        if (scaleAndRotateTransformationBuilderConstructor == null
-            || setRotationMethod == null
-            || buildScaleAndRotateTransformationMethod == null) {
-          // TODO: b/284964524 - Add LINT and proguard checks for media3.effect reflection.
-          Class<?> scaleAndRotateTransformationBuilderClass =
-              Class.forName("androidx.media3.effect.ScaleAndRotateTransformation$Builder");
-          scaleAndRotateTransformationBuilderConstructor =
-              scaleAndRotateTransformationBuilderClass.getConstructor();
-          setRotationMethod =
-              scaleAndRotateTransformationBuilderClass.getMethod("setRotationDegrees", float.class);
-          buildScaleAndRotateTransformationMethod =
-              scaleAndRotateTransformationBuilderClass.getMethod("build");
-        }
+      if (videoFrameMetadataListener != null) {
+        // TODO b/292111083 - outputFormat is initialized after the first frame is rendered because
+        //  onVideoSizeChanged is announced after the first frame is available for rendering.
+        Format format = outputFormat == null ? new Format.Builder().build() : outputFormat;
+        videoFrameMetadataListener.onVideoFrameAboutToBeRendered(
+            /* presentationTimeUs= */ bufferPresentationTimeUs,
+            clock.nanoTime(),
+            format,
+            /* mediaFormat= */ null);
       }
+      checkStateNotNull(videoGraph).renderOutputFrame(renderTimeNs);
+    }
+
+    @Override
+    public void dropFrame() {
+      for (CompositingVideoSinkProvider.Listener listener : listeners) {
+        listener.onFrameDropped(CompositingVideoSinkProvider.this);
+      }
+      checkStateNotNull(videoGraph).renderOutputFrame(VideoFrameProcessor.DROP_OUTPUT_FRAME);
     }
   }
 
@@ -785,7 +945,6 @@ public final class CompositingVideoSinkProvider
     @Override
     public PreviewingVideoGraph create(
         Context context,
-        ColorInfo inputColorInfo,
         ColorInfo outputColorInfo,
         DebugViewProvider debugViewProvider,
         VideoGraph.Listener listener,
@@ -803,7 +962,6 @@ public final class CompositingVideoSinkProvider
                     .newInstance(videoFrameProcessorFactory);
         return factory.create(
             context,
-            inputColorInfo,
             outputColorInfo,
             debugViewProvider,
             listener,
@@ -862,6 +1020,44 @@ public final class CompositingVideoSinkProvider
               renderFramesAutomatically,
               listenerExecutor,
               listener);
+    }
+  }
+
+  private static final class ScaleAndRotateAccessor {
+    private static @MonotonicNonNull Constructor<?> scaleAndRotateTransformationBuilderConstructor;
+    private static @MonotonicNonNull Method setRotationMethod;
+    private static @MonotonicNonNull Method buildScaleAndRotateTransformationMethod;
+
+    public static Effect createRotationEffect(float rotationDegrees) {
+      try {
+        prepare();
+        Object builder = scaleAndRotateTransformationBuilderConstructor.newInstance();
+        setRotationMethod.invoke(builder, rotationDegrees);
+        return (Effect) checkNotNull(buildScaleAndRotateTransformationMethod.invoke(builder));
+      } catch (Exception e) {
+        throw new IllegalStateException(e);
+      }
+    }
+
+    @EnsuresNonNull({
+      "scaleAndRotateTransformationBuilderConstructor",
+      "setRotationMethod",
+      "buildScaleAndRotateTransformationMethod"
+    })
+    private static void prepare() throws NoSuchMethodException, ClassNotFoundException {
+      if (scaleAndRotateTransformationBuilderConstructor == null
+          || setRotationMethod == null
+          || buildScaleAndRotateTransformationMethod == null) {
+        // TODO: b/284964524 - Add LINT and proguard checks for media3.effect reflection.
+        Class<?> scaleAndRotateTransformationBuilderClass =
+            Class.forName("androidx.media3.effect.ScaleAndRotateTransformation$Builder");
+        scaleAndRotateTransformationBuilderConstructor =
+            scaleAndRotateTransformationBuilderClass.getConstructor();
+        setRotationMethod =
+            scaleAndRotateTransformationBuilderClass.getMethod("setRotationDegrees", float.class);
+        buildScaleAndRotateTransformationMethod =
+            scaleAndRotateTransformationBuilderClass.getMethod("build");
+      }
     }
   }
 }

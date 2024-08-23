@@ -19,7 +19,7 @@ apply plugin: 'kotlin-android'
 android {
     namespace 'androidx.media3.demo.main'
 
-    compileSdkVersion project.ext.compileSdkVersion
+    compileSdk project.ext.compileSdkVersion
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -55,7 +55,9 @@ android {
         disable 'GoogleAppIndexingWarning','MissingTranslation','IconDensities'
     }
 
-    flavorDimensions "decoderExtensions"
+    flavorDimensions = ["decoderExtensions"]
+
+    buildFeatures.buildConfig true
 
     productFlavors {
         noDecoderExtensions {

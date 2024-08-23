@@ -242,19 +242,19 @@ public class MediaSessionServiceTest {
     SessionCommand command2 = new SessionCommand("command2", Bundle.EMPTY);
     SessionCommand command3 = new SessionCommand("command3", Bundle.EMPTY);
     CommandButton button1 =
-        new CommandButton.Builder()
+        new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button1")
             .setIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command1)
             .build();
     CommandButton button2 =
-        new CommandButton.Builder()
+        new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button2")
             .setIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command2)
             .build();
     CommandButton button3 =
-        new CommandButton.Builder()
+        new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button3")
             .setIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command3)
@@ -298,9 +298,19 @@ public class MediaSessionServiceTest {
     TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
     MediaControllerCompat mediaControllerCompat =
         new MediaControllerCompat(
-            ApplicationProvider.getApplicationContext(), mediaSession.getSessionCompat());
-    ImmutableList<CommandButton> initialCustomLayoutInControllerCompat =
-        LegacyConversions.convertToCustomLayout(mediaControllerCompat.getPlaybackState());
+            ApplicationProvider.getApplicationContext(), mediaSession.getSessionCompatToken());
+    CountDownLatch controllerReady = new CountDownLatch(1);
+    mediaControllerCompat.registerCallback(
+        new MediaControllerCompat.Callback() {
+          @Override
+          public void onSessionReady() {
+            controllerReady.countDown();
+          }
+        },
+        new Handler(Looper.getMainLooper()));
+    controllerReady.await();
+    List<PlaybackStateCompat.CustomAction> initialCustomActionsInControllerCompat =
+        mediaControllerCompat.getPlaybackState().getCustomActions();
 
     // Start the service by creating a remote controller.
     RemoteMediaController remoteController =
@@ -319,11 +329,21 @@ public class MediaSessionServiceTest {
         .isTrue();
     assertThat(mediaControllerCompat.getPlaybackState().getActions())
         .isEqualTo(PlaybackStateCompat.ACTION_SET_RATING);
-    assertThat(remoteController.getCustomLayout()).containsExactly(button1, button2).inOrder();
-    assertThat(initialCustomLayoutInControllerCompat).isEmpty();
-    assertThat(LegacyConversions.convertToCustomLayout(mediaControllerCompat.getPlaybackState()))
-        .containsExactly(button1.copyWithIsEnabled(true), button3.copyWithIsEnabled(true))
+    assertThat(remoteController.getCustomLayout())
+        .containsExactly(button1.copyWithIsEnabled(false), button2.copyWithIsEnabled(false))
         .inOrder();
+    assertThat(initialCustomActionsInControllerCompat).isEmpty();
+    assertThat(mediaControllerCompat.getPlaybackState().getCustomActions()).hasSize(2);
+    PlaybackStateCompat.CustomAction customAction1 =
+        mediaControllerCompat.getPlaybackState().getCustomActions().get(0);
+    PlaybackStateCompat.CustomAction customAction2 =
+        mediaControllerCompat.getPlaybackState().getCustomActions().get(1);
+    assertThat(customAction1.getAction()).isEqualTo("command1");
+    assertThat(customAction1.getName().toString()).isEqualTo("button1");
+    assertThat(customAction1.getIcon()).isEqualTo(R.drawable.media3_notification_small_icon);
+    assertThat(customAction2.getAction()).isEqualTo("command3");
+    assertThat(customAction2.getName().toString()).isEqualTo("button3");
+    assertThat(customAction2.getIcon()).isEqualTo(R.drawable.media3_notification_small_icon);
     mediaSession.release();
     ((MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance())
         .blockUntilAllControllersUnbind(TIMEOUT_MS);

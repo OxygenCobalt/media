@@ -22,10 +22,13 @@ import static androidx.media3.common.MimeTypes.VIDEO_H265;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.SDK_INT;
+import static androidx.media3.test.utils.TestUtil.retrieveTrackFormat;
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assume.assumeFalse;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Bitmap.Config;
 import android.media.Image;
 import android.media.MediaFormat;
 import android.opengl.EGLContext;
@@ -51,8 +54,10 @@ import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.concurrent.ExecutionException;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.junit.AssumptionViolatedException;
 
 /** Utilities for instrumentation tests. */
 public final class AndroidTestUtil {
@@ -65,14 +70,24 @@ public final class AndroidTestUtil {
           ImmutableList.of(
               new ScaleAndRotateTransformation.Builder().setRotationDegrees(45).build()));
 
-  public static final String PNG_ASSET_URI_STRING =
-      "asset:///media/bitmap/input_images/media3test.png";
-  public static final String JPG_ASSET_URI_STRING = "asset:///media/bitmap/input_images/london.jpg";
-  public static final String JPG_PORTRAIT_ASSET_URI_STRING =
-      "asset:///media/bitmap/input_images/tokyo.jpg";
+  public static final String PNG_ASSET_URI_STRING = "asset:///media/png/media3test.png";
+  public static final String PNG_ASSET_LINES_1080P_URI_STRING =
+      "asset:///media/png/loremipsum_1920x720.png";
+  public static final String JPG_ASSET_URI_STRING = "asset:///media/jpeg/london.jpg";
+  public static final String JPG_PORTRAIT_ASSET_URI_STRING = "asset:///media/jpeg/tokyo.jpg";
+  public static final String ULTRA_HDR_URI_STRING = "asset:///media/jpeg/ultraHDR.jpg";
 
   public static final String MP4_TRIM_OPTIMIZATION_URI_STRING =
       "asset:///media/mp4/internal_emulator_transformer_output.mp4";
+
+  public static final String MP4_TRIM_OPTIMIZATION_270_URI_STRING =
+      "asset:///media/mp4/internal_emulator_transformer_output_270_rotated.mp4";
+
+  public static final String MP4_TRIM_OPTIMIZATION_180_URI_STRING =
+      "asset:///media/mp4/internal_emulator_transformer_output_180_rotated.mp4";
+
+  public static final String MP4_TRIM_OPTIMIZATION_PIXEL_URI_STRING =
+      "asset:///media/mp4/pixel7_videoOnly_cleaned.mp4";
 
   public static final String MP4_ASSET_URI_STRING = "asset:///media/mp4/sample.mp4";
   public static final Format MP4_ASSET_FORMAT =
@@ -87,6 +102,41 @@ public final class AndroidTestUtil {
   // Result of the following command for MP4_ASSET_URI_STRING
   // ffprobe -count_frames -select_streams v:0 -show_entries stream=nb_read_frames sample.mp4
   public static final int MP4_ASSET_FRAME_COUNT = 30;
+
+  public static final String BT601_MOV_ASSET_URI_STRING = "asset:///media/mp4/bt601.mov";
+  public static final Format BT601_MOV_ASSET_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(640)
+          .setHeight(428)
+          .setFrameRate(29.97f)
+          .setColorInfo(
+              new ColorInfo.Builder()
+                  .setColorSpace(C.COLOR_SPACE_BT601)
+                  .setColorRange(C.COLOR_RANGE_LIMITED)
+                  .setColorTransfer(C.COLOR_TRANSFER_SDR)
+                  .build())
+          .setCodecs("avc1.4D001E")
+          .build();
+
+  public static final String BT601_MP4_ASSET_URI_STRING = "asset:///media/mp4/bt601.mp4";
+  public static final Format BT601_MP4_ASSET_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(360)
+          .setHeight(240)
+          .setFrameRate(29.97f)
+          .setColorInfo(
+              new ColorInfo.Builder()
+                  .setColorSpace(C.COLOR_SPACE_BT601)
+                  .setColorRange(C.COLOR_RANGE_LIMITED)
+                  .setColorTransfer(C.COLOR_TRANSFER_SDR)
+                  .build())
+          .setCodecs("avc1.42C00D")
+          .build();
+  // Result of the following command for BT601_MP4_ASSET_URI_STRING
+  // ffprobe -count_frames -select_streams v:0 -show_entries stream=nb_read_frames bt601.mp4
+  public static final int BT601_MP4_ASSET_FRAME_COUNT = 30;
 
   public static final String MP4_PORTRAIT_ASSET_URI_STRING =
       "asset:///media/mp4/sample_portrait.mp4";
@@ -108,6 +158,16 @@ public final class AndroidTestUtil {
           .setFrameRate(30.0f)
           .build();
 
+  public static final String MP4_ASSET_CHECKERBOARD_VIDEO_URI_STRING =
+      "asset:///media/mp4/checkerboard_854x356_avc_baseline.mp4";
+  public static final Format MP4_ASSET_CHECKERBOARD_VIDEO_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(854)
+          .setHeight(356)
+          .setFrameRate(25.0f)
+          .build();
+
   public static final String MP4_ASSET_WITH_INCREASING_TIMESTAMPS_URI_STRING =
       "asset:///media/mp4/sample_with_increasing_timestamps.mp4";
   public static final Format MP4_ASSET_WITH_INCREASING_TIMESTAMPS_FORMAT =
@@ -119,11 +179,34 @@ public final class AndroidTestUtil {
           .setCodecs("avc1.42C033")
           .build();
 
+  public static final String MP4_LONG_ASSET_WITH_INCREASING_TIMESTAMPS_URI_STRING =
+      "asset:///media/mp4/long_1080p_videoonly_lowbitrate.mp4";
+  public static final Format MP4_LONG_ASSET_WITH_INCREASING_TIMESTAMPS_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(1920)
+          .setHeight(1080)
+          .setFrameRate(30.00f)
+          .setCodecs("avc1.42C028")
+          .build();
+
   /** Baseline profile level 3.0 H.264 stream, which should be supported on all devices. */
   public static final String MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S_URI_STRING =
       "asset:///media/mp4/sample_with_increasing_timestamps_320w_240h.mp4";
 
   public static final Format MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_H264)
+          .setWidth(320)
+          .setHeight(240)
+          .setFrameRate(30.00f)
+          .setCodecs("avc1.42C015")
+          .build();
+
+  public static final String MP4_ASSET_WITH_SHORTER_AUDIO_URI_STRING =
+      "asset:///media/mp4/sample_shorter_audio.mp4";
+
+  public static final Format MP4_ASSET_WITH_SHORTER_AUDIO_FORMAT =
       new Format.Builder()
           .setSampleMimeType(VIDEO_H264)
           .setWidth(320)
@@ -199,6 +282,21 @@ public final class AndroidTestUtil {
                   .setColorTransfer(C.COLOR_TRANSFER_ST2084)
                   .build())
           .setCodecs("hvc1.2.4.L153")
+          .build();
+
+  public static final String MP4_ASSET_AV1_2_SECOND_HDR10 = "asset:///media/mp4/hdr10-av1.mp4";
+  public static final Format MP4_ASSET_AV1_2_SECOND_HDR10_FORMAT =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_AV1)
+          .setWidth(720)
+          .setHeight(1280)
+          .setFrameRate(59.94f)
+          .setColorInfo(
+              new ColorInfo.Builder()
+                  .setColorSpace(C.COLOR_SPACE_BT2020)
+                  .setColorRange(C.COLOR_RANGE_LIMITED)
+                  .setColorTransfer(C.COLOR_TRANSFER_ST2084)
+                  .build())
           .build();
 
   // This file needs alternative MIME type, meaning the decoder needs to be configured with
@@ -607,7 +705,25 @@ public final class AndroidTestUtil {
     writeTestSummaryToFile(context, testId, testJson);
   }
 
+  public static void assertSdrColors(Context context, String filePath)
+      throws ExecutionException, InterruptedException {
+    ColorInfo colorInfo = retrieveTrackFormat(context, filePath, C.TRACK_TYPE_VIDEO).colorInfo;
+    // Allow unset color values as some encoders don't encode color information for the standard SDR
+    // dataspace.
+    assertThat(colorInfo.colorTransfer).isAnyOf(C.COLOR_TRANSFER_SDR, Format.NO_VALUE);
+    // Before API 34 some encoders output a BT.601 bitstream even though we request BT.709 for SDR
+    // output, so allow both color spaces in output files when checking for SDR.
+    assertThat(colorInfo.colorSpace)
+        .isAnyOf(C.COLOR_SPACE_BT709, C.COLOR_SPACE_BT601, Format.NO_VALUE);
+  }
+
   public static ImmutableList<Bitmap> extractBitmapsFromVideo(Context context, String filePath)
+      throws IOException, InterruptedException {
+    return extractBitmapsFromVideo(context, filePath, Config.ARGB_8888);
+  }
+
+  public static ImmutableList<Bitmap> extractBitmapsFromVideo(
+      Context context, String filePath, Bitmap.Config config)
       throws IOException, InterruptedException {
     // b/298599172 - runUntilComparisonFrameOrEnded fails on this device because reading decoder
     //  output as a bitmap doesn't work.
@@ -621,7 +737,7 @@ public final class AndroidTestUtil {
         if (image == null) {
           break;
         }
-        bitmaps.add(BitmapPixelTestUtil.createGrayscaleArgb8888BitmapFromYuv420888Image(image));
+        bitmaps.add(BitmapPixelTestUtil.createGrayscaleBitmapFromYuv420888Image(image, config));
         image.close();
       }
     }
@@ -694,29 +810,28 @@ public final class AndroidTestUtil {
   }
 
   /**
-   * Returns whether the test should be skipped because the device is incapable of decoding the
-   * input format, or encoding/muxing the output format. Assumes the input will always need to be
-   * decoded, and both encoded and muxed if {@code outputFormat} is non-null.
-   *
-   * <p>If the test should be skipped, logs the reason for skipping.
+   * Assumes that the device supports decoding the input format, and encoding/muxing the output
+   * format if needed.
    *
    * @param context The {@link Context context}.
    * @param testId The test ID.
-   * @param inputFormat The {@link Format format} to decode.
+   * @param inputFormat The {@link Format format} to decode, or the input is not produced by
+   *     MediaCodec, like an image.
    * @param outputFormat The {@link Format format} to encode/mux or {@code null} if the output won't
    *     be encoded or muxed.
-   * @return Whether the test should be skipped.
+   * @throws AssumptionViolatedException If the device does not support the formats. In this case,
+   *     the reason for skipping the test is logged.
    */
-  public static boolean skipAndLogIfFormatsUnsupported(
-      Context context, String testId, Format inputFormat, @Nullable Format outputFormat)
+  public static void assumeFormatsSupported(
+      Context context, String testId, @Nullable Format inputFormat, @Nullable Format outputFormat)
       throws IOException, JSONException, MediaCodecUtil.DecoderQueryException {
     // TODO(b/278657595): Make this capability check match the default codec factory selection code.
-    boolean canDecode = canDecode(inputFormat);
+    boolean canDecode = inputFormat == null || canDecode(inputFormat);
 
     boolean canEncode = outputFormat == null || canEncode(outputFormat);
     boolean canMux = outputFormat == null || canMux(outputFormat);
     if (canDecode && canEncode && canMux) {
-      return false;
+      return;
     }
 
     StringBuilder skipReasonBuilder = new StringBuilder();
@@ -729,8 +844,9 @@ public final class AndroidTestUtil {
     if (!canMux) {
       skipReasonBuilder.append("Cannot mux ").append(outputFormat);
     }
-    recordTestSkipped(context, testId, skipReasonBuilder.toString());
-    return true;
+    String skipReason = skipReasonBuilder.toString();
+    recordTestSkipped(context, testId, skipReason);
+    throw new AssumptionViolatedException(skipReason);
   }
 
   /**
@@ -808,6 +924,10 @@ public final class AndroidTestUtil {
         return MP4_REMOTE_3840W_2160H_30_SECOND_ROOF_REDMINOTE9_FORMAT;
       case MP4_REMOTE_7680W_4320H_31_SECOND_ROOF_SAMSUNGS20ULTRA5G:
         return MP4_REMOTE_7680W_4320H_31_SECOND_ROOF_SAMSUNGS20ULTRA5G_FORMAT;
+      case BT601_MP4_ASSET_URI_STRING:
+        return BT601_MP4_ASSET_FORMAT;
+      case BT601_MOV_ASSET_URI_STRING:
+        return BT601_MOV_ASSET_FORMAT;
       default:
         throw new IllegalArgumentException("The format for the given uri is not found.");
     }
@@ -834,7 +954,8 @@ public final class AndroidTestUtil {
         && format.height >= 4320
         && format.sampleMimeType != null
         && format.sampleMimeType.equals(MimeTypes.VIDEO_H265)
-        && (Util.MODEL.equals("SM-F711U1") || Util.MODEL.equals("SM-F926U1"));
+        && (Ascii.equalsIgnoreCase(Util.MODEL, "SM-F711U1")
+            || Ascii.equalsIgnoreCase(Util.MODEL, "SM-F926U1"));
   }
 
   private static boolean canEncode(Format format) {

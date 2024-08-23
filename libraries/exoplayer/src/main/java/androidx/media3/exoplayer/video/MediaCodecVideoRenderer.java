@@ -22,6 +22,7 @@ import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_MAX_INPUT_SIZE_EXCEEDED;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_VIDEO_MAX_RESOLUTION_EXCEEDED;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_NO;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -52,7 +53,6 @@ import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.VideoSize;
-import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.common.util.Size;
@@ -77,7 +77,6 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil.DecoderQueryException;
 import androidx.media3.exoplayer.video.VideoRendererEventListener.EventDispatcher;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.checkerframework.checker.initialization.qual.Initialized;
@@ -143,7 +142,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   private static boolean deviceNeedsSetOutputSurfaceWorkaround;
 
   private final Context context;
-  private final VideoSinkProvider videoSinkProvider;
+  @Nullable private final VideoSinkProvider videoSinkProvider;
+  private final boolean ownsVideoSink;
   private final EventDispatcher eventDispatcher;
   private final int maxDroppedFramesToNotify;
   private final boolean deviceNeedsNoPostProcessWorkaround;
@@ -153,9 +153,12 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   private @MonotonicNonNull CodecMaxValues codecMaxValues;
   private boolean codecNeedsSetOutputSurfaceWorkaround;
   private boolean codecHandlesHdr10PlusOutOfBandMetadata;
+  private @MonotonicNonNull VideoSink videoSink;
+  private boolean hasSetVideoSink;
+  private @MonotonicNonNull List<Effect> videoEffects;
   @Nullable private Surface displaySurface;
-  @Nullable private Size outputResolution;
   @Nullable private PlaceholderSurface placeholderSurface;
+  private Size outputResolution;
   private boolean haveReportedFirstFrameRenderedForCurrentSurface;
   private @C.VideoScalingMode int scalingMode;
   private long droppedFrameAccumulationStartTimeMs;
@@ -167,14 +170,12 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   private long lastFrameReleaseTimeNs;
   private VideoSize decodedVideoSize;
   @Nullable private VideoSize reportedVideoSize;
-  private boolean hasEffects;
-  private boolean hasInitializedPlayback;
+  private int rendererPriority;
 
   private boolean tunneling;
   private int tunnelingAudioSessionId;
   /* package */ @Nullable OnFrameRenderedListenerV23 tunnelingOnFrameRenderedListener;
   @Nullable private VideoFrameMetadataListener frameMetadataListener;
-  @Nullable private VideoSink videoSink;
 
   /**
    * @param context A context.
@@ -366,12 +367,11 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
    * @param assumedMinimumCodecOperatingRate A codec operating rate that all codecs instantiated by
    *     this renderer are assumed to meet implicitly (i.e. without the operating rate being set
    *     explicitly using {@link MediaFormat#KEY_OPERATING_RATE}).
-   * @param videoSinkProvider The {@link VideoSinkProvider} that will used be used for applying
-   *     video effects also providing the {@linkplain
-   *     VideoSinkProvider#getVideoFrameReleaseControl() VideoFrameReleaseControl} for releasing
-   *     video frames. If {@code null}, the {@link CompositingVideoSinkProvider} with its default
-   *     configuration will be used, and the renderer will drive releasing of video frames by
-   *     itself.
+   * @param videoSinkProvider The {@link VideoSinkProvider} that will be used for applying video
+   *     effects also providing the {@linkplain VideoSinkProvider#getVideoFrameReleaseControl()
+   *     VideoFrameReleaseControl} for releasing video frames. If {@code null}, the {@link
+   *     CompositingVideoSinkProvider} with its default configuration will be used, and the renderer
+   *     will drive releasing of video frames by itself.
    */
   public MediaCodecVideoRenderer(
       Context context,
@@ -390,28 +390,28 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         mediaCodecSelector,
         enableDecoderFallback,
         assumedMinimumCodecOperatingRate);
-    this.maxDroppedFramesToNotify = maxDroppedFramesToNotify;
     this.context = context.getApplicationContext();
+    this.maxDroppedFramesToNotify = maxDroppedFramesToNotify;
+    this.videoSinkProvider = videoSinkProvider;
     eventDispatcher = new EventDispatcher(eventHandler, eventListener);
+    ownsVideoSink = videoSinkProvider == null;
     if (videoSinkProvider == null) {
-      videoSinkProvider = new CompositingVideoSinkProvider.Builder(this.context).build();
-    }
-    if (videoSinkProvider.getVideoFrameReleaseControl() == null) {
       @SuppressWarnings("nullness:assignment")
       VideoFrameReleaseControl.@Initialized FrameTimingEvaluator thisRef = this;
-      videoSinkProvider.setVideoFrameReleaseControl(
+      videoFrameReleaseControl =
           new VideoFrameReleaseControl(
-              this.context, /* frameTimingEvaluator= */ thisRef, allowedJoiningTimeMs));
+              this.context, /* frameTimingEvaluator= */ thisRef, allowedJoiningTimeMs);
+    } else {
+      videoFrameReleaseControl = videoSinkProvider.getVideoFrameReleaseControl();
     }
-    this.videoSinkProvider = videoSinkProvider;
-    this.videoFrameReleaseControl =
-        checkStateNotNull(this.videoSinkProvider.getVideoFrameReleaseControl());
     videoFrameReleaseInfo = new VideoFrameReleaseControl.FrameReleaseInfo();
     deviceNeedsNoPostProcessWorkaround = deviceNeedsNoPostProcessWorkaround();
+    outputResolution = Size.UNKNOWN;
     scalingMode = C.VIDEO_SCALING_MODE_DEFAULT;
     decodedVideoSize = VideoSize.UNKNOWN;
     tunnelingAudioSessionId = C.AUDIO_SESSION_ID_UNSET;
     reportedVideoSize = null;
+    rendererPriority = C.PRIORITY_PLAYBACK;
   }
 
   // FrameTimingEvaluator methods
@@ -620,9 +620,6 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   @Override
   protected void onInit() {
     super.onInit();
-    Clock clock = getClock();
-    videoFrameReleaseControl.setClock(clock);
-    videoSinkProvider.setClock(clock);
   }
 
   @Override
@@ -636,28 +633,102 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       releaseCodec();
     }
     eventDispatcher.enabled(decoderCounters);
-    videoFrameReleaseControl.onEnabled(mayRenderStartOfStream);
+    // The video sink can only be enabled the first time the renderer is enabled, or after it has
+    // been reset.
+    if (!hasSetVideoSink) {
+      if ((videoEffects != null || !ownsVideoSink) && videoSink == null) {
+        VideoSinkProvider videoSinkProvider =
+            this.videoSinkProvider != null
+                ? this.videoSinkProvider
+                : new CompositingVideoSinkProvider.Builder(this.context, videoFrameReleaseControl)
+                    .setClock(getClock())
+                    .build();
+        videoSink = videoSinkProvider.getSink();
+      }
+      hasSetVideoSink = true;
+    }
+    if (videoSink != null) {
+      // Configure the VideoSink every time the renderer is enabled, in case the parameters have
+      // been overridden by another renderer. Also configure the VideoSink with the parameters that
+      // have been set on the renderer before creating the VideoSink.
+      videoSink.setListener(
+          new VideoSink.Listener() {
+            @Override
+            public void onFirstFrameRendered(VideoSink videoSink) {
+              checkStateNotNull(displaySurface);
+              notifyRenderedFirstFrame();
+            }
+
+            @Override
+            public void onFrameDropped(VideoSink videoSink) {
+              updateDroppedBufferCounters(
+                  /* droppedInputBufferCount= */ 0, /* droppedDecoderBufferCount= */ 1);
+            }
+
+            @Override
+            public void onVideoSizeChanged(VideoSink videoSink, VideoSize videoSize) {
+              // TODO: b/292111083 - Report video size change to app. Video size reporting is
+              //  removed at the moment to ensure the first frame is rendered, and the video is
+              //  rendered after switching on/off the screen.
+            }
+
+            @Override
+            public void onError(
+                VideoSink videoSink, VideoSink.VideoSinkException videoSinkException) {
+              setPendingPlaybackException(
+                  createRendererException(
+                      videoSinkException,
+                      videoSinkException.format,
+                      PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED));
+            }
+          },
+          // Pass a direct executor since the callback handling involves posting on the app looper
+          // again, so there's no need to do two hops.
+          directExecutor());
+      if (frameMetadataListener != null) {
+        videoSink.setVideoFrameMetadataListener(frameMetadataListener);
+      }
+      if (displaySurface != null && !outputResolution.equals(Size.UNKNOWN)) {
+        videoSink.setOutputSurfaceInfo(displaySurface, outputResolution);
+      }
+      videoSink.setPlaybackSpeed(getPlaybackSpeed());
+      if (videoEffects != null) {
+        videoSink.setVideoEffects(videoEffects);
+      }
+      videoSink.onRendererEnabled(mayRenderStartOfStream);
+    } else {
+      videoFrameReleaseControl.setClock(getClock());
+      videoFrameReleaseControl.onEnabled(mayRenderStartOfStream);
+    }
   }
 
   @Override
   public void enableMayRenderStartOfStream() {
-    videoFrameReleaseControl.allowReleaseFirstFrameBeforeStarted();
+    if (videoSink != null) {
+      videoSink.enableMayRenderStartOfStream();
+    } else {
+      videoFrameReleaseControl.allowReleaseFirstFrameBeforeStarted();
+    }
   }
 
   @Override
   protected void onPositionReset(long positionUs, boolean joining) throws ExoPlaybackException {
-    // Flush the video sink first to ensure it stops reading textures that will be owned by
-    // MediaCodec once the codec is flushed.
     if (videoSink != null) {
-      videoSink.flush();
+      // Flush the video sink first to ensure it stops reading textures that will be owned by
+      // MediaCodec once the codec is flushed.
+      videoSink.flush(/* resetPosition= */ true);
+      videoSink.setStreamOffsetAndAdjustmentUs(
+          getOutputStreamOffsetUs(), getBufferTimestampAdjustmentUs());
     }
     super.onPositionReset(positionUs, joining);
-    if (videoSinkProvider.isInitialized()) {
-      videoSinkProvider.setStreamOffsetUs(getOutputStreamOffsetUs());
+    if (videoSink == null) {
+      videoFrameReleaseControl.reset();
     }
-    videoFrameReleaseControl.reset();
     if (joining) {
-      videoFrameReleaseControl.join();
+      // Don't render next frame immediately to let the codec catch up with the playback position
+      // first. This prevents a stuttering effect caused by showing the first frame and then
+      // dropping many of the subsequent frames during the catch up phase.
+      videoFrameReleaseControl.join(/* renderNextFrameImmediately= */ false);
     }
     maybeSetupTunnelingForFirstFrame();
     consecutiveDroppedFrameCount = 0;
@@ -689,21 +760,33 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     droppedFrameAccumulationStartTimeMs = elapsedRealtimeMs;
     totalVideoFrameProcessingOffsetUs = 0;
     videoFrameProcessingOffsetCount = 0;
-    videoFrameReleaseControl.onStarted();
+    if (videoSink != null) {
+      videoSink.onRendererStarted();
+    } else {
+      videoFrameReleaseControl.onStarted();
+    }
   }
 
   @Override
   protected void onStopped() {
     maybeNotifyDroppedFrames();
     maybeNotifyVideoFrameProcessingOffset();
-    videoFrameReleaseControl.onStopped();
+    if (videoSink != null) {
+      videoSink.onRendererStopped();
+    } else {
+      videoFrameReleaseControl.onStopped();
+    }
     super.onStopped();
   }
 
   @Override
   protected void onDisabled() {
     reportedVideoSize = null;
-    videoFrameReleaseControl.onDisabled();
+    if (videoSink != null) {
+      videoSink.onRendererDisabled();
+    } else {
+      videoFrameReleaseControl.onDisabled();
+    }
     maybeSetupTunnelingForFirstFrame();
     haveReportedFirstFrameRenderedForCurrentSurface = false;
     tunnelingOnFrameRenderedListener = null;
@@ -715,13 +798,12 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
   }
 
-  @TargetApi(17) // Needed for placeholderSurface usage, as it is always null on API level 16.
   @Override
   protected void onReset() {
     try {
       super.onReset();
     } finally {
-      hasInitializedPlayback = false;
+      hasSetVideoSink = false;
       if (placeholderSurface != null) {
         releasePlaceholderSurface();
       }
@@ -731,8 +813,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   @Override
   protected void onRelease() {
     super.onRelease();
-    if (videoSinkProvider.isInitialized()) {
-      videoSinkProvider.release();
+    if (videoSink != null && ownsVideoSink) {
+      videoSink.release();
     }
   }
 
@@ -755,7 +837,9 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         break;
       case MSG_SET_VIDEO_FRAME_METADATA_LISTENER:
         frameMetadataListener = (VideoFrameMetadataListener) checkNotNull(message);
-        videoSinkProvider.setVideoFrameMetadataListener(frameMetadataListener);
+        if (videoSink != null) {
+          videoSink.setVideoFrameMetadataListener(frameMetadataListener);
+        }
         break;
       case MSG_SET_AUDIO_SESSION_ID:
         int tunnelingAudioSessionId = (int) checkNotNull(message);
@@ -772,22 +856,18 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         setVideoEffects(videoEffects);
         break;
       case MSG_SET_VIDEO_OUTPUT_RESOLUTION:
-        outputResolution = (Size) checkNotNull(message);
-        // TODO: b/292111083 Set the surface on the videoSinkProvider before it's initialized
-        //  otherwise the first frames are missed until a new video output resolution arrives.
-        if (videoSinkProvider.isInitialized()
-            && checkNotNull(outputResolution).getWidth() != 0
-            && checkNotNull(outputResolution).getHeight() != 0
-            && displaySurface != null) {
-          videoSinkProvider.setOutputSurfaceInfo(displaySurface, checkNotNull(outputResolution));
+        Size outputResolution = (Size) checkNotNull(message);
+        if (outputResolution.getWidth() != 0 && outputResolution.getHeight() != 0) {
+          this.outputResolution = outputResolution;
+          if (videoSink != null) {
+            videoSink.setOutputSurfaceInfo(checkStateNotNull(displaySurface), outputResolution);
+          }
         }
         break;
-      case MSG_SET_AUDIO_ATTRIBUTES:
-      case MSG_SET_AUX_EFFECT_INFO:
-      case MSG_SET_CAMERA_MOTION_LISTENER:
-      case MSG_SET_SKIP_SILENCE_ENABLED:
-      case MSG_SET_VOLUME:
-      case MSG_SET_WAKEUP_LISTENER:
+      case MSG_SET_PRIORITY:
+        rendererPriority = (int) checkNotNull(message);
+        updateCodecImportance();
+        break;
       default:
         super.handleMessage(messageType, message);
     }
@@ -804,7 +884,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       } else {
         MediaCodecInfo codecInfo = getCodecInfo();
         if (codecInfo != null && shouldUsePlaceholderSurface(codecInfo)) {
-          placeholderSurface = PlaceholderSurface.newInstanceV17(context, codecInfo.secure);
+          placeholderSurface = PlaceholderSurface.newInstance(context, codecInfo.secure);
           displaySurface = placeholderSurface;
         }
       }
@@ -813,15 +893,14 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     // We only need to update the codec if the display surface has changed.
     if (this.displaySurface != displaySurface) {
       this.displaySurface = displaySurface;
-      videoFrameReleaseControl.setOutputSurface(displaySurface);
+      if (videoSink == null) {
+        videoFrameReleaseControl.setOutputSurface(displaySurface);
+      }
       haveReportedFirstFrameRenderedForCurrentSurface = false;
 
       @State int state = getState();
       @Nullable MediaCodecAdapter codec = getCodec();
-      // The video sink provider is initialized just before the first codec is ever created, so
-      // the provider can be initialized only when the codec is non-null. Therefore, we don't have
-      // to check if the provider is initialized but the codec is not.
-      if (codec != null && !videoSinkProvider.isInitialized()) {
+      if (codec != null && videoSink == null) {
         if (Util.SDK_INT >= 23 && displaySurface != null && !codecNeedsSetOutputSurfaceWorkaround) {
           setOutputSurfaceV23(codec, displaySurface);
         } else {
@@ -833,17 +912,17 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         // If we know the video size, report it again immediately.
         maybeRenotifyVideoSizeChanged();
         if (state == STATE_STARTED) {
-          videoFrameReleaseControl.join();
-        }
-        // When effects previewing is enabled, set display surface and an unknown size.
-        if (videoSinkProvider.isInitialized()) {
-          videoSinkProvider.setOutputSurfaceInfo(displaySurface, Size.UNKNOWN);
+          // We want to "join" playback to prevent an intermediate buffering state in the player
+          // before we rendered the new first frame. Since there is no reason to believe the next
+          // frame is delayed and the renderer needs to catch up, we still request to render the
+          // next frame as soon as possible.
+          videoFrameReleaseControl.join(/* renderNextFrameImmediately= */ true);
         }
       } else {
         // The display surface has been removed.
         reportedVideoSize = null;
-        if (videoSinkProvider.isInitialized()) {
-          videoSinkProvider.clearOutputSurfaceInfo();
+        if (videoSink != null) {
+          videoSink.clearOutputSurfaceInfo();
         }
       }
       maybeSetupTunnelingForFirstFrame();
@@ -866,7 +945,6 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     return tunneling && Util.SDK_INT < 23;
   }
 
-  @TargetApi(17) // Needed for placeHolderSurface usage, as it is always null on API level 16.
   @Override
   protected MediaCodecAdapter.Configuration getMediaCodecConfiguration(
       MediaCodecInfo codecInfo,
@@ -892,7 +970,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         throw new IllegalStateException();
       }
       if (placeholderSurface == null) {
-        placeholderSurface = PlaceholderSurface.newInstanceV17(context, codecInfo.secure);
+        placeholderSurface = PlaceholderSurface.newInstance(context, codecInfo.secure);
       }
       displaySurface = placeholderSurface;
     }
@@ -959,9 +1037,10 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   public void setPlaybackSpeed(float currentPlaybackSpeed, float targetPlaybackSpeed)
       throws ExoPlaybackException {
     super.setPlaybackSpeed(currentPlaybackSpeed, targetPlaybackSpeed);
-    videoFrameReleaseControl.setPlaybackSpeed(currentPlaybackSpeed);
     if (videoSink != null) {
       videoSink.setPlaybackSpeed(currentPlaybackSpeed);
+    } else {
+      videoFrameReleaseControl.setPlaybackSpeed(currentPlaybackSpeed);
     }
   }
 
@@ -1054,69 +1133,22 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   @CallSuper
   @Override
   protected void onReadyToInitializeCodec(Format format) throws ExoPlaybackException {
-    // We only enable effects preview on the first time a codec is initialized and if effects are
-    // already set. We do not enable effects mid-playback. For effects to be enabled after
-    // playback has started, the renderer needs to be reset first.
-    if (hasEffects && !hasInitializedPlayback && !videoSinkProvider.isInitialized()) {
+    if (videoSink != null && !videoSink.isInitialized()) {
       try {
-        videoSinkProvider.initialize(format);
-        videoSinkProvider.setStreamOffsetUs(getOutputStreamOffsetUs());
-        if (frameMetadataListener != null) {
-          videoSinkProvider.setVideoFrameMetadataListener(frameMetadataListener);
-        }
-        if (displaySurface != null && outputResolution != null) {
-          videoSinkProvider.setOutputSurfaceInfo(displaySurface, outputResolution);
-        }
+        videoSink.initialize(format);
       } catch (VideoSink.VideoSinkException e) {
         throw createRendererException(
             e, format, PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED);
       }
     }
-
-    if (videoSink == null && videoSinkProvider.isInitialized()) {
-      videoSink = videoSinkProvider.getSink();
-      videoSink.setListener(
-          new VideoSink.Listener() {
-            @Override
-            public void onFirstFrameRendered(VideoSink videoSink) {
-              checkStateNotNull(displaySurface);
-              notifyRenderedFirstFrame();
-            }
-
-            @Override
-            public void onFrameDropped(VideoSink videoSink) {
-              updateDroppedBufferCounters(
-                  /* droppedInputBufferCount= */ 0, /* droppedDecoderBufferCount= */ 1);
-            }
-
-            @Override
-            public void onVideoSizeChanged(VideoSink videoSink, VideoSize videoSize) {
-              // TODO: b/292111083 - Report video size change to app. Video size reporting is
-              //  removed at the moment to ensure the first frame is rendered, and the video is
-              //  rendered after switching on/off the screen.
-            }
-
-            @Override
-            public void onError(
-                VideoSink videoSink, VideoSink.VideoSinkException videoSinkException) {
-              setPendingPlaybackException(
-                  createRendererException(
-                      videoSinkException,
-                      videoSinkException.format,
-                      PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED));
-            }
-          },
-          // Pass a direct executor since the callback handling involves posting on the app looper
-          // again, so there's no need to do two hops.
-          MoreExecutors.directExecutor());
-    }
-    hasInitializedPlayback = true;
   }
 
   /** Sets the {@linkplain Effect video effects} to apply. */
   public void setVideoEffects(List<Effect> effects) {
-    videoSinkProvider.setVideoEffects(effects);
-    hasEffects = true;
+    videoEffects = effects;
+    if (videoSink != null) {
+      videoSink.setVideoEffects(effects);
+    }
   }
 
   @Override
@@ -1235,20 +1267,20 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     decodedVideoSize =
         new VideoSize(width, height, unappliedRotationDegrees, pixelWidthHeightRatio);
-    videoFrameReleaseControl.setFrameRate(format.frameRate);
 
-    if (videoSink != null && mediaFormat != null) {
+    if (videoSink != null) {
       onReadyToRegisterVideoSinkInputStream();
-      checkNotNull(videoSink)
-          .registerInputStream(
-              /* inputType= */ VideoSink.INPUT_TYPE_SURFACE,
-              format
-                  .buildUpon()
-                  .setWidth(width)
-                  .setHeight(height)
-                  .setRotationDegrees(unappliedRotationDegrees)
-                  .setPixelWidthHeightRatio(pixelWidthHeightRatio)
-                  .build());
+      videoSink.registerInputStream(
+          /* inputType= */ VideoSink.INPUT_TYPE_SURFACE,
+          format
+              .buildUpon()
+              .setWidth(width)
+              .setHeight(height)
+              .setRotationDegrees(unappliedRotationDegrees)
+              .setPixelWidthHeightRatio(pixelWidthHeightRatio)
+              .build());
+    } else {
+      videoFrameReleaseControl.setFrameRate(format.frameRate);
     }
   }
 
@@ -1322,6 +1354,11 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
             isLastBuffer,
             videoFrameReleaseInfo);
 
+    if (frameReleaseAction == VideoFrameReleaseControl.FRAME_RELEASE_IGNORE) {
+      // The buffer is no longer valid and needs to be ignored.
+      return false;
+    }
+
     // Skip decode-only buffers, e.g. after seeking, immediately. This check must be performed after
     // getting the release action from the video frame release control although not necessary.
     // That's because the release control estimates the content frame rate from frame timestamps
@@ -1332,7 +1369,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
 
     // We are not rendering on a surface, the renderer will wait until a surface is set.
-    if (displaySurface == placeholderSurface) {
+    // Opportunistically render to VideoSink if it is enabled.
+    if (displaySurface == placeholderSurface && videoSink == null) {
       // Skip frames in sync with playback, so we'll be at the right frame if the mode changes.
       if (videoFrameReleaseInfo.getEarlyUs() < 30_000) {
         skipOutputBuffer(codec, bufferIndex, presentationTimeUs);
@@ -1349,7 +1387,10 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         throw createRendererException(
             e, e.format, PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED);
       }
-      long releaseTimeNs = videoSink.registerInputFrame(presentationTimeUs, isLastBuffer);
+
+      long releaseTimeNs =
+          videoSink.registerInputFrame(
+              bufferPresentationTimeUs + getBufferTimestampAdjustmentUs(), isLastBuffer);
       if (releaseTimeNs == C.TIME_UNSET) {
         return false;
       }
@@ -1372,8 +1413,6 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         dropOutputBuffer(codec, bufferIndex, presentationTimeUs);
         updateVideoFrameProcessingOffsetCounters(videoFrameReleaseInfo.getEarlyUs());
         return true;
-      case VideoFrameReleaseControl.FRAME_RELEASE_IGNORE:
-        // Falls with next case.
       case VideoFrameReleaseControl.FRAME_RELEASE_TRY_AGAIN_LATER:
         return false;
       case VideoFrameReleaseControl.FRAME_RELEASE_SCHEDULED:
@@ -1381,6 +1420,15 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       default:
         throw new IllegalStateException(String.valueOf(frameReleaseAction));
     }
+  }
+
+  /**
+   * Returns the timestamp that is added to the buffer presentation time (the player decoding
+   * position) to the frame presentation time, in microseconds.
+   */
+  protected long getBufferTimestampAdjustmentUs() {
+    // TODO - b/333514379: Make effect-enabled effect timestamp start from zero.
+    return 0;
   }
 
   private boolean maybeReleaseFrame(
@@ -1459,11 +1507,13 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   @Override
   protected void onProcessedStreamChange() {
     super.onProcessedStreamChange();
-    videoFrameReleaseControl.onProcessedStreamChange();
-    maybeSetupTunnelingForFirstFrame();
-    if (videoSinkProvider.isInitialized()) {
-      videoSinkProvider.setStreamOffsetUs(getOutputStreamOffsetUs());
+    if (videoSink != null) {
+      videoSink.setStreamOffsetAndAdjustmentUs(
+          getOutputStreamOffsetUs(), getBufferTimestampAdjustmentUs());
+    } else {
+      videoFrameReleaseControl.onProcessedStreamChange();
     }
+    maybeSetupTunnelingForFirstFrame();
   }
 
   /**
@@ -1574,7 +1624,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     flushOrReinitializeCodec();
     if (videoSink != null) {
-      videoSink.flush();
+      videoSink.flush(/* resetPosition= */ false);
     }
     return true;
   }
@@ -1680,7 +1730,6 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         && (!codecInfo.secure || PlaceholderSurface.isSecureSupported(context));
   }
 
-  @RequiresApi(17)
   private void releasePlaceholderSurface() {
     if (displaySurface == placeholderSurface) {
       displaySurface = null;
@@ -1709,6 +1758,20 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       // https://github.com/androidx/media/issues/1169.
       Bundle codecParameters = new Bundle();
       codecParameters.putInt(MediaCodec.PARAMETER_KEY_TUNNEL_PEEK, 1);
+      codec.setParameters(codecParameters);
+    }
+  }
+
+  private void updateCodecImportance() {
+    @Nullable MediaCodecAdapter codec = getCodec();
+    if (codec == null) {
+      // If codec is null, then the importance will be set when initializing the codec.
+      return;
+    }
+    if (Util.SDK_INT >= 35) {
+      Bundle codecParameters = new Bundle();
+      // TODO: b/333552477 - Use MediaFormat.KEY_IMPORTANCE once compileSdk >= 35
+      codecParameters.putInt("importance", max(0, -rendererPriority));
       codec.setParameters(codecParameters);
     }
   }
@@ -1842,6 +1905,10 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     if (tunnelingAudioSessionId != C.AUDIO_SESSION_ID_UNSET) {
       configureTunnelingV21(mediaFormat, tunnelingAudioSessionId);
+    }
+    if (Util.SDK_INT >= 35) {
+      // TODO: b/333552477 - Use MediaFormat.KEY_IMPORTANCE once compileSdk >= 35
+      mediaFormat.setInteger("importance", max(0, -rendererPriority));
     }
     return mediaFormat;
   }

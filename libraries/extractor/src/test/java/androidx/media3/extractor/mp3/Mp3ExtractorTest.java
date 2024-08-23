@@ -47,6 +47,13 @@ public final class Mp3ExtractorTest {
         Mp3Extractor::new, "media/mp3/test-cbr-info-header.mp3", simulationConfig);
   }
 
+  // https://github.com/androidx/media/issues/1376#issuecomment-2117393653
+  @Test
+  public void mp3SampleWithInfoHeaderAndPcutFrame() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        Mp3Extractor::new, "media/mp3/test-cbr-info-header-pcut-frame.mp3", simulationConfig);
+  }
+
   @Test
   public void mp3SampleWithCbrSeeker() throws Exception {
     ExtractorAsserts.assertBehavior(
@@ -100,5 +107,11 @@ public final class Mp3ExtractorTest {
             .setDumpFilesPrefix("extractordumps/mp3/bear-id3-disabled")
             .build(),
         simulationConfig);
+  }
+
+  @Test
+  public void mp3SampleWithId3NumericGenre() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        Mp3Extractor::new, "media/mp3/bear-id3-numeric-genre.mp3", simulationConfig);
   }
 }

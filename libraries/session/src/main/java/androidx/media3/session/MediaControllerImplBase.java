@@ -23,6 +23,9 @@ import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.usToMs;
 import static androidx.media3.session.MediaUtils.calculateBufferedPercentage;
 import static androidx.media3.session.MediaUtils.mergePlayerInfo;
+import static androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED;
+import static androidx.media3.session.SessionError.ERROR_SESSION_DISCONNECTED;
+import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -41,7 +44,6 @@ import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.support.v4.media.MediaBrowserCompat;
 import android.util.Pair;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -81,6 +83,7 @@ import androidx.media3.common.util.Size;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaController.MediaControllerImpl;
 import androidx.media3.session.PlayerInfo.BundlingExclusions;
+import androidx.media3.session.legacy.MediaBrowserCompat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -120,7 +123,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   private boolean released;
   private PlayerInfo playerInfo;
   @Nullable private PendingIntent sessionActivity;
-  private ImmutableList<CommandButton> customLayout;
+  private ImmutableList<CommandButton> customLayoutOriginal;
+  private ImmutableList<CommandButton> customLayoutWithUnavailableButtonsDisabled;
   private SessionCommands sessionCommands;
   private Commands playerCommandsFromSession;
   private Commands playerCommandsFromPlayer;
@@ -146,7 +150,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     playerInfo = PlayerInfo.DEFAULT;
     surfaceSize = Size.UNKNOWN;
     sessionCommands = SessionCommands.EMPTY;
-    customLayout = ImmutableList.of();
+    customLayoutOriginal = ImmutableList.of();
+    customLayoutWithUnavailableButtonsDisabled = ImmutableList.of();
     playerCommandsFromSession = Commands.EMPTY;
     playerCommandsFromPlayer = Commands.EMPTY;
     intersectedPlayerCommands =
@@ -312,7 +317,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   }
 
   private void dispatchRemoteSessionTaskWithPlayerCommandAndWaitForFuture(RemoteSessionTask task) {
-    // Do not send a flush command queue message as we are actively waiting for task.
+    flushCommandQueueHandler.sendFlushCommandQueueMessage();
     ListenableFuture<SessionResult> future =
         dispatchRemoteSessionTask(iSession, task, /* addToPendingMaskingOperations= */ true);
     try {
@@ -325,8 +330,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         int sequenceNumber =
             ((SequencedFutureManager.SequencedFuture<SessionResult>) future).getSequenceNumber();
         pendingMaskingSequencedFutureNumbers.remove(sequenceNumber);
-        sequencedFutureManager.setFutureResult(
-            sequenceNumber, new SessionResult(SessionResult.RESULT_ERROR_UNKNOWN));
+        sequencedFutureManager.setFutureResult(sequenceNumber, new SessionResult(ERROR_UNKNOWN));
       }
       Log.w(TAG, "Synchronous command takes too long on the session side.", e);
       // TODO(b/188888693): Let developers know the failure in their code.
@@ -375,15 +379,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         Log.w(TAG, "Cannot connect to the service or the session is gone", e);
         pendingMaskingSequencedFutureNumbers.remove(sequenceNumber);
         sequencedFutureManager.setFutureResult(
-            sequenceNumber, new SessionResult(SessionResult.RESULT_ERROR_SESSION_DISCONNECTED));
+            sequenceNumber, new SessionResult(ERROR_SESSION_DISCONNECTED));
       }
       return result;
     } else {
       // Don't create Future with SequencedFutureManager.
       // Otherwise session would receive discontinued sequence number, and it would make
       // future work item 'keeping call sequence when session execute commands' impossible.
-      return Futures.immediateFuture(
-          new SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED));
+      return Futures.immediateFuture(new SessionResult(ERROR_PERMISSION_DENIED));
     }
   }
 
@@ -726,7 +729,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
   @Override
   public ImmutableList<CommandButton> getCustomLayout() {
-    return customLayout;
+    return customLayoutWithUnavailableButtonsDisabled;
   }
 
   @Override
@@ -2611,8 +2614,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     intersectedPlayerCommands =
         createIntersectedCommandsEnsuringCommandReleaseAvailable(
             playerCommandsFromSession, playerCommandsFromPlayer);
-    customLayout =
-        CommandButton.getEnabledCommandButtons(
+    customLayoutOriginal = result.customLayout;
+    customLayoutWithUnavailableButtonsDisabled =
+        CommandButton.copyWithUnavailableButtonsDisabled(
             result.customLayout, sessionCommands, intersectedPlayerCommands);
     playerInfo = result.playerInfo;
     try {
@@ -2659,7 +2663,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             result = new SessionResult(SessionResult.RESULT_INFO_SKIPPED);
           } catch (ExecutionException | InterruptedException e) {
             Log.w(TAG, "Session operation failed", e);
-            result = new SessionResult(SessionResult.RESULT_ERROR_UNKNOWN);
+            result = new SessionResult(ERROR_UNKNOWN);
           }
           sendControllerResult(seq, result);
         },
@@ -2742,7 +2746,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     @Nullable
     @Player.PlayWhenReadyChangeReason
     Integer playWhenReadyChangeReason =
-        oldPlayerInfo.playWhenReady != finalPlayerInfo.playWhenReady
+        oldPlayerInfo.playWhenReadyChangeReason != finalPlayerInfo.playWhenReadyChangeReason
+                || oldPlayerInfo.playWhenReady != finalPlayerInfo.playWhenReady
             ? finalPlayerInfo.playWhenReadyChangeReason
             : null;
 
@@ -2765,6 +2770,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!playerCommandsChanged && !sessionCommandsChanged) {
       return;
     }
+    this.sessionCommands = sessionCommands;
     boolean intersectedPlayerCommandsChanged = false;
     if (playerCommandsChanged) {
       playerCommandsFromSession = playerCommands;
@@ -2776,13 +2782,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
           !Util.areEqual(intersectedPlayerCommands, prevIntersectedPlayerCommands);
     }
     boolean customLayoutChanged = false;
-    if (sessionCommandsChanged) {
-      this.sessionCommands = sessionCommands;
-      ImmutableList<CommandButton> oldCustomLayout = customLayout;
-      customLayout =
-          CommandButton.getEnabledCommandButtons(
-              customLayout, sessionCommands, intersectedPlayerCommands);
-      customLayoutChanged = !customLayout.equals(oldCustomLayout);
+    if (sessionCommandsChanged || intersectedPlayerCommandsChanged) {
+      ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+      customLayoutWithUnavailableButtonsDisabled =
+          CommandButton.copyWithUnavailableButtonsDisabled(
+              customLayoutOriginal, sessionCommands, intersectedPlayerCommands);
+      customLayoutChanged = !customLayoutWithUnavailableButtonsDisabled.equals(oldCustomLayout);
     }
     if (intersectedPlayerCommandsChanged) {
       listeners.sendEvent(
@@ -2798,7 +2803,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (customLayoutChanged) {
       getInstance()
           .notifyControllerListener(
-              listener -> listener.onCustomLayoutChanged(getInstance(), customLayout));
+              listener ->
+                  listener.onCustomLayoutChanged(
+                      getInstance(), customLayoutWithUnavailableButtonsDisabled));
     }
   }
 
@@ -2816,10 +2823,23 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             playerCommandsFromSession, playerCommandsFromPlayer);
     boolean intersectedPlayerCommandsChanged =
         !Util.areEqual(intersectedPlayerCommands, prevIntersectedPlayerCommands);
+    boolean customLayoutChanged = false;
     if (intersectedPlayerCommandsChanged) {
+      ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+      customLayoutWithUnavailableButtonsDisabled =
+          CommandButton.copyWithUnavailableButtonsDisabled(
+              customLayoutOriginal, sessionCommands, intersectedPlayerCommands);
+      customLayoutChanged = !customLayoutWithUnavailableButtonsDisabled.equals(oldCustomLayout);
       listeners.sendEvent(
           /* eventFlag= */ Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
           listener -> listener.onAvailableCommandsChanged(intersectedPlayerCommands));
+    }
+    if (customLayoutChanged) {
+      getInstance()
+          .notifyControllerListener(
+              listener ->
+                  listener.onCustomLayoutChanged(
+                      getInstance(), customLayoutWithUnavailableButtonsDisabled));
     }
   }
 
@@ -2829,19 +2849,24 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!isConnected()) {
       return;
     }
-    ImmutableList<CommandButton> oldCustomLayout = customLayout;
-    customLayout =
-        CommandButton.getEnabledCommandButtons(layout, sessionCommands, intersectedPlayerCommands);
-    boolean hasCustomLayoutChanged = !Objects.equals(customLayout, oldCustomLayout);
+    ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+    customLayoutOriginal = ImmutableList.copyOf(layout);
+    customLayoutWithUnavailableButtonsDisabled =
+        CommandButton.copyWithUnavailableButtonsDisabled(
+            layout, sessionCommands, intersectedPlayerCommands);
+    boolean hasCustomLayoutChanged =
+        !Objects.equals(customLayoutWithUnavailableButtonsDisabled, oldCustomLayout);
     getInstance()
         .notifyControllerListener(
             listener -> {
               ListenableFuture<SessionResult> future =
                   checkNotNull(
-                      listener.onSetCustomLayout(getInstance(), customLayout),
+                      listener.onSetCustomLayout(
+                          getInstance(), customLayoutWithUnavailableButtonsDisabled),
                       "MediaController.Listener#onSetCustomLayout() must not return null");
               if (hasCustomLayoutChanged) {
-                listener.onCustomLayoutChanged(getInstance(), customLayout);
+                listener.onCustomLayoutChanged(
+                    getInstance(), customLayoutWithUnavailableButtonsDisabled);
               }
               sendControllerResultWhenReady(seq, future);
             });
@@ -2864,6 +2889,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     getInstance()
         .notifyControllerListener(
             listener -> listener.onSessionActivityChanged(getInstance(), sessionActivity));
+  }
+
+  public void onError(int seq, SessionError sessionError) {
+    if (!isConnected()) {
+      return;
+    }
+    getInstance()
+        .notifyControllerListener(listener -> listener.onError(getInstance(), sessionError));
   }
 
   public void onRenderedFirstFrame() {

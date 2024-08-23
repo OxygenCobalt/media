@@ -31,6 +31,7 @@ import androidx.media3.common.util.TimestampAdjuster;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.amr.AmrExtractor;
 import androidx.media3.extractor.avi.AviExtractor;
+import androidx.media3.extractor.avif.AvifExtractor;
 import androidx.media3.extractor.bmp.BmpExtractor;
 import androidx.media3.extractor.flac.FlacExtractor;
 import androidx.media3.extractor.flv.FlvExtractor;
@@ -94,6 +95,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>WEBP ({@link WebpExtractor})
  *   <li>BMP ({@link BmpExtractor})
  *   <li>HEIF ({@link HeifExtractor})
+ *   <li>AVIF ({@link AvifExtractor})
  *   <li>MIDI, if available, the MIDI extension's {@code androidx.media3.decoder.midi.MidiExtractor}
  *       is used.
  * </ul>
@@ -128,7 +130,8 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
         FileTypes.PNG,
         FileTypes.WEBP,
         FileTypes.BMP,
-        FileTypes.HEIF
+        FileTypes.HEIF,
+        FileTypes.AVIF
       };
 
   private static final ExtensionLoader FLAC_EXTENSION_LOADER =
@@ -158,6 +161,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
     tsMode = TsExtractor.MODE_SINGLE_PMT;
     tsTimestampSearchBytes = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES;
     subtitleParserFactory = new DefaultSubtitleParserFactory();
+    textTrackTranscodingEnabled = true;
   }
 
   /**
@@ -358,7 +362,8 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   }
 
   /**
-   * @deprecated Use {@link #experimentalSetTextTrackTranscodingEnabled(boolean)} instead.
+   * @deprecated This method (and all support for 'legacy' subtitle decoding during rendering) will
+   *     be removed in a future release.
    */
   @Deprecated
   @CanIgnoreReturnValue
@@ -367,6 +372,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
     return experimentalSetTextTrackTranscodingEnabled(textTrackTranscodingEnabled);
   }
 
+  @Deprecated
   @Override
   public synchronized DefaultExtractorsFactory experimentalSetTextTrackTranscodingEnabled(
       boolean textTrackTranscodingEnabled) {
@@ -568,6 +574,9 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
             && (mp4Flags & FLAG_READ_SEF_DATA) == 0) {
           extractors.add(new HeifExtractor());
         }
+        break;
+      case FileTypes.AVIF:
+        extractors.add(new AvifExtractor());
         break;
       case FileTypes.WEBVTT:
       case FileTypes.UNKNOWN:

@@ -59,10 +59,16 @@ import java.util.List;
  * src="https://developer.android.com/static/images/reference/androidx/media3/exoplayer/renderer-states.svg"
  * alt="Renderer state transitions">
  */
-// TODO: b/288080357 - Replace developer.android.com fully-qualified SVG URL above with a relative
-// URL once we stop publishing exoplayer2 javadoc.
 @UnstableApi
 public interface Renderer extends PlayerMessage.Target {
+
+  /**
+   * Default minimum duration that the playback clock must advance before {@link #render} can make
+   * progress.
+   *
+   * @see #getDurationToProgressUs
+   */
+  long DEFAULT_DURATION_TO_PROGRESS_US = 10_000L;
 
   /**
    * Some renderers can signal when {@link #render(long, long)} should be called.
@@ -118,7 +124,8 @@ public interface Renderer extends PlayerMessage.Target {
         MSG_SET_WAKEUP_LISTENER,
         MSG_SET_VIDEO_EFFECTS,
         MSG_SET_VIDEO_OUTPUT_RESOLUTION,
-        MSG_SET_IMAGE_OUTPUT
+        MSG_SET_IMAGE_OUTPUT,
+        MSG_SET_PRIORITY
       })
   public @interface MessageType {}
 
@@ -248,9 +255,17 @@ public interface Renderer extends PlayerMessage.Target {
 
   /**
    * The type of message that can be passed to an image renderer to set a desired image output. The
-   * message payload should be an {@link ImageOutput}.
+   * message payload should be an {@link ImageOutput}, or null to clear a previously set image
+   * output.
    */
   int MSG_SET_IMAGE_OUTPUT = 15;
+
+  /**
+   * The type of message that can be passed to a renderer to set its priority. The message payload
+   * should be an {@link Integer} instance for the priority of the renderer. See {@code C.PRIORITY_}
+   * constants for predefined values.
+   */
+  int MSG_SET_PRIORITY = 16;
 
   /**
    * Applications or extensions may define custom {@code MSG_*} constants that can be passed to
@@ -427,6 +442,23 @@ public interface Renderer extends PlayerMessage.Target {
    * #STATE_ENABLED}, {@link #STATE_STARTED}.
    */
   long getReadingPositionUs();
+
+  /**
+   * Returns minimum amount of playback clock time that must pass in order for the {@link #render}
+   * call to make progress.
+   *
+   * <p>The default return time is {@link #DEFAULT_DURATION_TO_PROGRESS_US}.
+   *
+   * @param positionUs The current render position in microseconds, measured at the start of the
+   *     current iteration of the rendering loop.
+   * @param elapsedRealtimeUs {@link android.os.SystemClock#elapsedRealtime()} in microseconds,
+   *     measured at the start of the current iteration of the rendering loop.
+   * @return Minimum amount of playback clock time that must pass before renderer is able to make
+   *     progress.
+   */
+  default long getDurationToProgressUs(long positionUs, long elapsedRealtimeUs) {
+    return DEFAULT_DURATION_TO_PROGRESS_US;
+  }
 
   /**
    * Signals to the renderer that the current {@link SampleStream} will be the final one supplied

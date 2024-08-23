@@ -54,8 +54,11 @@ public class TestExoPlayerBuilder {
   private @MonotonicNonNull Looper looper;
   private long seekBackIncrementMs;
   private long seekForwardIncrementMs;
+  private long maxSeekToPreviousPositionMs;
   private boolean deviceVolumeControlEnabled;
   private boolean suppressPlaybackWhenUnsuitableOutput;
+  @Nullable private ExoPlayer.PreloadConfiguration preloadConfiguration;
+  private boolean dynamicSchedulingEnabled;
 
   public TestExoPlayerBuilder(Context context) {
     this.context = context;
@@ -69,6 +72,7 @@ public class TestExoPlayerBuilder {
     }
     seekBackIncrementMs = C.DEFAULT_SEEK_BACK_INCREMENT_MS;
     seekForwardIncrementMs = C.DEFAULT_SEEK_FORWARD_INCREMENT_MS;
+    maxSeekToPreviousPositionMs = C.DEFAULT_MAX_SEEK_TO_PREVIOUS_POSITION_MS;
     deviceVolumeControlEnabled = false;
   }
 
@@ -157,6 +161,18 @@ public class TestExoPlayerBuilder {
   public TestExoPlayerBuilder setRenderers(Renderer... renderers) {
     assertThat(renderersFactory).isNull();
     this.renderers = renderers;
+    return this;
+  }
+
+  /**
+   * Sets the preload configuration.
+   *
+   * @see ExoPlayer#setPreloadConfiguration(ExoPlayer.PreloadConfiguration)
+   */
+  @CanIgnoreReturnValue
+  public TestExoPlayerBuilder setPreloadConfiguration(
+      ExoPlayer.PreloadConfiguration preloadConfiguration) {
+    this.preloadConfiguration = preloadConfiguration;
     return this;
   }
 
@@ -303,6 +319,23 @@ public class TestExoPlayerBuilder {
   }
 
   /**
+   * Sets the max seek to previous position, in milliseconds, to be used by the player.
+   *
+   * @param maxSeekToPreviousPositionMs The max seek to previous position to be used by the player.
+   * @return This builder.
+   */
+  @CanIgnoreReturnValue
+  public TestExoPlayerBuilder setMaxSeekToPreviousPositionMs(long maxSeekToPreviousPositionMs) {
+    this.maxSeekToPreviousPositionMs = maxSeekToPreviousPositionMs;
+    return this;
+  }
+
+  /** Returns the max seek to previous position used by the player. */
+  public long getMaxSeekToPreviousPosition() {
+    return maxSeekToPreviousPositionMs;
+  }
+
+  /**
    * See {@link ExoPlayer.Builder#setSuppressPlaybackOnUnsuitableOutput(boolean)} for details.
    *
    * @param suppressPlaybackOnUnsuitableOutput Whether the player should suppress the playback when
@@ -313,6 +346,19 @@ public class TestExoPlayerBuilder {
   public TestExoPlayerBuilder setSuppressPlaybackOnUnsuitableOutput(
       boolean suppressPlaybackOnUnsuitableOutput) {
     this.suppressPlaybackWhenUnsuitableOutput = suppressPlaybackOnUnsuitableOutput;
+    return this;
+  }
+
+  /**
+   * See {@link ExoPlayer.Builder#experimentalSetDynamicSchedulingEnabled(boolean)} for details.
+   *
+   * @param dynamicSchedulingEnabled Whether the player should enable dynamically schedule its
+   *     playback loop for when {@link Renderer} progress can be made.
+   * @return This builder.
+   */
+  @CanIgnoreReturnValue
+  public TestExoPlayerBuilder setDynamicSchedulingEnabled(boolean dynamicSchedulingEnabled) {
+    this.dynamicSchedulingEnabled = dynamicSchedulingEnabled;
     return this;
   }
 
@@ -352,11 +398,17 @@ public class TestExoPlayerBuilder {
             .setLooper(looper)
             .setSeekBackIncrementMs(seekBackIncrementMs)
             .setSeekForwardIncrementMs(seekForwardIncrementMs)
+            .setMaxSeekToPreviousPositionMs(maxSeekToPreviousPositionMs)
             .setDeviceVolumeControlEnabled(deviceVolumeControlEnabled)
-            .setSuppressPlaybackOnUnsuitableOutput(suppressPlaybackWhenUnsuitableOutput);
+            .setSuppressPlaybackOnUnsuitableOutput(suppressPlaybackWhenUnsuitableOutput)
+            .experimentalSetDynamicSchedulingEnabled(dynamicSchedulingEnabled);
     if (mediaSourceFactory != null) {
       builder.setMediaSourceFactory(mediaSourceFactory);
     }
-    return builder.build();
+    ExoPlayer exoPlayer = builder.build();
+    if (preloadConfiguration != null) {
+      exoPlayer.setPreloadConfiguration(preloadConfiguration);
+    }
+    return exoPlayer;
   }
 }

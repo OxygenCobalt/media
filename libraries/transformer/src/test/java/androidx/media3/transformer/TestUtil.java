@@ -24,6 +24,7 @@ import androidx.media3.common.audio.ChannelMixingMatrix;
 import androidx.media3.common.audio.SonicAudioProcessor;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.muxer.Muxer;
 import androidx.media3.test.utils.FakeClock;
 import androidx.test.core.app.ApplicationProvider;
 import com.google.common.collect.ImmutableList;
@@ -52,7 +53,8 @@ public final class TestUtil {
   public static final String FILE_AUDIO_AMR_WB = "amr/sample_wb.amr";
   public static final String FILE_AUDIO_AMR_NB = "amr/sample_nb.amr";
   public static final String FILE_AUDIO_AC3_UNSUPPORTED_BY_MUXER = "mp4/sample_ac3.mp4";
-  public static final String FILE_UNKNOWN_DURATION = "mp4/sample_fragmented.mp4";
+  public static final String FILE_UNKNOWN_DURATION =
+      "mp4/sample_with_increasing_timestamps_320w_240h_fragmented.mp4";
   public static final String FILE_AUDIO_ELST_SKIP_500MS = "mp4/long_edit_list_audioonly.mp4";
   public static final String FILE_VIDEO_ELST_TRIM_IDR_DURATION =
       "mp4/iibbibb_editlist_videoonly.mp4";
@@ -83,6 +85,12 @@ public final class TestUtil {
     return sonicAudioProcessor;
   }
 
+  public static SonicAudioProcessor createSpeedChangingAudioProcessor(float speed) {
+    SonicAudioProcessor sonicAudioProcessor = new SonicAudioProcessor();
+    sonicAudioProcessor.setSpeed(speed);
+    return sonicAudioProcessor;
+  }
+
   public static ChannelMixingAudioProcessor createVolumeScalingAudioProcessor(float scale) {
     ChannelMixingAudioProcessor audioProcessor = new ChannelMixingAudioProcessor();
     for (int channel = 1; channel <= 6; channel++) {
@@ -90,6 +98,16 @@ public final class TestUtil {
           ChannelMixingMatrix.create(
                   /* inputChannelCount= */ channel, /* outputChannelCount= */ channel)
               .scaleBy(scale));
+    }
+    return audioProcessor;
+  }
+
+  public static ChannelMixingAudioProcessor createChannelCountChangingAudioProcessor(
+      int outputChannelCount) {
+    ChannelMixingAudioProcessor audioProcessor = new ChannelMixingAudioProcessor();
+    for (int inputChannelCount = 1; inputChannelCount <= 2; inputChannelCount++) {
+      audioProcessor.putChannelMixingMatrix(
+          ChannelMixingMatrix.create(inputChannelCount, outputChannelCount));
     }
     return audioProcessor;
   }

@@ -24,6 +24,7 @@ import static androidx.media3.common.util.MediaFormatUtil.createMediaFormatFromF
 import static androidx.media3.common.util.Util.SDK_INT;
 import static java.lang.Math.abs;
 import static java.lang.Math.floor;
+import static java.lang.Math.max;
 import static java.lang.Math.round;
 
 import android.content.Context;
@@ -32,7 +33,9 @@ import android.media.MediaFormat;
 import android.os.Build;
 import android.util.Pair;
 import android.util.Size;
+import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -58,14 +61,18 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
   public static final class Builder {
     private final Context context;
 
-    @Nullable private EncoderSelector videoEncoderSelector;
-    @Nullable private VideoEncoderSettings requestedVideoEncoderSettings;
+    private EncoderSelector videoEncoderSelector;
+    private VideoEncoderSettings requestedVideoEncoderSettings;
     private boolean enableFallback;
+    private @C.Priority int codecPriority;
 
     /** Creates a new {@link Builder}. */
     public Builder(Context context) {
-      this.context = context;
-      this.enableFallback = true;
+      this.context = context.getApplicationContext();
+      videoEncoderSelector = EncoderSelector.DEFAULT;
+      requestedVideoEncoderSettings = VideoEncoderSettings.DEFAULT;
+      enableFallback = true;
+      codecPriority = C.PRIORITY_PROCESSING_FOREGROUND;
     }
 
     /**
@@ -120,17 +127,32 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
       return this;
     }
 
+    /**
+     * Sets the codec priority.
+     *
+     * <p>Specifying codec priority allows the resource manager in the platform to reclaim less
+     * important codecs before more important codecs.
+     *
+     * <p>It is recommended to use predefined {@linkplain C.Priority priorities} like {@link
+     * C#PRIORITY_PROCESSING_FOREGROUND}, {@link C#PRIORITY_PROCESSING_BACKGROUND} or priority
+     * values defined relative to those defaults.
+     *
+     * <p>This method is a no-op on API versions before 35.
+     *
+     * <p>The default value is {@link C#PRIORITY_PROCESSING_FOREGROUND}.
+     *
+     * @param codecPriority The {@link C.Priority} for the codec. Should be at most {@link
+     *     C#PRIORITY_MAX}.
+     */
+    @CanIgnoreReturnValue
+    public Builder setCodecPriority(@IntRange(to = C.PRIORITY_MAX) @C.Priority int codecPriority) {
+      this.codecPriority = codecPriority;
+      return this;
+    }
+
     /** Creates an instance of {@link DefaultEncoderFactory}, using defaults if values are unset. */
-    @SuppressWarnings("deprecation")
     public DefaultEncoderFactory build() {
-      if (videoEncoderSelector == null) {
-        videoEncoderSelector = EncoderSelector.DEFAULT;
-      }
-      if (requestedVideoEncoderSettings == null) {
-        requestedVideoEncoderSettings = VideoEncoderSettings.DEFAULT;
-      }
-      return new DefaultEncoderFactory(
-          context, videoEncoderSelector, requestedVideoEncoderSettings, enableFallback);
+      return new DefaultEncoderFactory(this);
     }
   }
 
@@ -138,24 +160,26 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
   private final EncoderSelector videoEncoderSelector;
   private final VideoEncoderSettings requestedVideoEncoderSettings;
   private final boolean enableFallback;
+  private final @C.Priority int codecPriority;
 
   /**
    * @deprecated Use {@link Builder} instead.
    */
   @Deprecated
-  @SuppressWarnings("deprecation")
   public DefaultEncoderFactory(Context context) {
-    this(context, EncoderSelector.DEFAULT, /* enableFallback= */ true);
+    this(new Builder(context));
   }
 
   /**
    * @deprecated Use {@link Builder} instead.
    */
   @Deprecated
-  @SuppressWarnings("deprecation")
   public DefaultEncoderFactory(
       Context context, EncoderSelector videoEncoderSelector, boolean enableFallback) {
-    this(context, videoEncoderSelector, VideoEncoderSettings.DEFAULT, enableFallback);
+    this(
+        new Builder(context)
+            .setVideoEncoderSelector(videoEncoderSelector)
+            .setEnableFallback(enableFallback));
   }
 
   /**
@@ -167,10 +191,19 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
       EncoderSelector videoEncoderSelector,
       VideoEncoderSettings requestedVideoEncoderSettings,
       boolean enableFallback) {
-    this.context = context;
-    this.videoEncoderSelector = videoEncoderSelector;
-    this.requestedVideoEncoderSettings = requestedVideoEncoderSettings;
-    this.enableFallback = enableFallback;
+    this(
+        new Builder(context)
+            .setVideoEncoderSelector(videoEncoderSelector)
+            .setEnableFallback(enableFallback)
+            .setRequestedVideoEncoderSettings(requestedVideoEncoderSettings));
+  }
+
+  private DefaultEncoderFactory(Builder builder) {
+    this.context = builder.context;
+    this.videoEncoderSelector = builder.videoEncoderSelector;
+    this.requestedVideoEncoderSettings = builder.requestedVideoEncoderSettings;
+    this.enableFallback = builder.enableFallback;
+    this.codecPriority = builder.codecPriority;
   }
 
   @Override
@@ -324,6 +357,12 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
           mediaFormat.setInteger(MediaFormat.KEY_PRIORITY, supportedVideoEncoderSettings.priority);
         }
       }
+    }
+
+    if (Util.SDK_INT >= 35) {
+      // TODO: b/333552477 - Redefinition of MediaFormat.KEY_IMPORTANCE, remove after API35 is
+      //  released.
+      mediaFormat.setInteger("importance", max(0, -codecPriority));
     }
 
     return new DefaultCodec(
@@ -533,10 +572,13 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
     // On these chipsets, setting an operating rate close to Integer.MAX_VALUE will cause the
     // encoder to throw at configuration time. Setting the operating rate to 1000 avoids being close
     // to an integer overflow limit while being higher than a maximum feasible operating rate. See
-    // [internal b/311206113, b/317297946].
+    // [internal b/311206113, b/317297946, b/312299527].
     return Util.SDK_INT >= 31
         && Util.SDK_INT <= 34
-        && (Build.SOC_MODEL.equals("SM8550") || Build.SOC_MODEL.equals("T612"));
+        && (Build.SOC_MODEL.equals("SM8550")
+            || Build.SOC_MODEL.equals("T612")
+            || Build.SOC_MODEL.equals("SM7450")
+            || Build.SOC_MODEL.equals("SM6450"));
   }
 
   /**
@@ -669,9 +711,11 @@ public final class DefaultEncoderFactory implements Codec.EncoderFactory {
     return ExportException.createForCodec(
         new IllegalArgumentException(errorString),
         ExportException.ERROR_CODE_ENCODING_FORMAT_UNSUPPORTED,
-        MimeTypes.isVideo(format.sampleMimeType),
-        /* isDecoder= */ false,
-        format);
+        new ExportException.CodecInfo(
+            format.toString(),
+            MimeTypes.isVideo(format.sampleMimeType),
+            /* isDecoder= */ false,
+            /* name= */ null));
   }
 
   private static boolean deviceNeedsDefaultFrameRateWorkaround() {

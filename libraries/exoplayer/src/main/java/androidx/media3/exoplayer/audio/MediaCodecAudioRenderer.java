@@ -28,6 +28,7 @@ import android.media.AudioFormat;
 import android.media.MediaCodec;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
+import android.os.Bundle;
 import android.os.Handler;
 import androidx.annotation.CallSuper;
 import androidx.annotation.DoNotInline;
@@ -118,9 +119,10 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
   private long currentPositionUs;
   private boolean allowPositionDiscontinuity;
   private boolean audioSinkNeedsReset;
-
-  @Nullable private WakeupListener wakeupListener;
   private boolean hasPendingReportedSkippedSilence;
+  private int rendererPriority;
+  private boolean isStarted;
+  private long nextBufferToWritePresentationTimeUs;
 
   /**
    * @param context A context.
@@ -259,7 +261,9 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
     context = context.getApplicationContext();
     this.context = context;
     this.audioSink = audioSink;
+    rendererPriority = C.PRIORITY_PLAYBACK;
     eventDispatcher = new EventDispatcher(eventHandler, eventListener);
+    nextBufferToWritePresentationTimeUs = C.TIME_UNSET;
     audioSink.setListener(new AudioSinkListener());
   }
 
@@ -474,6 +478,25 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
   }
 
   @Override
+  public long getDurationToProgressUs(
+      boolean isOnBufferAvailableListenerRegistered, long positionUs, long elapsedRealtimeUs) {
+    if (nextBufferToWritePresentationTimeUs != C.TIME_UNSET) {
+      long durationUs =
+          (long)
+              ((nextBufferToWritePresentationTimeUs - positionUs)
+                  / (getPlaybackParameters() != null ? getPlaybackParameters().speed : 1.0f)
+                  / 2);
+      if (isStarted) {
+        // Account for the elapsed time since the start of this iteration of the rendering loop.
+        durationUs -= Util.msToUs(getClock().elapsedRealtime()) - elapsedRealtimeUs;
+      }
+      return max(DEFAULT_DURATION_TO_PROGRESS_US, durationUs);
+    }
+    return super.getDurationToProgressUs(
+        isOnBufferAvailableListenerRegistered, positionUs, elapsedRealtimeUs);
+  }
+
+  @Override
   protected float getCodecOperatingRateV23(
       float targetPlaybackSpeed, Format format, Format[] streamFormats) {
     // Use the highest known stream sample-rate up front, to avoid having to reconfigure the codec
@@ -550,6 +573,7 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
               .setEncoderDelay(format.encoderDelay)
               .setEncoderPadding(format.encoderPadding)
               .setMetadata(format.metadata)
+              .setCustomData(format.customData)
               .setId(format.id)
               .setLabel(format.label)
               .setLabels(format.labels)
@@ -624,11 +648,13 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
   protected void onStarted() {
     super.onStarted();
     audioSink.play();
+    isStarted = true;
   }
 
   @Override
   protected void onStopped() {
     updateCurrentPosition();
+    isStarted = false;
     audioSink.pause();
     super.onStopped();
   }
@@ -722,6 +748,9 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
       Format format)
       throws ExoPlaybackException {
     checkNotNull(buffer);
+    // Reset nextBufferToWritePresentationTimeUs to default value C.TIME_UNSET for if
+    // buffer is skipped, dropped, or written.
+    nextBufferToWritePresentationTimeUs = C.TIME_UNSET;
 
     if (decryptOnlyCodecFormat != null
         && (bufferFlags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
@@ -768,6 +797,10 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
       }
       decoderCounters.renderedOutputBufferCount += sampleCount;
       return true;
+    } else {
+      // Downstream buffers are full, set nextBufferToWritePresentationTimeUs to the presentation
+      // time of the current 'to be written' sample.
+      nextBufferToWritePresentationTimeUs = bufferPresentationTimeUs;
     }
 
     return false;
@@ -777,6 +810,9 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
   protected void renderToEndOfStream() throws ExoPlaybackException {
     try {
       audioSink.playToEndOfStream();
+      if (getLastBufferInStreamPresentationTimeUs() != C.TIME_UNSET) {
+        nextBufferToWritePresentationTimeUs = getLastBufferInStreamPresentationTimeUs();
+      }
     } catch (AudioSink.WriteException e) {
       throw createRendererException(
           e,
@@ -819,14 +855,10 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
       case MSG_SET_AUDIO_SESSION_ID:
         audioSink.setAudioSessionId((Integer) checkNotNull(message));
         break;
-      case MSG_SET_WAKEUP_LISTENER:
-        this.wakeupListener = (WakeupListener) message;
+      case MSG_SET_PRIORITY:
+        rendererPriority = (int) checkNotNull(message);
+        updateCodecImportance();
         break;
-      case MSG_SET_CAMERA_MOTION_LISTENER:
-      case MSG_SET_CHANGE_FRAME_RATE_STRATEGY:
-      case MSG_SET_SCALING_MODE:
-      case MSG_SET_VIDEO_FRAME_METADATA_LISTENER:
-      case MSG_SET_VIDEO_OUTPUT:
       default:
         super.handleMessage(messageType, message);
         break;
@@ -938,8 +970,25 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
     if (Util.SDK_INT >= 32) {
       mediaFormat.setInteger(MediaFormat.KEY_MAX_OUTPUT_CHANNEL_COUNT, 99);
     }
-
+    if (Util.SDK_INT >= 35) {
+      // TODO: b/333552477 - Use MediaFormat.KEY_IMPORTANCE once compileSdk >= 35
+      mediaFormat.setInteger("importance", max(0, -rendererPriority));
+    }
     return mediaFormat;
+  }
+
+  private void updateCodecImportance() {
+    @Nullable MediaCodecAdapter codec = getCodec();
+    if (codec == null) {
+      // If codec is null, then the importance will be set when initializing the codec.
+      return;
+    }
+    if (Util.SDK_INT >= 35) {
+      Bundle codecParameters = new Bundle();
+      // TODO: b/333552477 - Use MediaFormat.KEY_IMPORTANCE once compileSdk >= 35
+      codecParameters.putInt("importance", max(0, -rendererPriority));
+      codec.setParameters(codecParameters);
+    }
   }
 
   private void updateCurrentPosition() {
@@ -1022,6 +1071,7 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
 
     @Override
     public void onOffloadBufferEmptying() {
+      WakeupListener wakeupListener = getWakeupListener();
       if (wakeupListener != null) {
         wakeupListener.onWakeup();
       }
@@ -1029,6 +1079,7 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
 
     @Override
     public void onOffloadBufferFull() {
+      WakeupListener wakeupListener = getWakeupListener();
       if (wakeupListener != null) {
         wakeupListener.onSleep();
       }

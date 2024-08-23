@@ -192,7 +192,9 @@ public final class DefaultAudioSink implements AudioSink {
 
     @Override
     public long getMediaDuration(long playoutDuration) {
-      return sonicAudioProcessor.getMediaDuration(playoutDuration);
+      return sonicAudioProcessor.isActive()
+          ? sonicAudioProcessor.getMediaDuration(playoutDuration)
+          : playoutDuration;
     }
 
     @Override
@@ -543,6 +545,7 @@ public final class DefaultAudioSink implements AudioSink {
   private int preV21OutputBufferOffset;
   private boolean handledEndOfStream;
   private boolean stoppedAudioTrack;
+  private boolean handledOffloadOnPresentationEnded;
 
   private boolean playing;
   private boolean externalAudioSessionIdProvided;
@@ -1298,6 +1301,9 @@ public final class DefaultAudioSink implements AudioSink {
   @Override
   public boolean hasPendingData() {
     return isAudioTrackInitialized()
+        && (Util.SDK_INT < 29
+            || !audioTrack.isOffloadedPlayback()
+            || !handledOffloadOnPresentationEnded)
         && audioTrackPositionTracker.hasPendingData(getWrittenFrames());
   }
 
@@ -1524,7 +1530,18 @@ public final class DefaultAudioSink implements AudioSink {
   // AudioCapabilitiesReceiver.Listener implementation.
 
   public void onAudioCapabilitiesChanged(AudioCapabilities audioCapabilities) {
-    checkState(playbackLooper == Looper.myLooper());
+    Looper myLooper = Looper.myLooper();
+    if (playbackLooper != myLooper) {
+      String playbackLooperName =
+          playbackLooper == null ? "null" : playbackLooper.getThread().getName();
+      String myLooperName = myLooper == null ? "null" : myLooper.getThread().getName();
+      throw new IllegalStateException(
+          "Current looper ("
+              + myLooperName
+              + ") is not the playback looper ("
+              + playbackLooperName
+              + ")");
+    }
     if (!audioCapabilities.equals(this.audioCapabilities)) {
       this.audioCapabilities = audioCapabilities;
       if (listener != null) {
@@ -1553,6 +1570,7 @@ public final class DefaultAudioSink implements AudioSink {
     outputBuffer = null;
     stoppedAudioTrack = false;
     handledEndOfStream = false;
+    handledOffloadOnPresentationEnded = false;
     avSyncHeader = null;
     bytesUntilNextAvSync = 0;
     trimmingAudioProcessor.resetTrimmedFrameCount();
@@ -1670,9 +1688,7 @@ public final class DefaultAudioSink implements AudioSink {
 
     long playoutDurationSinceLastCheckpointUs =
         positionUs - mediaPositionParameters.audioTrackPositionUs;
-    if (mediaPositionParameters.playbackParameters.equals(PlaybackParameters.DEFAULT)) {
-      return mediaPositionParameters.mediaTimeUs + playoutDurationSinceLastCheckpointUs;
-    } else if (mediaPositionParametersCheckpoints.isEmpty()) {
+    if (mediaPositionParametersCheckpoints.isEmpty()) {
       long mediaDurationSinceLastCheckpointUs =
           audioProcessorChain.getMediaDuration(playoutDurationSinceLastCheckpointUs);
       return mediaPositionParameters.mediaTimeUs + mediaDurationSinceLastCheckpointUs;
@@ -1774,6 +1790,7 @@ public final class DefaultAudioSink implements AudioSink {
         return AacUtil.AAC_LD_AUDIO_SAMPLE_COUNT;
       case C.ENCODING_DTS:
       case C.ENCODING_DTS_HD:
+      case C.ENCODING_DTS_UHD_P2:
         return DtsUtil.parseDtsAudioSampleCount(buffer);
       case C.ENCODING_AC3:
       case C.ENCODING_E_AC3:
@@ -1863,6 +1880,11 @@ public final class DefaultAudioSink implements AudioSink {
     if (!stoppedAudioTrack) {
       stoppedAudioTrack = true;
       audioTrackPositionTracker.handleEndOfStream(getWrittenFrames());
+      if (isOffloadedPlayback(audioTrack)) {
+        // Reset handledOffloadOnPresentationEnded to track completion after
+        // this following stop call.
+        handledOffloadOnPresentationEnded = false;
+      }
       audioTrack.stop();
       bytesUntilNextAvSync = 0;
     }
@@ -1964,6 +1986,15 @@ public final class DefaultAudioSink implements AudioSink {
                 // state.
                 listener.onOffloadBufferEmptying();
               }
+            }
+
+            @Override
+            public void onPresentationEnded(AudioTrack track) {
+              if (!track.equals(audioTrack)) {
+                // Stale event.
+                return;
+              }
+              handledOffloadOnPresentationEnded = true;
             }
 
             @Override

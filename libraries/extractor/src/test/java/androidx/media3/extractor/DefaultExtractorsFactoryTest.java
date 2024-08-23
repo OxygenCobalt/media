@@ -16,11 +16,13 @@
 package androidx.media3.extractor;
 
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Arrays.stream;
 
 import android.net.Uri;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.extractor.amr.AmrExtractor;
 import androidx.media3.extractor.avi.AviExtractor;
+import androidx.media3.extractor.avif.AvifExtractor;
 import androidx.media3.extractor.bmp.BmpExtractor;
 import androidx.media3.extractor.flac.FlacExtractor;
 import androidx.media3.extractor.flv.FlvExtractor;
@@ -81,7 +83,8 @@ public final class DefaultExtractorsFactoryTest {
             PngExtractor.class,
             WebpExtractor.class,
             BmpExtractor.class,
-            HeifExtractor.class)
+            HeifExtractor.class,
+            AvifExtractor.class)
         .inOrder();
   }
 
@@ -128,19 +131,31 @@ public final class DefaultExtractorsFactoryTest {
             PngExtractor.class,
             WebpExtractor.class,
             BmpExtractor.class,
-            HeifExtractor.class)
+            HeifExtractor.class,
+            AvifExtractor.class)
         .inOrder();
   }
 
   @Test
-  public void subtitleTranscoding_notEnabledByDefault() {
+  public void subtitleTranscoding_enabledByDefault() {
     DefaultExtractorsFactory defaultExtractorsFactory = new DefaultExtractorsFactory();
 
     Extractor[] extractors = defaultExtractorsFactory.createExtractors();
 
-    for (Extractor extractor : extractors) {
-      assertThat(extractor.getClass()).isNotEqualTo(SubtitleTranscodingExtractor.class);
-    }
+    assertThat(stream(extractors).map(Object::getClass))
+        .contains(SubtitleTranscodingExtractor.class);
+  }
+
+  @SuppressWarnings("deprecation") // Testing legacy subtitle handling
+  @Test
+  public void subtitleTranscoding_noExtractorWrappingIfDisabled() {
+    DefaultExtractorsFactory defaultExtractorsFactory =
+        new DefaultExtractorsFactory().setTextTrackTranscodingEnabled(false);
+
+    Extractor[] extractors = defaultExtractorsFactory.createExtractors();
+
+    assertThat(stream(extractors).map(Object::getClass))
+        .doesNotContain(SubtitleTranscodingExtractor.class);
   }
 
   private static List<Class<? extends Extractor>> getUnderlyingExtractorClasses(

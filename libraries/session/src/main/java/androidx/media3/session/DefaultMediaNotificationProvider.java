@@ -90,10 +90,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
  * resource IDs are:
  *
  * <ul>
- *   <li><b>{@code media3_notification_play}</b> - The play icon.
- *   <li><b>{@code media3_notification_pause}</b> - The pause icon.
- *   <li><b>{@code media3_notification_seek_to_previous}</b> - The previous icon.
- *   <li><b>{@code media3_notification_seek_to_next}</b> - The next icon.
+ *   <li><b>{@code media3_icon_play}</b> - The play icon.
+ *   <li><b>{@code media3_icon_pause}</b> - The pause icon.
+ *   <li><b>{@code media3_icon_previous}</b> - The previous icon.
+ *   <li><b>{@code media3_icon_next}</b> - The next icon.
  *   <li><b>{@code media3_notification_small_icon}</b> - The {@link
  *       NotificationCompat.Builder#setSmallIcon(int) small icon}. A different icon can be set with
  *       {@link #setSmallIcon(int)}.
@@ -547,7 +547,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
       commandButtons.add(
-          new CommandButton.Builder()
+          new CommandButton.Builder(CommandButton.ICON_PREVIOUS)
               .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
               .setIconResId(skipPrevDrawableResourceId)
               .setDisplayName(
@@ -577,7 +577,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
       commandButtons.add(
-          new CommandButton.Builder()
+          new CommandButton.Builder(CommandButton.ICON_NEXT)
               .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
               .setIconResId(skipNextDrawableResourceId)
               .setExtras(commandButtonExtras)

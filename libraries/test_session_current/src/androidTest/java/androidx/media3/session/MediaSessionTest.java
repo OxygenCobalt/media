@@ -379,11 +379,7 @@ public class MediaSessionTest {
             });
       }
 
-      if (Util.SDK_INT >= 18) {
-        testThread.quitSafely();
-      } else {
-        testThread.quit();
-      }
+      testThread.quitSafely();
     }
   }
 
@@ -494,6 +490,38 @@ public class MediaSessionTest {
 
     long testSeekPositionMs = 1234;
     controllerCompat.getTransportControls().seekTo(testSeekPositionMs);
+
+    player.awaitMethodCalled(MockPlayer.METHOD_SEEK_TO, TIMEOUT_MS);
+    assertThat(player.seekPositionMs).isEqualTo(testSeekPositionMs);
+  }
+
+  /** Test {@link MediaSession#getSessionCompatToken()}. */
+  @Test
+  public void getPlatformToken_returnsCompatibleWithPlatformMediaController() throws Exception {
+    MediaSession session =
+        sessionTestRule.ensureReleaseAfterTest(
+            new MediaSession.Builder(context, player)
+                .setId("getPlatformToken_returnsCompatibleWithPlatformMediaController")
+                .setCallback(
+                    new MediaSession.Callback() {
+                      @Override
+                      public MediaSession.ConnectionResult onConnect(
+                          MediaSession session, ControllerInfo controller) {
+                        if (TextUtils.equals(
+                            getControllerCallerPackageName(controller),
+                            controller.getPackageName())) {
+                          return MediaSession.Callback.super.onConnect(session, controller);
+                        }
+                        return MediaSession.ConnectionResult.reject();
+                      }
+                    })
+                .build());
+    android.media.session.MediaSession.Token token = session.getPlatformToken();
+    android.media.session.MediaController platformController =
+        new android.media.session.MediaController(context, token);
+
+    long testSeekPositionMs = 1234;
+    platformController.getTransportControls().seekTo(testSeekPositionMs);
 
     player.awaitMethodCalled(MockPlayer.METHOD_SEEK_TO, TIMEOUT_MS);
     assertThat(player.seekPositionMs).isEqualTo(testSeekPositionMs);
@@ -994,15 +1022,13 @@ public class MediaSessionTest {
   }
 
   private static ControllerInfo createMediaButtonCaller() {
-    return new ControllerInfo(
-        new MediaSessionManager.RemoteUserInfo(
-            "RANDOM_MEDIA_BUTTON_CALLER_PACKAGE",
-            MediaSessionManager.RemoteUserInfo.UNKNOWN_PID,
-            MediaSessionManager.RemoteUserInfo.UNKNOWN_UID),
+    return ControllerInfo.createTestOnlyControllerInfo(
+        "RANDOM_MEDIA_BUTTON_CALLER_PACKAGE",
+        MediaSessionManager.RemoteUserInfo.UNKNOWN_PID,
+        MediaSessionManager.RemoteUserInfo.UNKNOWN_UID,
         MediaLibraryInfo.VERSION_INT,
         MediaControllerStub.VERSION_INT,
         /* trusted= */ false,
-        /* cb= */ null,
         /* connectionHints= */ Bundle.EMPTY);
   }
 

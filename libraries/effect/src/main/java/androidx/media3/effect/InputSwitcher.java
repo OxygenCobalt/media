@@ -28,7 +28,6 @@ import static androidx.media3.common.util.Util.contains;
 import android.content.Context;
 import android.util.SparseArray;
 import android.view.Surface;
-import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.FrameInfo;
 import androidx.media3.common.GlObjectsProvider;
@@ -36,6 +35,7 @@ import androidx.media3.common.GlTextureInfo;
 import androidx.media3.common.OnInputFrameProcessedListener;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
+import androidx.media3.effect.DefaultVideoFrameProcessor.WorkingColorSpace;
 import java.util.concurrent.Executor;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -52,7 +52,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
   private final GlShaderProgram.ErrorListener samplingShaderProgramErrorListener;
   private final Executor errorListenerExecutor;
   private final SparseArray<Input> inputs;
-  private final boolean enableColorTransfers;
+  private final @WorkingColorSpace int sdrWorkingColorSpace;
+  private final boolean experimentalAdjustSurfaceTextureTransformationMatrix;
 
   private @MonotonicNonNull GlShaderProgram downstreamShaderProgram;
   private @MonotonicNonNull TextureManager activeTextureManager;
@@ -64,8 +65,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
       VideoFrameProcessingTaskExecutor videoFrameProcessingTaskExecutor,
       Executor errorListenerExecutor,
       GlShaderProgram.ErrorListener samplingShaderProgramErrorListener,
-      boolean enableColorTransfers,
-      boolean repeatLastRegisteredFrame)
+      @WorkingColorSpace int sdrWorkingColorSpace,
+      boolean repeatLastRegisteredFrame,
+      boolean experimentalAdjustSurfaceTextureTransformationMatrix,
+      boolean experimentalRepeatInputBitmapWithoutResampling)
       throws VideoFrameProcessingException {
     this.context = context;
     this.outputColorInfo = outputColorInfo;
@@ -74,17 +77,26 @@ import org.checkerframework.checker.nullness.qual.Nullable;
     this.errorListenerExecutor = errorListenerExecutor;
     this.samplingShaderProgramErrorListener = samplingShaderProgramErrorListener;
     this.inputs = new SparseArray<>();
-    this.enableColorTransfers = enableColorTransfers;
+    this.sdrWorkingColorSpace = sdrWorkingColorSpace;
+    this.experimentalAdjustSurfaceTextureTransformationMatrix =
+        experimentalAdjustSurfaceTextureTransformationMatrix;
 
     // TODO(b/274109008): Investigate lazy instantiating the texture managers.
     inputs.put(
         INPUT_TYPE_SURFACE,
         new Input(
             new ExternalTextureManager(
-                glObjectsProvider, videoFrameProcessingTaskExecutor, repeatLastRegisteredFrame)));
+                glObjectsProvider,
+                videoFrameProcessingTaskExecutor,
+                repeatLastRegisteredFrame,
+                experimentalAdjustSurfaceTextureTransformationMatrix)));
     inputs.put(
         INPUT_TYPE_BITMAP,
-        new Input(new BitmapTextureManager(glObjectsProvider, videoFrameProcessingTaskExecutor)));
+        new Input(
+            new BitmapTextureManager(
+                glObjectsProvider,
+                videoFrameProcessingTaskExecutor,
+                /* signalRepeatingSequence= */ experimentalRepeatInputBitmapWithoutResampling)));
     inputs.put(
         INPUT_TYPE_TEXTURE_ID,
         new Input(new TexIdTextureManager(glObjectsProvider, videoFrameProcessingTaskExecutor)));
@@ -99,22 +111,17 @@ import org.checkerframework.checker.nullness.qual.Nullable;
       case INPUT_TYPE_SURFACE:
         samplingShaderProgram =
             DefaultShaderProgram.createWithExternalSampler(
-                context, inputColorInfo, outputColorInfo, enableColorTransfers);
+                context,
+                inputColorInfo,
+                outputColorInfo,
+                sdrWorkingColorSpace,
+                experimentalAdjustSurfaceTextureTransformationMatrix);
         break;
       case INPUT_TYPE_BITMAP:
-        // HDR bitmap input is not supported. Bitmaps are always sRGB/Full range/BT.709.
-        checkState(!ColorInfo.isTransferHdr(inputColorInfo));
-        ColorInfo bitmapColorInfo = ColorInfo.SRGB_BT709_FULL;
-        samplingShaderProgram =
-            DefaultShaderProgram.createWithInternalSampler(
-                context, bitmapColorInfo, outputColorInfo, enableColorTransfers, inputType);
-        break;
       case INPUT_TYPE_TEXTURE_ID:
-        // Image and textureId concatenation not supported.
-        checkState(inputColorInfo.colorTransfer != C.COLOR_TRANSFER_SRGB);
         samplingShaderProgram =
             DefaultShaderProgram.createWithInternalSampler(
-                context, inputColorInfo, outputColorInfo, enableColorTransfers, inputType);
+                context, inputColorInfo, outputColorInfo, sdrWorkingColorSpace, inputType);
         break;
       default:
         throw new VideoFrameProcessingException("Unsupported input type " + inputType);

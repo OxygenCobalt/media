@@ -29,7 +29,6 @@ import android.os.SystemClock;
 import android.util.Pair;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
 import androidx.media3.common.DrmInitData.SchemeData;
 import androidx.media3.common.util.Assertions;
@@ -57,7 +56,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
 /** A {@link DrmSession} that supports playbacks using {@link ExoMediaDrm}. */
-@RequiresApi(18)
 /* package */ class DefaultDrmSession implements DrmSession {
 
   /** Thrown when an unexpected exception or error is thrown during provisioning or key requests. */
@@ -118,8 +116,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
   private static final String TAG = "DefaultDrmSession";
 
-  private static final int MSG_PROVISION = 0;
-  private static final int MSG_KEYS = 1;
+  private static final int MSG_PROVISION = 1;
+  private static final int MSG_KEYS = 2;
   private static final int MAX_LICENSE_DURATION_TO_RENEW_SECONDS = 60;
 
   /** The DRM scheme datas, or null if this session uses offline keys. */

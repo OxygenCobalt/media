@@ -134,9 +134,8 @@ import java.nio.ByteBuffer;
       if (Util.SDK_INT < 34) {
         return false;
       }
-      // TODO: b/316565675 - Remove restriction to video once MediaCodec supports
-      //  CONFIGURE_FLAG_USE_CRYPTO_ASYNC for audio too
-      return MimeTypes.isVideo(format.sampleMimeType);
+      // CONFIGURE_FLAG_USE_CRYPTO_ASYNC only works for audio on API 35+ (see b/316565675).
+      return Util.SDK_INT >= 35 || MimeTypes.isVideo(format.sampleMimeType);
     }
   }
 
@@ -260,8 +259,18 @@ import java.nio.ByteBuffer;
       state = STATE_SHUT_DOWN;
     } finally {
       if (!codecReleased) {
-        codec.release();
-        codecReleased = true;
+        try {
+          // Stopping the codec before releasing it works around a bug on APIs 30, 31 and 32 where
+          // MediaCodec.release() returns too early before fully detaching a Surface, and a
+          // subsequent MediaCodec.configure() call using the same Surface then fails. See
+          // https://github.com/google/ExoPlayer/issues/8696 and b/191966399.
+          if (Util.SDK_INT >= 30 && Util.SDK_INT < 33) {
+            codec.stop();
+          }
+        } finally {
+          codec.release();
+          codecReleased = true;
+        }
       }
     }
   }
@@ -273,6 +282,12 @@ import java.nio.ByteBuffer;
             listener.onFrameRendered(
                 AsynchronousMediaCodecAdapter.this, presentationTimeUs, nanoTime),
         handler);
+  }
+
+  @Override
+  public boolean registerOnBufferAvailableListener(OnBufferAvailableListener listener) {
+    asynchronousMediaCodecCallback.setOnBufferAvailableListener(listener);
+    return true;
   }
 
   @Override

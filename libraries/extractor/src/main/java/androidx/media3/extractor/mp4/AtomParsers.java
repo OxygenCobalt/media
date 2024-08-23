@@ -677,8 +677,11 @@ import java.util.Objects;
           track, offsets, sizes, maximumSize, timestamps, flags, durationUs);
     }
 
-    // Omit any sample at the end point of an edit for audio tracks.
-    boolean omitClippedSample = track.type == C.TRACK_TYPE_AUDIO;
+    // When applying edit lists, we need to include any partial clipped samples at the end to ensure
+    // the final output is rendered correctly (see https://github.com/google/ExoPlayer/issues/2408).
+    // For audio only, we can omit any sample that starts at exactly the end point of an edit as
+    // there is no partial audio in this case.
+    boolean omitZeroDurationClippedSample = track.type == C.TRACK_TYPE_AUDIO;
 
     // Count the number of samples after applying edits.
     int editedSampleCount = 0;
@@ -707,7 +710,7 @@ import java.util.Objects;
             Util.binarySearchCeil(
                 timestamps,
                 editMediaTime + editDuration,
-                /* inclusive= */ omitClippedSample,
+                /* inclusive= */ omitZeroDurationClippedSample,
                 /* stayInBounds= */ false);
         while (startIndices[i] < endIndices[i]
             && (flags[startIndices[i]] & C.BUFFER_FLAG_KEY_FRAME) == 0) {
@@ -1150,6 +1153,7 @@ import java.util.Objects;
     @Nullable byte[] projectionData = null;
     @C.StereoMode int stereoMode = Format.NO_VALUE;
     @Nullable EsdsData esdsData = null;
+    int maxNumReorderSamples = Format.NO_VALUE;
 
     // HDR related metadata.
     @C.ColorSpace int colorSpace = Format.NO_VALUE;
@@ -1179,6 +1183,7 @@ import java.util.Objects;
           pixelWidthHeightRatio = avcConfig.pixelWidthHeightRatio;
         }
         codecs = avcConfig.codecs;
+        maxNumReorderSamples = avcConfig.maxNumReorderFrames;
         colorSpace = avcConfig.colorSpace;
         colorRange = avcConfig.colorRange;
         colorTransfer = avcConfig.colorTransfer;
@@ -1194,6 +1199,7 @@ import java.util.Objects;
         if (!pixelWidthHeightRatioFromPasp) {
           pixelWidthHeightRatio = hevcConfig.pixelWidthHeightRatio;
         }
+        maxNumReorderSamples = hevcConfig.maxNumReorderPics;
         codecs = hevcConfig.codecs;
         colorSpace = hevcConfig.colorSpace;
         colorRange = hevcConfig.colorRange;
@@ -1224,6 +1230,12 @@ import java.util.Objects;
             ColorInfo.isoTransferCharacteristicsToColorTransfer(transferCharacteristics);
       } else if (childAtomType == Atom.TYPE_av1C) {
         mimeType = MimeTypes.VIDEO_AV1;
+
+        int childAtomBodySize = childAtomSize - Atom.HEADER_SIZE;
+        byte[] initializationDataChunk = new byte[childAtomBodySize];
+        parent.readBytes(initializationDataChunk, /* offset= */ 0, childAtomBodySize);
+        initializationData = ImmutableList.of(initializationDataChunk);
+
         parent.setPosition(childStartPosition + Atom.HEADER_SIZE);
         ColorInfo colorInfo = parseAv1c(parent);
 
@@ -1358,6 +1370,7 @@ import java.util.Objects;
             .setProjectionData(projectionData)
             .setStereoMode(stereoMode)
             .setInitializationData(initializationData)
+            .setMaxNumReorderSamples(maxNumReorderSamples)
             .setDrmInitData(drmInitData)
             // Note that if either mdcv or clli are missing, we leave the corresponding HDR static
             // metadata bytes with value zero. See [Internal ref: b/194535665].

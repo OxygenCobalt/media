@@ -31,7 +31,7 @@ import org.checkerframework.dataflow.qual.Pure;
  * #SDR_BT709_LIMITED} instance.
  */
 @UnstableApi
-public final class ColorInfo implements Bundleable {
+public final class ColorInfo {
 
   /**
    * Builds {@link ColorInfo} instances.
@@ -421,7 +421,7 @@ public final class ColorInfo implements Bundleable {
       case C.COLOR_SPACE_BT2020:
         return "BT2020";
       default:
-        return "Undefined color space";
+        return "Undefined color space " + colorSpace;
     }
   }
 
@@ -443,7 +443,7 @@ public final class ColorInfo implements Bundleable {
       case C.COLOR_TRANSFER_HLG:
         return "HLG";
       default:
-        return "Undefined color transfer";
+        return "Undefined color transfer " + colorTransfer;
     }
   }
 
@@ -457,11 +457,9 @@ public final class ColorInfo implements Bundleable {
       case C.COLOR_RANGE_FULL:
         return "Full range";
       default:
-        return "Undefined color range";
+        return "Undefined color range " + colorRange;
     }
   }
-
-  // Bundleable implementation
 
   private static final String FIELD_COLOR_SPACE = Util.intToStringMaxRadix(0);
   private static final String FIELD_COLOR_RANGE = Util.intToStringMaxRadix(1);
@@ -470,7 +468,6 @@ public final class ColorInfo implements Bundleable {
   private static final String FIELD_LUMA_BITDEPTH = Util.intToStringMaxRadix(4);
   private static final String FIELD_CHROMA_BITDEPTH = Util.intToStringMaxRadix(5);
 
-  @Override
   public Bundle toBundle() {
     Bundle bundle = new Bundle();
     bundle.putInt(FIELD_COLOR_SPACE, colorSpace);
@@ -481,13 +478,6 @@ public final class ColorInfo implements Bundleable {
     bundle.putInt(FIELD_CHROMA_BITDEPTH, chromaBitdepth);
     return bundle;
   }
-
-  /**
-   * @deprecated Use {@link #fromBundle} instead.
-   */
-  @Deprecated
-  @SuppressWarnings("deprecation") // Deprecated instance of deprecated class
-  public static final Creator<ColorInfo> CREATOR = ColorInfo::fromBundle;
 
   /** Restores a {@code ColorInfo} from a {@link Bundle}. */
   public static ColorInfo fromBundle(Bundle bundle) {

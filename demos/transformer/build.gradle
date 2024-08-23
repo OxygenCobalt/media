@@ -19,10 +19,9 @@ apply plugin: 'com.android.application'
 android {
     namespace 'androidx.media3.demo.transformer'
 
-    compileSdkVersion project.ext.compileSdkVersion
+    compileSdk project.ext.compileSdkVersion
 
     compileOptions {
-        coreLibraryDesugaringEnabled true
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
@@ -49,7 +48,7 @@ android {
         disable 'GoogleAppIndexingWarning','MissingTranslation'
     }
 
-    flavorDimensions "mediaPipe"
+    flavorDimensions = ["mediaPipe"]
 
     productFlavors {
         noMediaPipe {
@@ -84,9 +83,8 @@ dependencies {
     implementation project(modulePrefix + 'lib-exoplayer')
     implementation project(modulePrefix + 'lib-exoplayer-dash')
     implementation project(modulePrefix + 'lib-transformer')
+    implementation project(modulePrefix + 'lib-muxer')
     implementation project(modulePrefix + 'lib-ui')
-
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.1.5'
 
     // For MediaPipe and its dependencies:
     withMediaPipeImplementation fileTree(dir: 'libs', include: ['*.aar'])

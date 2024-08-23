@@ -25,6 +25,7 @@ import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
 import static androidx.media3.transformer.AndroidTestUtil.JPG_ASSET_URI_STRING;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_FORMAT;
 import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_URI_STRING;
+import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
 import static androidx.media3.transformer.AndroidTestUtil.extractBitmapsFromVideo;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
@@ -37,6 +38,7 @@ import androidx.media3.common.util.Size;
 import androidx.media3.common.util.Util;
 import androidx.media3.effect.AlphaScale;
 import androidx.media3.effect.Contrast;
+import androidx.media3.effect.DefaultVideoFrameProcessor;
 import androidx.media3.effect.OverlaySettings;
 import androidx.media3.effect.Presentation;
 import androidx.media3.effect.ScaleAndRotateTransformation;
@@ -44,9 +46,13 @@ import androidx.media3.effect.VideoCompositorSettings;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
 
 /** Tests for using multiple {@link EditedMediaItemSequence} in a composition. */
@@ -57,7 +63,7 @@ public final class TransformerMultiSequenceCompositionTest {
   // TODO: b/301242589 - Fix this test on the crow emulator, and re-generate bitmaps using the crow
   //  emulator, for consistency with other pixel tests.
   private static final String PNG_ASSET_BASE_PATH =
-      "media/bitmap/transformer_multi_sequence_composition_test";
+      "test-generated-goldens/transformer_multi_sequence_composition_test";
 
   // The duration of one frame of the 30 FPS test video, in milliseconds.
   private static final long ONE_FRAME_DURATION_MS = 35;
@@ -65,17 +71,19 @@ public final class TransformerMultiSequenceCompositionTest {
   private static final int EXPORT_HEIGHT = 240;
 
   private final Context context = ApplicationProvider.getApplicationContext();
+  @Rule public final TestName testName = new TestName();
+
+  private String testId;
+
+  @Before
+  public void setUpTestId() {
+    testId = testName.getMethodName();
+  }
 
   @Test
   public void export_withTwoSequencesEachWithOneVideoMediaItem_succeeds() throws Exception {
-    String testId = "export_withTwoSequencesEachWithOneVideoMediaItem_succeeds";
-    if (AndroidTestUtil.skipAndLogIfFormatsUnsupported(
-        context,
-        testId,
-        /* inputFormat= */ MP4_ASSET_FORMAT,
-        /* outputFormat= */ MP4_ASSET_FORMAT)) {
-      return;
-    }
+    assumeFormatsSupported(
+        context, testId, /* inputFormat= */ MP4_ASSET_FORMAT, /* outputFormat= */ MP4_ASSET_FORMAT);
 
     Composition composition =
         createComposition(
@@ -97,25 +105,19 @@ public final class TransformerMultiSequenceCompositionTest {
             VideoCompositorSettings.DEFAULT);
 
     ExportTestResult result =
-        new TransformerAndroidTestRunner.Builder(context, new Transformer.Builder(context).build())
+        new TransformerAndroidTestRunner.Builder(context, getLinearColorSpaceTransformer())
             .build()
             .run(testId, composition);
 
-    assertThat(result.filePath).isNotNull();
+    assertThat(new File(result.filePath).length()).isGreaterThan(0);
     assertBitmapsMatchExpected(
         extractBitmapsFromVideo(context, checkNotNull(result.filePath)), testId);
   }
 
   @Test
   public void export_withTwoSequencesOneWithVideoOneWithImage_succeeds() throws Exception {
-    String testId = "export_withTwoSequencesOneWithVideoOneWithImage_succeeds";
-    if (AndroidTestUtil.skipAndLogIfFormatsUnsupported(
-        context,
-        testId,
-        /* inputFormat= */ MP4_ASSET_FORMAT,
-        /* outputFormat= */ MP4_ASSET_FORMAT)) {
-      return;
-    }
+    assumeFormatsSupported(
+        context, testId, /* inputFormat= */ MP4_ASSET_FORMAT, /* outputFormat= */ MP4_ASSET_FORMAT);
 
     Composition composition =
         createComposition(
@@ -137,25 +139,19 @@ public final class TransformerMultiSequenceCompositionTest {
             VideoCompositorSettings.DEFAULT);
 
     ExportTestResult result =
-        new TransformerAndroidTestRunner.Builder(context, new Transformer.Builder(context).build())
+        new TransformerAndroidTestRunner.Builder(context, getLinearColorSpaceTransformer())
             .build()
             .run(testId, composition);
 
-    assertThat(result.filePath).isNotNull();
+    assertThat(new File(result.filePath).length()).isGreaterThan(0);
     assertBitmapsMatchExpected(
         extractBitmapsFromVideo(context, checkNotNull(result.filePath)), testId);
   }
 
   @Test
   public void export_withTwoSequencesWithVideoCompositorSettings_succeeds() throws Exception {
-    String testId = "export_withTwoSequencesWithVideoCompositorSettings_succeeds";
-    if (AndroidTestUtil.skipAndLogIfFormatsUnsupported(
-        context,
-        testId,
-        /* inputFormat= */ MP4_ASSET_FORMAT,
-        /* outputFormat= */ MP4_ASSET_FORMAT)) {
-      return;
-    }
+    assumeFormatsSupported(
+        context, testId, /* inputFormat= */ MP4_ASSET_FORMAT, /* outputFormat= */ MP4_ASSET_FORMAT);
 
     VideoCompositorSettings pictureInPictureVideoCompositorSettings =
         new VideoCompositorSettings() {
@@ -199,13 +195,23 @@ public final class TransformerMultiSequenceCompositionTest {
             pictureInPictureVideoCompositorSettings);
 
     ExportTestResult result =
-        new TransformerAndroidTestRunner.Builder(context, new Transformer.Builder(context).build())
+        new TransformerAndroidTestRunner.Builder(context, getLinearColorSpaceTransformer())
             .build()
             .run(testId, composition);
 
-    assertThat(result.filePath).isNotNull();
+    assertThat(new File(result.filePath).length()).isGreaterThan(0);
     assertBitmapsMatchExpected(
         extractBitmapsFromVideo(context, checkNotNull(result.filePath)), testId);
+  }
+
+  private Transformer getLinearColorSpaceTransformer() {
+    // Use linear color space for grayscale effects.
+    return new Transformer.Builder(context)
+        .setVideoFrameProcessorFactory(
+            new DefaultVideoFrameProcessor.Factory.Builder()
+                .setSdrWorkingColorSpace(DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_LINEAR)
+                .build())
+        .build();
   }
 
   private static EditedMediaItem editedMediaItemByClippingVideo(String uri, List<Effect> effects) {

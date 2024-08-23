@@ -37,6 +37,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -125,7 +126,7 @@ import java.util.UUID;
  *   <li>{@link #tileCountVertical}
  * </ul>
  */
-public final class Format implements Bundleable {
+public final class Format {
 
   /**
    * Builds {@link Format} instances.
@@ -149,6 +150,7 @@ public final class Format implements Bundleable {
     private int peakBitrate;
     @Nullable private String codecs;
     @Nullable private Metadata metadata;
+    @Nullable private Object customData;
 
     // Container specific.
 
@@ -158,6 +160,7 @@ public final class Format implements Bundleable {
 
     @Nullable private String sampleMimeType;
     private int maxInputSize;
+    private int maxNumReorderSamples;
     @Nullable private List<byte[]> initializationData;
     @Nullable private DrmInitData drmInitData;
     private long subsampleOffsetUs;
@@ -202,6 +205,7 @@ public final class Format implements Bundleable {
       peakBitrate = NO_VALUE;
       // Sample specific.
       maxInputSize = NO_VALUE;
+      maxNumReorderSamples = NO_VALUE;
       subsampleOffsetUs = OFFSET_SAMPLE_RELATIVE;
       // Video specific.
       width = NO_VALUE;
@@ -239,11 +243,13 @@ public final class Format implements Bundleable {
       this.peakBitrate = format.peakBitrate;
       this.codecs = format.codecs;
       this.metadata = format.metadata;
+      this.customData = format.customData;
       // Container specific.
       this.containerMimeType = format.containerMimeType;
       // Sample specific.
       this.sampleMimeType = format.sampleMimeType;
       this.maxInputSize = format.maxInputSize;
+      this.maxNumReorderSamples = format.maxNumReorderSamples;
       this.initializationData = format.initializationData;
       this.drmInitData = format.drmInitData;
       this.subsampleOffsetUs = format.subsampleOffsetUs;
@@ -411,6 +417,22 @@ public final class Format implements Bundleable {
       return this;
     }
 
+    /**
+     * Sets the opaque object {@link Format#customData}. The default value is null.
+     *
+     * <p>This value is not included in serialized {@link Bundle} instances of this class that are
+     * used to transfer data to other processes.
+     *
+     * @param customData The {@link Format#customData}.
+     * @return The builder.
+     */
+    @UnstableApi
+    @CanIgnoreReturnValue
+    public Builder setCustomData(@Nullable Object customData) {
+      this.customData = customData;
+      return this;
+    }
+
     // Container specific.
 
     /**
@@ -448,6 +470,18 @@ public final class Format implements Bundleable {
     @CanIgnoreReturnValue
     public Builder setMaxInputSize(int maxInputSize) {
       this.maxInputSize = maxInputSize;
+      return this;
+    }
+
+    /**
+     * Sets {@link Format#maxNumReorderSamples}. The default value is {@link #NO_VALUE}.
+     *
+     * @param maxNumReorderSamples {@link Format#maxNumReorderSamples}.
+     * @return The builder.
+     */
+    @CanIgnoreReturnValue
+    public Builder setMaxNumReorderSamples(int maxNumReorderSamples) {
+      this.maxNumReorderSamples = maxNumReorderSamples;
       return this;
     }
 
@@ -846,6 +880,15 @@ public final class Format implements Bundleable {
   /** Metadata, or null if unknown or not applicable. */
   @UnstableApi @Nullable public final Metadata metadata;
 
+  /**
+   * An extra opaque object that can be added to the {@link Format} to provide additional
+   * information that can be passed through the player.
+   *
+   * <p>This value is not included in serialized {@link Bundle} instances of this class that are
+   * used to transfer data to other processes.
+   */
+  @UnstableApi @Nullable public final Object customData;
+
   // Container specific.
 
   /** The MIME type of the container, or null if unknown or not applicable. */
@@ -861,6 +904,12 @@ public final class Format implements Bundleable {
    * not applicable.
    */
   @UnstableApi public final int maxInputSize;
+
+  /**
+   * The maximum number of samples that must be stored to correctly re-order samples from decode
+   * order to presentation order.
+   */
+  @UnstableApi public final int maxNumReorderSamples;
 
   /**
    * Initialization data that must be provided to the decoder. Will not be null, but may be empty if
@@ -967,6 +1016,18 @@ public final class Format implements Bundleable {
   // Lazily initialized hashcode.
   private int hashCode;
 
+  private static boolean isLabelPartOfLabels(Builder builder) {
+    if (builder.labels.isEmpty() && builder.label == null) {
+      return true;
+    }
+    for (int i = 0; i < builder.labels.size(); i++) {
+      if (builder.labels.get(i).value.equals(builder.label)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private Format(Builder builder) {
     id = builder.id;
     language = Util.normalizeLanguageCode(builder.language);
@@ -977,9 +1038,7 @@ public final class Format implements Bundleable {
       labels = builder.labels;
       label = getDefaultLabel(builder.labels, language);
     } else {
-      checkState(
-          (builder.labels.isEmpty() && builder.label == null)
-              || (builder.labels.stream().anyMatch(l -> l.value.equals(builder.label))));
+      checkState(isLabelPartOfLabels(builder));
       labels = builder.labels;
       label = builder.label;
     }
@@ -990,11 +1049,13 @@ public final class Format implements Bundleable {
     bitrate = peakBitrate != NO_VALUE ? peakBitrate : averageBitrate;
     codecs = builder.codecs;
     metadata = builder.metadata;
+    customData = builder.customData;
     // Container specific.
     containerMimeType = builder.containerMimeType;
     // Sample specific.
     sampleMimeType = builder.sampleMimeType;
     maxInputSize = builder.maxInputSize;
+    maxNumReorderSamples = builder.maxNumReorderSamples;
     initializationData =
         builder.initializationData == null ? Collections.emptyList() : builder.initializationData;
     drmInitData = builder.drmInitData;
@@ -1172,6 +1233,7 @@ public final class Format implements Bundleable {
       result = 31 * result + peakBitrate;
       result = 31 * result + (codecs == null ? 0 : codecs.hashCode());
       result = 31 * result + (metadata == null ? 0 : metadata.hashCode());
+      result = 31 * result + (customData == null ? 0 : customData.hashCode());
       // Container specific.
       result = 31 * result + (containerMimeType == null ? 0 : containerMimeType.hashCode());
       // Sample specific.
@@ -1241,18 +1303,19 @@ public final class Format implements Bundleable {
         && cryptoType == other.cryptoType
         && Float.compare(frameRate, other.frameRate) == 0
         && Float.compare(pixelWidthHeightRatio, other.pixelWidthHeightRatio) == 0
-        && Util.areEqual(id, other.id)
-        && Util.areEqual(label, other.label)
+        && Objects.equals(id, other.id)
+        && Objects.equals(label, other.label)
         && labels.equals(other.labels)
-        && Util.areEqual(codecs, other.codecs)
-        && Util.areEqual(containerMimeType, other.containerMimeType)
-        && Util.areEqual(sampleMimeType, other.sampleMimeType)
-        && Util.areEqual(language, other.language)
+        && Objects.equals(codecs, other.codecs)
+        && Objects.equals(containerMimeType, other.containerMimeType)
+        && Objects.equals(sampleMimeType, other.sampleMimeType)
+        && Objects.equals(language, other.language)
         && Arrays.equals(projectionData, other.projectionData)
-        && Util.areEqual(metadata, other.metadata)
-        && Util.areEqual(colorInfo, other.colorInfo)
-        && Util.areEqual(drmInitData, other.drmInitData)
-        && initializationDataEquals(other);
+        && Objects.equals(metadata, other.metadata)
+        && Objects.equals(colorInfo, other.colorInfo)
+        && Objects.equals(drmInitData, other.drmInitData)
+        && initializationDataEquals(other)
+        && Objects.equals(customData, other.customData);
   }
 
   /**
@@ -1350,10 +1413,11 @@ public final class Format implements Bundleable {
       Joiner.on(',').appendTo(builder, Util.getRoleFlagStrings(format.roleFlags));
       builder.append("]");
     }
+    if (format.customData != null) {
+      builder.append(", customData=").append(format.customData);
+    }
     return builder.toString();
   }
-
-  // Bundleable implementation.
 
   private static final String FIELD_ID = Util.intToStringMaxRadix(0);
   private static final String FIELD_LABEL = Util.intToStringMaxRadix(1);
@@ -1389,8 +1453,11 @@ public final class Format implements Bundleable {
   private static final String FIELD_TILE_COUNT_VERTICAL = Util.intToStringMaxRadix(31);
   private static final String FIELD_LABELS = Util.intToStringMaxRadix(32);
 
+  /**
+   * @deprecated Use {@link #toBundle(boolean)} instead.
+   */
   @UnstableApi
-  @Override
+  @Deprecated
   public Bundle toBundle() {
     return toBundle(/* excludeMetadata= */ false);
   }
@@ -1424,7 +1491,7 @@ public final class Format implements Bundleable {
     for (int i = 0; i < initializationData.size(); i++) {
       bundle.putByteArray(keyForInitializationData(i), initializationData.get(i));
     }
-    // DrmInitData doesn't need to be Bundleable as it's only used in the playing process to
+    // DrmInitData doesn't need to be put into Bundle as it's only used in the playing process to
     // initialize the decoder.
     bundle.putParcelable(FIELD_DRM_INIT_DATA, drmInitData);
     bundle.putLong(FIELD_SUBSAMPLE_OFFSET_US, subsampleOffsetUs);
@@ -1454,16 +1521,6 @@ public final class Format implements Bundleable {
     bundle.putInt(FIELD_CRYPTO_TYPE, cryptoType);
     return bundle;
   }
-
-  /**
-   * Object that can restore {@code Format} from a {@link Bundle}.
-   *
-   * @deprecated Use {@link #fromBundle} instead.
-   */
-  @UnstableApi
-  @Deprecated
-  @SuppressWarnings("deprecation") // Deprecated instance of deprecated class
-  public static final Creator<Format> CREATOR = Format::fromBundle;
 
   /** Restores a {@code Format} from a {@link Bundle}. */
   @UnstableApi
