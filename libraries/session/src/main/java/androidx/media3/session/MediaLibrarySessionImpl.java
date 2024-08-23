@@ -142,7 +142,7 @@ import java.util.concurrent.Future;
       int pageSize,
       @Nullable LibraryParams params) {
     if (Objects.equals(parentId, RECENT_LIBRARY_ROOT_MEDIA_ID)) {
-        return Futures.immediateFuture(LibraryResult.ofError(RESULT_ERROR_NOT_SUPPORTED));
+        return Futures.immediateFuture(LibraryResult.ofError(ERROR_NOT_SUPPORTED));
     }
     ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> future =
         callback.onGetChildren(
