@@ -66,6 +66,7 @@
 *   Smooth Streaming Extension:
 *   RTSP Extension:
 *   Decoder Extensions (FFmpeg, VP9, AV1, MIDI, etc.):
+*   MIDI extension:
 *   Leanback extension:
 *   Cast Extension:
     *   Fix bug that converted the album title of the `MediaQueueItem` to the

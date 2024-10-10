@@ -19,6 +19,18 @@ android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
 // Should match cmake_minimum_required.
 android.externalNativeBuild.cmake.version = '3.21.0+'
 
+android {
+    namespace 'androidx.media3.decoder.ffmpeg'
+
+    // TODO(Internal: b/372449691): Remove packagingOptions once AGP is updated
+    // to version 8.5.1 or higher.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
 task assembleFfmpeg(type: Exec) {
     def host = ""
     if (Os.isFamily(Os.FAMILY_MAC)) {
