@@ -27,10 +27,10 @@ import androidx.media3.common.util.Util;
 import androidx.media3.extractor.metadata.MetadataInputBuffer;
 import androidx.media3.extractor.metadata.SimpleMetadataDecoder;
 import com.google.common.base.Ascii;
-import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -556,7 +556,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
 
     int urlStartIndex = descriptionEndIndex + delimiterLength(encoding);
     int urlEndIndex = indexOfZeroByte(data, urlStartIndex);
-    String url = decodeStringIfValid(data, urlStartIndex, urlEndIndex, Charsets.ISO_8859_1);
+    String url = decodeStringIfValid(data, urlStartIndex, urlEndIndex, StandardCharsets.ISO_8859_1);
 
     return new UrlLinkFrame("WXXX", description, url);
   }
@@ -567,7 +567,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     id3Data.readBytes(data, 0, frameSize);
 
     int urlEndIndex = indexOfZeroByte(data, 0);
-    String url = new String(data, 0, urlEndIndex, Charsets.ISO_8859_1);
+    String url = new String(data, 0, urlEndIndex, StandardCharsets.ISO_8859_1);
 
     return new UrlLinkFrame(id, null, url);
   }
@@ -577,7 +577,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     id3Data.readBytes(data, 0, frameSize);
 
     int ownerEndIndex = indexOfZeroByte(data, 0);
-    String owner = new String(data, 0, ownerEndIndex, Charsets.ISO_8859_1);
+    String owner = new String(data, 0, ownerEndIndex, StandardCharsets.ISO_8859_1);
 
     int privateDataStartIndex = ownerEndIndex + 1;
     byte[] privateData = copyOfRangeIfValid(data, privateDataStartIndex, data.length);
@@ -594,7 +594,8 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
 
     int mimeTypeEndIndex = indexOfZeroByte(data, 0);
     String mimeType =
-        MimeTypes.normalizeMimeType(new String(data, 0, mimeTypeEndIndex, Charsets.ISO_8859_1));
+        MimeTypes.normalizeMimeType(
+            new String(data, 0, mimeTypeEndIndex, StandardCharsets.ISO_8859_1));
 
     int filenameStartIndex = mimeTypeEndIndex + 1;
     int filenameEndIndex = indexOfTerminator(data, filenameStartIndex, encoding);
@@ -623,13 +624,14 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     int mimeTypeEndIndex;
     if (majorVersion == 2) {
       mimeTypeEndIndex = 2;
-      mimeType = "image/" + Ascii.toLowerCase(new String(data, 0, 3, Charsets.ISO_8859_1));
+      mimeType = "image/" + Ascii.toLowerCase(new String(data, 0, 3, StandardCharsets.ISO_8859_1));
       if ("image/jpg".equals(mimeType)) {
         mimeType = "image/jpeg";
       }
     } else {
       mimeTypeEndIndex = indexOfZeroByte(data, 0);
-      mimeType = Ascii.toLowerCase(new String(data, 0, mimeTypeEndIndex, Charsets.ISO_8859_1));
+      mimeType =
+          Ascii.toLowerCase(new String(data, 0, mimeTypeEndIndex, StandardCharsets.ISO_8859_1));
       if (mimeType.indexOf('/') == -1) {
         mimeType = "image/" + mimeType;
       }
@@ -690,7 +692,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
             id3Data.getData(),
             framePosition,
             chapterIdEndIndex - framePosition,
-            Charsets.ISO_8859_1);
+            StandardCharsets.ISO_8859_1);
     id3Data.setPosition(chapterIdEndIndex + 1);
 
     int startTime = id3Data.readInt();
@@ -733,7 +735,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
             id3Data.getData(),
             framePosition,
             elementIdEndIndex - framePosition,
-            Charsets.ISO_8859_1);
+            StandardCharsets.ISO_8859_1);
     id3Data.setPosition(elementIdEndIndex + 1);
 
     int ctocFlags = id3Data.readUnsignedByte();
@@ -746,7 +748,8 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
       int startIndex = id3Data.getPosition();
       int endIndex = indexOfZeroByte(id3Data.getData(), startIndex);
       children[i] =
-          new String(id3Data.getData(), startIndex, endIndex - startIndex, Charsets.ISO_8859_1);
+          new String(
+              id3Data.getData(), startIndex, endIndex - startIndex, StandardCharsets.ISO_8859_1);
       id3Data.setPosition(endIndex + 1);
     }
 
@@ -829,14 +832,14 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
   private static Charset getCharset(int encodingByte) {
     switch (encodingByte) {
       case ID3_TEXT_ENCODING_UTF_16:
-        return Charsets.UTF_16;
+        return StandardCharsets.UTF_16;
       case ID3_TEXT_ENCODING_UTF_16BE:
-        return Charsets.UTF_16BE;
+        return StandardCharsets.UTF_16BE;
       case ID3_TEXT_ENCODING_UTF_8:
-        return Charsets.UTF_8;
+        return StandardCharsets.UTF_8;
       case ID3_TEXT_ENCODING_ISO_8859_1:
       default:
-        return Charsets.ISO_8859_1;
+        return StandardCharsets.ISO_8859_1;
     }
   }
 

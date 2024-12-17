@@ -39,7 +39,7 @@ add_library(iamfJNI
 # Locate NDK log library.
 find_library(android_log_lib log)
 
-# Link libgav1JNI against used libraries.
+# Link libiamfJNI against used libraries.
 target_link_libraries(iamfJNI
                       PRIVATE android
                       PRIVATE iamf
