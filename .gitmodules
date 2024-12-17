@@ -1,4 +1,3 @@
 [submodule "libraries/decoder_ffmpeg/src/main/jni/ffmpeg"]
 	path = libraries/decoder_ffmpeg/src/main/jni/ffmpeg
 	url = https://git.ffmpeg.org/ffmpeg.git
-	branch = release/6.0

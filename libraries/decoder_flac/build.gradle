@@ -20,8 +20,6 @@ android {
         androidTest.assets.srcDir '../test_data/src/test/assets'
     }
 
-<<<<<<< HEAD
-=======
     defaultConfig {
         externalNativeBuild {
             cmake {
@@ -32,7 +30,6 @@ android {
         }
     }
 
->>>>>>> upstream/release
     // TODO(Internal: b/372449691): Remove packagingOptions once AGP is updated
     // to version 8.5.1 or higher.
     packagingOptions {
@@ -40,8 +37,6 @@ android {
             useLegacyPackaging true
         }
     }
-<<<<<<< HEAD
-=======
 }
 
 // Configure the native build only if libflac is present to avoid gradle sync
@@ -58,7 +53,6 @@ if (project.file('src/main/jni/libflac').exists()) {
             buildStagingDirectory = "${externalNativeBuildDir}/${project.name}"
         }
     }
->>>>>>> upstream/release
 }
 
 dependencies {

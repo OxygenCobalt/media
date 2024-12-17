@@ -174,7 +174,7 @@ public abstract class MediaSessionService extends Service {
   private @MonotonicNonNull MediaNotificationManager mediaNotificationManager;
 
   @GuardedBy("lock")
-  public MediaNotification.@MonotonicNonNull Provider mediaNotificationProvider;
+  private MediaNotification.@MonotonicNonNull Provider mediaNotificationProvider;
 
   @GuardedBy("lock")
   private @MonotonicNonNull DefaultActionFactory actionFactory;
@@ -632,7 +632,7 @@ public abstract class MediaSessionService extends Service {
     return true;
   }
 
-  public MediaNotificationManager getMediaNotificationManager() {
+  private MediaNotificationManager getMediaNotificationManager() {
     synchronized (lock) {
       if (mediaNotificationManager == null) {
         if (mediaNotificationProvider == null) {

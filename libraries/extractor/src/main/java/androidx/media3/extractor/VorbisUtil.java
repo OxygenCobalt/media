@@ -368,7 +368,7 @@ public final class VorbisUtil {
         continue;
       }
 
-      if (keyAndValue[0].equalsIgnoreCase("metadata_block_picture")) {
+      if (keyAndValue[0].equals("METADATA_BLOCK_PICTURE")) {
         // This tag is a special cover art tag, outlined by
         // https://wiki.xiph.org/index.php/VorbisComment#Cover_art.
         // Decode it from Base64 and transform it into a PictureFrame.

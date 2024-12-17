@@ -151,23 +151,23 @@ import com.google.common.collect.ImmutableList;
         if (shortType == SHORT_TYPE_COMMENT) {
           return parseCommentAttribute(type, ilst);
         } else if (shortType == SHORT_TYPE_NAME_1 || shortType == SHORT_TYPE_NAME_2) {
-          return parseTextAttribute(type, "TIT2", ilst, endPosition);
+          return parseTextAttribute(type, "TIT2", ilst);
         } else if (shortType == SHORT_TYPE_COMPOSER_1 || shortType == SHORT_TYPE_COMPOSER_2) {
-          return parseTextAttribute(type, "TCOM", ilst, endPosition);
+          return parseTextAttribute(type, "TCOM", ilst);
         } else if (shortType == SHORT_TYPE_YEAR) {
-          return parseTextAttribute(type, "TDRC", ilst, endPosition);
+          return parseTextAttribute(type, "TDRC", ilst);
         } else if (shortType == SHORT_TYPE_ARTIST) {
-          return parseTextAttribute(type, "TPE1", ilst, endPosition);
+          return parseTextAttribute(type, "TPE1", ilst);
         } else if (shortType == SHORT_TYPE_ENCODER) {
-          return parseTextAttribute(type, "TSSE", ilst, endPosition);
+          return parseTextAttribute(type, "TSSE", ilst);
         } else if (shortType == SHORT_TYPE_ALBUM) {
-          return parseTextAttribute(type, "TALB", ilst, endPosition);
+          return parseTextAttribute(type, "TALB", ilst);
         } else if (shortType == SHORT_TYPE_LYRICS) {
-          return parseTextAttribute(type, "USLT", ilst, endPosition);
+          return parseTextAttribute(type, "USLT", ilst);
         } else if (shortType == SHORT_TYPE_GENRE) {
-          return parseTextAttribute(type, "TCON", ilst, endPosition);
+          return parseTextAttribute(type, "TCON", ilst);
         } else if (shortType == TYPE_GROUPING) {
-          return parseTextAttribute(type, "TIT1", ilst, endPosition);
+          return parseTextAttribute(type, "TIT1", ilst);
         }
       } else if (type == TYPE_GENRE) {
         return parseStandardGenreAttribute(ilst);
@@ -182,25 +182,25 @@ import com.google.common.collect.ImmutableList;
       } else if (type == TYPE_COVER_ART) {
         return parseCoverArt(ilst);
       } else if (type == TYPE_ALBUM_ARTIST) {
-        return parseTextAttribute(type, "TPE2", ilst, endPosition);
+        return parseTextAttribute(type, "TPE2", ilst);
       } else if (type == TYPE_SORT_TRACK_NAME) {
-        return parseTextAttribute(type, "TSOT", ilst, endPosition);
+        return parseTextAttribute(type, "TSOT", ilst);
       } else if (type == TYPE_SORT_ALBUM) {
-        return parseTextAttribute(type, "TSOA", ilst, endPosition);
+        return parseTextAttribute(type, "TSOA", ilst);
       } else if (type == TYPE_SORT_ARTIST) {
-        return parseTextAttribute(type, "TSOP", ilst, endPosition);
+        return parseTextAttribute(type, "TSOP", ilst);
       } else if (type == TYPE_SORT_ALBUM_ARTIST) {
-        return parseTextAttribute(type, "TSO2", ilst, endPosition);
+        return parseTextAttribute(type, "TSO2", ilst);
       } else if (type == TYPE_SORT_COMPOSER) {
-        return parseTextAttribute(type, "TSOC", ilst, endPosition);
+        return parseTextAttribute(type, "TSOC", ilst);
       } else if (type == TYPE_RATING) {
         return parseIntegerAttribute(type, "ITUNESADVISORY", ilst, false, false);
       } else if (type == TYPE_GAPLESS_ALBUM) {
         return parseIntegerAttribute(type, "ITUNESGAPLESS", ilst, false, true);
       } else if (type == TYPE_TV_SORT_SHOW) {
-        return parseTextAttribute(type, "TVSHOWSORT", ilst, endPosition);
+        return parseTextAttribute(type, "TVSHOWSORT", ilst);
       } else if (type == TYPE_TV_SHOW) {
-        return parseTextAttribute(type, "TVSHOW", ilst, endPosition);
+        return parseTextAttribute(type, "TVSHOW", ilst);
       } else if (type == TYPE_INTERNAL) {
         return parseInternalAttribute(ilst, endPosition);
       }
@@ -262,23 +262,16 @@ import com.google.common.collect.ImmutableList;
 
   @Nullable
   private static TextInformationFrame parseTextAttribute(
-      int type, String id, ParsableByteArray data, int endPosition) {
-    ImmutableList.Builder<String> values = new ImmutableList.Builder<>();
-    Log.d(TAG, "" + data.bytesLeft());
-    while (data.getPosition() < endPosition) {
-      int atomSize = data.readInt();
-      int atomType = data.readInt();
-      if (atomType == Atom.TYPE_data) {
-        data.skipBytes(8); // version (1), flags (3), empty (4)
-        String value = data.readNullTerminatedString(atomSize - 16);
-        Log.d(TAG, value);
-        values.add(value);
-      } else {
-        Log.w(TAG, "Failed to parse text attribute: " + Atom.getAtomTypeString(type));
-        return null;
-      }
+      int type, String id, ParsableByteArray data) {
+    int atomSize = data.readInt();
+    int atomType = data.readInt();
+    if (atomType == Mp4Box.TYPE_data) {
+      data.skipBytes(8); // version (1), flags (3), empty (4)
+      String value = data.readNullTerminatedString(atomSize - 16);
+      return new TextInformationFrame(id, /* description= */ null, ImmutableList.of(value));
     }
-    return new TextInformationFrame(id, /* description= */ null, values.build());
+    Log.w(TAG, "Failed to parse text attribute: " + Mp4Box.getBoxTypeString(type));
+    return null;
   }
 
   @Nullable

@@ -1229,8 +1229,51 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         setQueue(sessionCompat, /* queue= */ null);
         return;
       }
-      List<QueueItem> queueItemList = LegacyConversions.convertToQueueItemList(
-              timeline, sessionImpl.getPlayerWrapper().getShuffleModeEnabled());
+      List<MediaItem> mediaItemList = LegacyConversions.convertToMediaItemList(timeline);
+      List<@NullableType ListenableFuture<Bitmap>> bitmapFutures = new ArrayList<>();
+      final AtomicInteger resultCount = new AtomicInteger(0);
+      Runnable handleBitmapFuturesTask =
+          () -> {
+            int completedBitmapFutureCount = resultCount.incrementAndGet();
+            if (completedBitmapFutureCount == mediaItemList.size()) {
+              handleBitmapFuturesAllCompletedAndSetQueue(bitmapFutures, mediaItemList);
+            }
+          };
+
+      for (int i = 0; i < mediaItemList.size(); i++) {
+        MediaItem mediaItem = mediaItemList.get(i);
+        MediaMetadata metadata = mediaItem.mediaMetadata;
+        if (metadata.artworkData == null) {
+          bitmapFutures.add(null);
+          handleBitmapFuturesTask.run();
+        } else {
+          ListenableFuture<Bitmap> bitmapFuture =
+              sessionImpl.getBitmapLoader().decodeBitmap(metadata.artworkData);
+          bitmapFutures.add(bitmapFuture);
+          bitmapFuture.addListener(
+              handleBitmapFuturesTask, sessionImpl.getApplicationHandler()::post);
+        }
+      }
+    }
+
+    private void handleBitmapFuturesAllCompletedAndSetQueue(
+        List<@NullableType ListenableFuture<Bitmap>> bitmapFutures, List<MediaItem> mediaItems) {
+      List<QueueItem> queueItemList = new ArrayList<>();
+      for (int i = 0; i < bitmapFutures.size(); i++) {
+        @Nullable ListenableFuture<Bitmap> future = bitmapFutures.get(i);
+        @Nullable Bitmap bitmap = null;
+        if (future != null) {
+          try {
+            bitmap = Futures.getDone(future);
+          } catch (CancellationException | ExecutionException e) {
+            Log.d(TAG, "Failed to get bitmap", e);
+          }
+        }
+        queueItemList.add(LegacyConversions.convertToQueueItem(mediaItems.get(i), i, bitmap));
+      }
+
+      // Framework MediaSession#setQueue() uses ParceledListSlice,
+      // which means we can safely send long lists.
       setQueue(sessionCompat, queueItemList);
     }
 
@@ -1250,7 +1293,6 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         throws RemoteException {
       sessionCompat.setShuffleMode(
           LegacyConversions.convertToPlaybackStateCompatShuffleMode(shuffleModeEnabled));
-      updateQueue(sessionImpl.getPlayerWrapper().getCurrentTimeline());
     }
 
     @Override

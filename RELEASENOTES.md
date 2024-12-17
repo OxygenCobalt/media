@@ -1,83 +1,5 @@
 # Release notes
 
-### Unreleased changes
-
-*   Common Library:
-    *   Forward presumed no-op seek calls to the protected `BasePlayer.seekTo`
-        and `SimpleBasePlayer.handleSeek` methods instead of ignoring them. If
-        you are implementing these methods in a custom player, you may need to
-        handle these additional calls with `mediaItemIndex == C.INDEX_UNSET`.
-*   ExoPlayer:
-    *   Add `reset` to `BasePreloadManager` to release all the holding sources
-        while keep the preload manager instance.
-*   Transformer:
-    *   Work around a decoder bug where the number of audio channels was capped
-        at stereo when handling PCM input.
-    *   When selecting tracks in `ExoPlayerAssetLoader`, ignore audio channel
-        count constraints as they only apply for playback.
-*   Track Selection:
-*   Extractors:
-*   Audio:
-*   Video:
-*   Text:
-*   Metadata:
-    *   Fix mapping of MP4 to ID3 sort tags. Previously the 'album sort'
-        (`soal`), 'artist sort' (`soar`) and 'album artist sort' (`soaa`) MP4
-        tags were wrongly mapped to the `TSO2`, `TSOA` and `TSOP` ID3 tags
-        ([#1302](https://github.com/androidx/media/issues/1302)).
-*   Image:
-*   DRM:
-    *   Allow setting a `LoadErrorHandlingPolicy` on
-        `DefaultDrmSessionManagerProvider`
-        ([#1271](https://github.com/androidx/media/issues/1271)).
-*   Effect:
-    *   Fix bug where `TimestampWrapper` crashes when used with
-        `ExoPlayer#setVideoEffects`
-        ([#821](https://github.com/androidx/media/issues/821)).
-*   Muxers:
-*   IMA extension:
-    *   Promote API that is required for apps to play
-        [DAI ad streams](https://developers.google.com/ad-manager/dynamic-ad-insertion/full-service)
-        to stable.
-    *   Add `replaceAdTagParameters(Map <String, String>)` to
-        `ImaServerSideAdInsertionMediaSource.AdLoader` that allows replacing ad
-        tag parameters at runtime.
-*   Session:
-    *   Hide seekbar in the media notification for live streams by not setting
-        the duration into the platform session metadata
-        ([#1256](https://github.com/androidx/media/issues/1256)).
-*   UI:
-*   Downloads:
-*   OkHttp Extension:
-*   Cronet Extension:
-    *   Fix `SocketTimeoutException` in `CronetDataSource`. In some versions of
-        Cronet, the request provided by the callback is not always the same.
-        This leads to callback not completing and request timing out
-        (https://issuetracker.google.com/328442628).
-*   RTMP Extension:
-*   HLS Extension:
-    *   Fix bug where pending EMSG samples waiting for a discontinuity were
-        delegated in `HlsSampleStreamWrapper` with an incorrect offset causing
-        an `IndexOutOfBoundsException` or an `IllegalArgumentException`
-        ([#1002](https://github.com/androidx/media/issues/1002)).
-    *   Fix bug where non-primary playlists keep reloading for LL-HLS streams
-        ([#1240](https://github.com/androidx/media/issues/1240)).
-*   DASH Extension:
-*   Smooth Streaming Extension:
-*   RTSP Extension:
-*   Decoder Extensions (FFmpeg, VP9, AV1, MIDI, etc.):
-*   MIDI extension:
-*   Leanback extension:
-*   Cast Extension:
-    *   Fix bug that converted the album title of the `MediaQueueItem` to the
-        artist in the Media3 media item
-        ([#1255](https://github.com/androidx/media/pull/1255)).
-*   Test Utilities:
-*   Remove deprecated symbols:
-*   Demo app:
-    *   Allow setting repeat mode with `Intent` arguments from command line
-        ([#1266](https://github.com/androidx/media/pull/1266)).
-
 ## 1.5
 
 ### 1.5.0 (2024-11-27)
@@ -424,7 +346,6 @@ Use the 1.5.0 [stable version](#150-2024-11-27).
 
 Use the 1.5.0 [stable version](#150-2024-11-27).
 
->>>>>>> upstream/release
 ## 1.4
 
 ### 1.4.1 (2024-08-23)

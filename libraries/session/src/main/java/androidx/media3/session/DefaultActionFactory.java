@@ -43,12 +43,10 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.media3.common.Player;
-import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 
 /** The default {@link MediaNotification.ActionFactory}. */
-@UnstableApi
-public final class DefaultActionFactory implements MediaNotification.ActionFactory {
+/* package */ final class DefaultActionFactory implements MediaNotification.ActionFactory {
 
   private static final String ACTION_CUSTOM = "androidx.media3.session.CUSTOM_NOTIFICATION_ACTION";
   private static final String EXTRAS_KEY_ACTION_CUSTOM =

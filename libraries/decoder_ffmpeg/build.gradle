@@ -11,13 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import org.apache.tools.ant.taskdefs.condition.Os
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
-
-android.ndkVersion = "27.2.12479018"
-android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
-// Should match cmake_minimum_required.
-android.externalNativeBuild.cmake.version = '3.21.0+'
 
 android {
     namespace 'androidx.media3.decoder.ffmpeg'
@@ -30,6 +24,17 @@ android {
         }
     }
 }
+
+// Configure the native build only if ffmpeg is present to avoid gradle sync
+// failures if ffmpeg hasn't been built according to the README instructions.
+if (!project.file('src/main/jni/ffmpeg').exists()) {
+        throw UnsupportedOperationException(
+                "Ffmpeg not found. Did you enable submodules?")
+}
+android.ndkVersion = "27.2.12479018"
+android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
+// Should match cmake_minimum_required.
+android.externalNativeBuild.cmake.version = '3.21.0+'
 
 task assembleFfmpeg(type: Exec) {
     def host = ""
@@ -60,8 +65,6 @@ afterEvaluate {
 clean {
     delete "$projectDir/src/main/jni/ffmpeg/android-libs/"
 }
-
-android.namespace = 'androidx.media3.decoder.ffmpeg'
 
 dependencies {
     implementation project(modulePrefix + 'lib-decoder')

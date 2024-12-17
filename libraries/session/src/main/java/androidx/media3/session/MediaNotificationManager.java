@@ -52,13 +52,13 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>All methods must be called on the main thread.
  */
-public final class MediaNotificationManager {
+/* package */ final class MediaNotificationManager {
 
   private static final String TAG = "MediaNtfMng";
 
   private final MediaSessionService mediaSessionService;
   private final MediaNotification.Provider mediaNotificationProvider;
-  public final MediaNotification.ActionFactory actionFactory;
+  private final MediaNotification.ActionFactory actionFactory;
   private final NotificationManagerCompat notificationManagerCompat;
   private final Executor mainExecutor;
   private final Intent startSelfIntent;

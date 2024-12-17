@@ -29,7 +29,6 @@ import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -51,8 +50,6 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
-
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -123,11 +120,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     private NotificationIdProvider notificationIdProvider;
     private String channelId;
     @StringRes private int channelNameResourceId;
-    @DrawableRes private int playDrawableResourceId;
-    @DrawableRes private int pauseDrawableResourceId;
-    @DrawableRes private int skipNextDrawableResourceId;
-    @DrawableRes private int skipPrevDrawableResourceId;
-    PendingIntent contentIntent;
     private boolean built;
 
     /**
@@ -200,60 +192,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     }
 
     /**
-     * Sets the resource ID of the play icon.
-     *
-     * @param playDrawableResourceId The resource ID of the play icon.
-     * @return This builder.
-     */
-    @CanIgnoreReturnValue
-    public Builder setPlayDrawableResourceId(@DrawableRes int playDrawableResourceId) {
-      this.playDrawableResourceId = playDrawableResourceId;
-      return this;
-    }
-
-    /**
-     * Sets the resource ID of the pause icon.
-     *
-     * @param pauseDrawableResourceId The resource ID of the pause icon.
-     * @return This builder.
-     */
-    @CanIgnoreReturnValue
-    public Builder setPauseDrawableResourceId(@DrawableRes int pauseDrawableResourceId) {
-      this.pauseDrawableResourceId = pauseDrawableResourceId;
-      return this;
-    }
-
-    /**
-     * Sets the resource ID of the skip to next icon.
-     *
-     * @param skipNextDrawableResourceId The resource ID of the skip to next icon.
-     * @return This builder.
-     */
-    @CanIgnoreReturnValue
-    public Builder setSkipNextDrawableResourceId(@DrawableRes int skipNextDrawableResourceId) {
-      this.skipNextDrawableResourceId = skipNextDrawableResourceId;
-      return this;
-    }
-
-    /**
-     * Sets the resource ID of the skip to previous icon.
-     *
-     * @param skipPrevDrawableResourceId The resource ID of the skip to previous icon.
-     * @return This builder.
-     */
-    @CanIgnoreReturnValue
-    public Builder setSkipPrevDrawableResourceId(@DrawableRes int skipPrevDrawableResourceId) {
-      this.skipPrevDrawableResourceId = skipPrevDrawableResourceId;
-      return this;
-    }
-
-    @CanIgnoreReturnValue
-    public Builder setContentIntent(PendingIntent contentIntent) {
-      this.contentIntent = contentIntent;
-      return this;
-    }
-
-    /**
      * Builds the {@link DefaultMediaNotificationProvider}. The method can be called at most once.
      */
     public DefaultMediaNotificationProvider build() {
@@ -311,12 +249,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
   private final NotificationIdProvider notificationIdProvider;
   private final String channelId;
   @StringRes private final int channelNameResourceId;
-  @DrawableRes private final int playDrawableResourceId;
-  @DrawableRes private final int pauseDrawableResourceId;
-  @DrawableRes private final int skipNextDrawableResourceId;
-  @DrawableRes private final int skipPrevDrawableResourceId;
   private final NotificationManager notificationManager;
-  private final PendingIntent contentIntent;
 
   private @MonotonicNonNull OnBitmapLoadedFutureCallback pendingOnBitmapLoadedFutureCallback;
   @DrawableRes private int smallIconResourceId;
@@ -330,12 +263,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         context,
         session -> DEFAULT_NOTIFICATION_ID,
         DEFAULT_CHANNEL_ID,
-        DEFAULT_CHANNEL_NAME_RESOURCE_ID,
-            R.drawable.media3_icon_play,
-            R.drawable.media3_icon_pause,
-            R.drawable.media3_icon_next,
-            R.drawable.media3_icon_previous,
-            null);
+        DEFAULT_CHANNEL_NAME_RESOURCE_ID);
   }
 
   /**
@@ -346,21 +274,11 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Context context,
       NotificationIdProvider notificationIdProvider,
       String channelId,
-      int channelNameResourceId,
-      int playDrawableResourceId,
-      int pauseDrawableResourceId,
-      int skipNextDrawableResourceId,
-      int skipPrevDrawableResourceId,
-      PendingIntent contentIntent) {
+      int channelNameResourceId) {
     this.context = context;
     this.notificationIdProvider = notificationIdProvider;
     this.channelId = channelId;
     this.channelNameResourceId = channelNameResourceId;
-    this.playDrawableResourceId = playDrawableResourceId;
-    this.pauseDrawableResourceId = pauseDrawableResourceId;
-    this.skipNextDrawableResourceId = skipNextDrawableResourceId;
-    this.skipPrevDrawableResourceId = skipPrevDrawableResourceId;
-    this.contentIntent = contentIntent;
     notificationManager =
         checkStateNotNull(
             (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
@@ -372,12 +290,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
         builder.context,
         builder.notificationIdProvider,
         builder.channelId,
-        builder.channelNameResourceId,
-            builder.playDrawableResourceId,
-            builder.pauseDrawableResourceId,
-            builder.skipNextDrawableResourceId,
-            builder.skipPrevDrawableResourceId,
-            builder.contentIntent);
+        builder.channelNameResourceId);
   }
 
   // MediaNotification.Provider implementation
@@ -424,8 +337,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       MediaMetadata metadata = player.getMediaMetadata();
       builder
           .setContentTitle(getNotificationContentTitle(metadata))
-          .setContentText(getNotificationContentText(metadata))
-          .setSubText(getNotificationSubText(metadata));
+          .setContentText(getNotificationContentText(metadata));
       @Nullable
       ListenableFuture<Bitmap> bitmapFuture =
           mediaSession.getBitmapLoader().loadBitmapFromMetadata(metadata);
@@ -475,7 +387,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(false)
             .setGroup(GROUP_KEY)
-            .setContentIntent(contentIntent)
             .build();
     return new MediaNotification(notificationId, notification);
   }
@@ -535,14 +446,13 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       ImmutableList<CommandButton> mediaButtonPreferences,
       boolean showPauseButton) {
     // Skip to previous action.
-    ArrayList<CommandButton> commandButtons = new ArrayList<>();
+    ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
     if (playerCommands.containsAny(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
       commandButtons.add(
           new CommandButton.Builder(CommandButton.ICON_PREVIOUS)
               .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-              .setIconResId(skipPrevDrawableResourceId)
               .setDisplayName(
                   context.getString(R.string.media3_controls_seek_to_previous_description))
               .setExtras(commandButtonExtras)
@@ -551,19 +461,21 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-      commandButtons.add(
-          new CommandButton.Builder()
-              .setPlayerCommand(COMMAND_PLAY_PAUSE)
-              .setIconResId(
-                  showPauseButton
-                      ? pauseDrawableResourceId
-                      : playDrawableResourceId)
-              .setExtras(commandButtonExtras)
-              .setDisplayName(
-                  showPauseButton
-                      ? context.getString(R.string.media3_controls_pause_description)
-                      : context.getString(R.string.media3_controls_play_description))
-              .build());
+      if (showPauseButton) {
+        commandButtons.add(
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setPlayerCommand(COMMAND_PLAY_PAUSE)
+                .setExtras(commandButtonExtras)
+                .setDisplayName(context.getString(R.string.media3_controls_pause_description))
+                .build());
+      } else {
+        commandButtons.add(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setPlayerCommand(COMMAND_PLAY_PAUSE)
+                .setExtras(commandButtonExtras)
+                .setDisplayName(context.getString(R.string.media3_controls_play_description))
+                .build());
+      }
     }
     // Skip to next action.
     if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
@@ -572,25 +484,18 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       commandButtons.add(
           new CommandButton.Builder(CommandButton.ICON_NEXT)
               .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-              .setIconResId(skipNextDrawableResourceId)
               .setExtras(commandButtonExtras)
               .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
               .build());
     }
-    boolean frontBack = true;
-    for (int i = 0; i < customLayout.size(); i++) {
-      CommandButton button = customLayout.get(i);
+    for (int i = 0; i < mediaButtonPreferences.size(); i++) {
+      CommandButton button = mediaButtonPreferences.get(i);
       if (button.sessionCommand != null
           && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM) {
-        if (frontBack) {
-          commandButtons.add(0, button);
-        } else {
-            commandButtons.add(button);
-        }
-        frontBack = !frontBack;
+        commandButtons.add(button);
       }
     }
-    return ImmutableList.copyOf(commandButtons);
+    return commandButtons.build();
   }
 
   /**
@@ -717,12 +622,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
   protected CharSequence getNotificationContentText(MediaMetadata metadata) {
     return metadata.artist;
   }
-
-   @Nullable
-   protected CharSequence getNotificationSubText(MediaMetadata metadata) {
-       return metadata.extras != null ?
-               metadata.extras.getString("parent", null) : null;
-   }
 
   private void ensureNotificationChannel() {
     if (Util.SDK_INT < 26 || notificationManager.getNotificationChannel(channelId) != null) {
