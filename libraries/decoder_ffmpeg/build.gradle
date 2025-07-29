@@ -33,7 +33,7 @@ if (!project.file('src/main/jni/ffmpeg').exists()) {
         throw UnsupportedOperationException(
                 "Ffmpeg not found. Did you enable submodules?")
 }
-android.ndkVersion = "27.2.12479018"
+android.ndkVersion = "28.2.13676358"
 android.externalNativeBuild.cmake.path = 'src/main/jni/CMakeLists.txt'
 // Should match cmake_minimum_required.
 android.externalNativeBuild.cmake.version = '3.21.0+'
