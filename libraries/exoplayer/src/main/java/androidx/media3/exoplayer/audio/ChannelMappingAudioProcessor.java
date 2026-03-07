@@ -15,19 +15,27 @@
  */
 package androidx.media3.exoplayer.audio;
 
+import static androidx.media3.common.util.Util.getByteDepth;
+import static androidx.media3.common.util.Util.getInt24;
+import static androidx.media3.common.util.Util.isEncodingLinearPcm;
+import static androidx.media3.common.util.Util.putInt24;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.audio.BaseAudioProcessor;
-import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.UnstableApi;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 /**
  * An {@link AudioProcessor} that applies a mapping from input channels onto specified output
  * channels. This can be used to reorder, duplicate or discard channels.
  */
-/* package */ final class ChannelMappingAudioProcessor extends BaseAudioProcessor {
+@UnstableApi
+public final class ChannelMappingAudioProcessor extends BaseAudioProcessor {
 
   @Nullable private int[] pendingOutputChannels;
   @Nullable private int[] outputChannels;
@@ -53,7 +61,7 @@ import java.nio.ByteBuffer;
       return AudioFormat.NOT_SET;
     }
 
-    if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
+    if (!isEncodingLinearPcm(inputAudioFormat.encoding)) {
       throw new UnhandledAudioFormatException(inputAudioFormat);
     }
 
@@ -61,18 +69,23 @@ import java.nio.ByteBuffer;
     for (int i = 0; i < outputChannels.length; i++) {
       int channelIndex = outputChannels[i];
       if (channelIndex >= inputAudioFormat.channelCount) {
-        throw new UnhandledAudioFormatException(inputAudioFormat);
+        throw new UnhandledAudioFormatException(
+            "Channel map ("
+                + Arrays.toString(outputChannels)
+                + ") trying to access non-existent input channel.",
+            inputAudioFormat);
       }
       active |= (channelIndex != i);
     }
     return active
-        ? new AudioFormat(inputAudioFormat.sampleRate, outputChannels.length, C.ENCODING_PCM_16BIT)
+        ? new AudioFormat(
+            inputAudioFormat.sampleRate, outputChannels.length, inputAudioFormat.encoding)
         : AudioFormat.NOT_SET;
   }
 
   @Override
   public void queueInput(ByteBuffer inputBuffer) {
-    int[] outputChannels = Assertions.checkNotNull(this.outputChannels);
+    int[] outputChannels = checkNotNull(this.outputChannels);
     int position = inputBuffer.position();
     int limit = inputBuffer.limit();
     int frameCount = (limit - position) / inputAudioFormat.bytesPerFrame;
@@ -80,7 +93,29 @@ import java.nio.ByteBuffer;
     ByteBuffer buffer = replaceOutputBuffer(outputSize);
     while (position < limit) {
       for (int channelIndex : outputChannels) {
-        buffer.putShort(inputBuffer.getShort(position + 2 * channelIndex));
+        int inputIndex = position + getByteDepth(inputAudioFormat.encoding) * channelIndex;
+        switch (inputAudioFormat.encoding) {
+          case C.ENCODING_PCM_8BIT:
+            buffer.put(inputBuffer.get(inputIndex));
+            break;
+          case C.ENCODING_PCM_16BIT:
+          case C.ENCODING_PCM_16BIT_BIG_ENDIAN:
+            buffer.putShort(inputBuffer.getShort(inputIndex));
+            break;
+          case C.ENCODING_PCM_24BIT:
+          case C.ENCODING_PCM_24BIT_BIG_ENDIAN:
+            putInt24(buffer, getInt24(inputBuffer, inputIndex));
+            break;
+          case C.ENCODING_PCM_32BIT:
+          case C.ENCODING_PCM_32BIT_BIG_ENDIAN:
+            buffer.putInt(inputBuffer.getInt(inputIndex));
+            break;
+          case C.ENCODING_PCM_FLOAT:
+            buffer.putFloat(inputBuffer.getFloat(inputIndex));
+            break;
+          default:
+            throw new IllegalStateException("Unexpected encoding: " + inputAudioFormat.encoding);
+        }
       }
       position += inputAudioFormat.bytesPerFrame;
     }

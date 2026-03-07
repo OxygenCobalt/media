@@ -15,6 +15,7 @@
  */
 package androidx.media3.common;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.media.MediaRouter2;
@@ -22,7 +23,6 @@ import android.os.Bundle;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
@@ -30,6 +30,7 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.Objects;
 
 /** Information about the playback device. */
 public final class DeviceInfo {
@@ -114,14 +115,14 @@ public final class DeviceInfo {
      */
     @CanIgnoreReturnValue
     public Builder setRoutingControllerId(@Nullable String routingControllerId) {
-      Assertions.checkArgument(playbackType != PLAYBACK_TYPE_LOCAL || routingControllerId == null);
+      checkArgument(playbackType != PLAYBACK_TYPE_LOCAL || routingControllerId == null);
       this.routingControllerId = routingControllerId;
       return this;
     }
 
     /** Builds the {@link DeviceInfo}. */
     public DeviceInfo build() {
-      Assertions.checkArgument(minVolume <= maxVolume);
+      checkArgument(minVolume <= maxVolume);
       return new DeviceInfo(this);
     }
   }
@@ -178,7 +179,7 @@ public final class DeviceInfo {
     return playbackType == other.playbackType
         && minVolume == other.minVolume
         && maxVolume == other.maxVolume
-        && Util.areEqual(routingControllerId, other.routingControllerId);
+        && Objects.equals(routingControllerId, other.routingControllerId);
   }
 
   @Override
@@ -227,5 +228,4 @@ public final class DeviceInfo {
         .setRoutingControllerId(routingControllerId)
         .build();
   }
-  ;
 }

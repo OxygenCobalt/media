@@ -11,12 +11,14 @@ track 1:
   sample count = 30
   format 0:
     id = 1
+    containerMimeType = video/x-matroska
     sampleMimeType = video/avc
     codecs = avc1.640034
     width = 1080
     height = 720
     selectionFlags = [default]
     language = und
+    metadata = entries=[ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 30, hash F6F3D010
       data = length 10, hash 7A0D0F2B
@@ -145,6 +147,7 @@ track 2:
   sample count = 29
   format 0:
     id = 2
+    containerMimeType = video/x-matroska
     sampleMimeType = audio/ac3
     channelCount = 1
     sampleRate = 44100
@@ -267,10 +270,11 @@ track 2:
     flags = 1
     data = length 418, hash 56AB8D37
 track 3:
-  total output bytes = 1139
+  total output bytes = 1171
   sample count = 1
   format 0:
     id = 3
+    containerMimeType = video/x-matroska
     sampleMimeType = application/x-media3-cues
     codecs = text/vtt
     selectionFlags = [default]
@@ -278,5 +282,5 @@ track 3:
   sample 0:
     time = 0
     flags = 1
-    data = length 1139, hash 156F6F9D
+    data = length 1171, hash 50DBF14A
 tracksEnded = true

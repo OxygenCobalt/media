@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 The Android Open Source Project
+ * Copyright 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,20 @@
  */
 package androidx.media3.exoplayer.e2etest;
 
+import static androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig.CODEC_INFO_MPEG;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.truth.Truth.assertThat;
 import static java.lang.Integer.max;
 
 import android.media.AudioFormat;
-import android.media.MediaFormat;
+import android.media.AudioTrack;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 import androidx.media3.test.utils.FakeClock;
 import androidx.media3.test.utils.robolectric.RandomizedMp3Decoder;
+import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
 import androidx.media3.test.utils.robolectric.TestPlayerRunHelper;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -35,24 +36,25 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
-import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.robolectric.shadows.MediaCodecInfoBuilder;
 import org.robolectric.shadows.ShadowAudioTrack;
 import org.robolectric.shadows.ShadowMediaCodec;
-import org.robolectric.shadows.ShadowMediaCodecList;
 
 /** End to end playback test for gapless audio playbacks. */
 @RunWith(AndroidJUnit4.class)
 public class EndToEndGaplessTest {
   private static final int CODEC_INPUT_BUFFER_SIZE = 5120;
   private static final int CODEC_OUTPUT_BUFFER_SIZE = 5120;
-  private static final String DECODER_NAME = "RandomizedMp3Decoder";
 
   private RandomizedMp3Decoder mp3Decoder;
   private AudioTrackListener audioTrackListener;
+
+  @Rule
+  public final ShadowMediaCodecConfig shadowMediaCodecConfig =
+      ShadowMediaCodecConfig.withNoDefaultSupportedCodecs();
 
   @Before
   public void setUp() throws Exception {
@@ -60,28 +62,11 @@ public class EndToEndGaplessTest {
     ShadowAudioTrack.addAudioDataListener(audioTrackListener);
 
     mp3Decoder = new RandomizedMp3Decoder();
-    ShadowMediaCodec.addDecoder(
-        DECODER_NAME,
+    shadowMediaCodecConfig.addCodec(
+        CODEC_INFO_MPEG,
+        /* isEncoder= */ false,
         new ShadowMediaCodec.CodecConfig(
             CODEC_INPUT_BUFFER_SIZE, CODEC_OUTPUT_BUFFER_SIZE, mp3Decoder));
-
-    MediaFormat mp3Format = new MediaFormat();
-    mp3Format.setString(MediaFormat.KEY_MIME, MediaFormat.MIMETYPE_AUDIO_MPEG);
-    ShadowMediaCodecList.addCodec(
-        MediaCodecInfoBuilder.newBuilder()
-            .setName(DECODER_NAME)
-            .setCapabilities(
-                MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
-                    .setMediaFormat(mp3Format)
-                    .build())
-            .build());
-  }
-
-  @After
-  public void cleanUp() {
-    MediaCodecUtil.clearDecoderInfoCache();
-    ShadowMediaCodecList.reset();
-    ShadowMediaCodec.clearCodecs();
   }
 
   @Test
@@ -132,16 +117,15 @@ public class EndToEndGaplessTest {
     private final ByteArrayOutputStream audioTrackReceivedBytesStream = new ByteArrayOutputStream();
     // Output format from the audioTrack.
     private AudioFormat format;
-    private ShadowAudioTrack audioTrack;
+    private AudioTrack audioTrack;
 
     @Override
     public synchronized void onAudioDataWritten(
-        ShadowAudioTrack audioTrack, byte[] audioData, AudioFormat format) {
+        AudioTrack audioTrack, byte[] audioData, AudioFormat format) {
       if (this.audioTrack == null) {
         this.audioTrack = audioTrack;
       } else {
-        Assertions.checkArgument(
-            audioTrack == this.audioTrack, "Data written from a different AudioTrack");
+        checkArgument(audioTrack == this.audioTrack, "Data written from a different AudioTrack");
       }
 
       if (!format.equals(this.format)) {

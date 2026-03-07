@@ -15,7 +15,8 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.app.PendingIntent;
 import android.media.session.MediaSession.Token;
@@ -131,11 +132,16 @@ import java.util.List;
                 mediaButtonPreferences, CommandButton::toBundle));
       } else {
         // Controller doesn't support media button preferences, send the list as a custom layout.
-        // TODO: b/332877990 - More accurately reflect media button preferences as custom layout.
+        // TODO: b/332877990 - Improve this logic to take allowed command and session extras for
+        //  this controller into account instead of assuming all slots are allowed.
+        ImmutableList<CommandButton> customLayout =
+            CommandButton.getCustomLayoutFromMediaButtonPreferences(
+                mediaButtonPreferences,
+                /* backSlotAllowed= */ true,
+                /* forwardSlotAllowed= */ true);
         bundle.putParcelableArrayList(
             FIELD_CUSTOM_LAYOUT,
-            BundleCollectionUtil.toBundleArrayList(
-                mediaButtonPreferences, CommandButton::toBundle));
+            BundleCollectionUtil.toBundleArrayList(customLayout, CommandButton::toBundle));
       }
     }
     if (!commandButtonsForMediaItems.isEmpty()) {
@@ -227,8 +233,8 @@ import java.util.List;
         playerCommandsFromSessionBundle == null
             ? Player.Commands.EMPTY
             : Player.Commands.fromBundle(playerCommandsFromSessionBundle);
-    @Nullable Bundle tokenExtras = bundle.getBundle(FIELD_TOKEN_EXTRAS);
-    @Nullable Bundle sessionExtras = bundle.getBundle(FIELD_SESSION_EXTRAS);
+    @Nullable Bundle tokenExtras = convertToNullIfInvalid(bundle.getBundle(FIELD_TOKEN_EXTRAS));
+    @Nullable Bundle sessionExtras = convertToNullIfInvalid(bundle.getBundle(FIELD_SESSION_EXTRAS));
     @Nullable Bundle playerInfoBundle = bundle.getBundle(FIELD_PLAYER_INFO);
     PlayerInfo playerInfo =
         playerInfoBundle == null

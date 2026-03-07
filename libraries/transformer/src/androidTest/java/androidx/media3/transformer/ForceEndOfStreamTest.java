@@ -16,16 +16,18 @@
 
 package androidx.media3.transformer;
 
+import static android.os.Build.VERSION.SDK_INT;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S;
+import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
 import static androidx.media3.transformer.AndroidTestUtil.FORCE_TRANSCODE_VIDEO_EFFECTS;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S;
-import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
+import android.media.metrics.LogSessionId;
 import android.view.Surface;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -42,6 +44,7 @@ import androidx.media3.transformer.AndroidTestUtil.DelayEffect;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import java.io.File;
 import java.nio.ByteBuffer;
 import org.junit.Before;
@@ -72,9 +75,9 @@ public class ForceEndOfStreamTest {
 
   @Test
   public void transcode_decoderDroppingLastFourFrames_exportSucceeds() throws Exception {
-    // TODO: b/370050055 - do we need API 29+, or the device list from
+    // TODO: b/370050055 - Do we need API 29+, or the device list from
     //  Util.isFrameDropAllowedOnSurfaceInput?
-    assumeTrue(Util.SDK_INT >= 29);
+    assumeTrue(SDK_INT >= 29);
     assumeFormatsSupported(
         context,
         testId,
@@ -94,9 +97,9 @@ public class ForceEndOfStreamTest {
 
   @Test
   public void transcode_decoderDroppingNoFrame_exportSucceeds() throws Exception {
-    // TODO: b/370050055 - do we need API 29+, or the device list from
+    // TODO: b/370050055 - Do we need API 29+, or the device list from
     //  Util.isFrameDropAllowedOnSurfaceInput?
-    assumeTrue(Util.SDK_INT >= 29);
+    assumeTrue(SDK_INT >= 29);
     assumeFormatsSupported(
         context,
         testId,
@@ -116,9 +119,9 @@ public class ForceEndOfStreamTest {
   @Test
   public void transcode_withSlowVideoEffect_exportSucceedsWithCorrectNumberOfFrames()
       throws Exception {
-    // TODO: b/370050055 - do we need API 29+, or the device list from
+    // TODO: b/370050055 - Do we need API 29+, or the device list from
     //  Util.isFrameDropAllowedOnSurfaceInput?
-    assumeTrue(Util.SDK_INT >= 29);
+    assumeTrue(SDK_INT >= 29);
     assumeFormatsSupported(
         context,
         testId,
@@ -157,7 +160,8 @@ public class ForceEndOfStreamTest {
     FakeExtractorOutput fakeExtractorOutput =
         TestUtil.extractAllSamplesFromFilePath(
             new Mp4Extractor(new DefaultSubtitleParserFactory()), testResult.filePath);
-    fakeExtractorOutput.track(0, C.TRACK_TYPE_VIDEO).assertSampleCount(30);
+    Iterables.getOnlyElement(fakeExtractorOutput.getTrackOutputsForType(C.TRACK_TYPE_VIDEO))
+        .assertSampleCount(30);
   }
 
   private static Transformer buildTransformer(Context context, int framesToSkip) {
@@ -166,7 +170,8 @@ public class ForceEndOfStreamTest {
             new DefaultAssetLoaderFactory(
                 context,
                 new FrameDroppingDecoderFactory(context, MP4_ASSET.videoFrameCount, framesToSkip),
-                Clock.DEFAULT))
+                Clock.DEFAULT,
+                /* logSessionId= */ null))
         .build();
   }
 
@@ -192,17 +197,21 @@ public class ForceEndOfStreamTest {
     }
 
     @Override
-    public Codec createForAudioDecoding(Format format) throws ExportException {
-      return defaultDecoderFactory.createForAudioDecoding(format);
+    public Codec createForAudioDecoding(Format format, @Nullable LogSessionId logSessionId)
+        throws ExportException {
+      return defaultDecoderFactory.createForAudioDecoding(format, logSessionId);
     }
 
     @Override
     public Codec createForVideoDecoding(
-        Format format, Surface outputSurface, boolean requestSdrToneMapping)
+        Format format,
+        Surface outputSurface,
+        boolean requestSdrToneMapping,
+        @Nullable LogSessionId logSessionId)
         throws ExportException {
       return new FrameDroppingDecoder(
           defaultDecoderFactory.createForVideoDecoding(
-              format, outputSurface, requestSdrToneMapping),
+              format, outputSurface, requestSdrToneMapping, logSessionId),
           sourceFrameCount,
           framesToDrop);
     }
@@ -256,6 +265,11 @@ public class ForceEndOfStreamTest {
       @Override
       public void signalEndOfInputStream() throws ExportException {
         wrappedDecoder.signalEndOfInputStream();
+      }
+
+      @Override
+      public Format getInputFormat() throws ExportException {
+        return wrappedDecoder.getInputFormat();
       }
 
       @Nullable

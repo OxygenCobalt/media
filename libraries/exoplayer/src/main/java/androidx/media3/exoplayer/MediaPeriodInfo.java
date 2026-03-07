@@ -15,12 +15,13 @@
  */
 package androidx.media3.exoplayer;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
-import androidx.media3.common.util.Assertions;
-import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.source.MediaPeriod;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
+import java.util.Objects;
 
 /** Stores the information required to load and play a {@link MediaPeriod}. */
 /* package */ final class MediaPeriodInfo {
@@ -57,6 +58,12 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
   public final long durationUs;
 
   /**
+   * Whether this media period is preceded by another media period of the same server-side inserted
+   * as stream.
+   */
+  public final boolean isPrecededByTransitionFromSameStream;
+
+  /**
    * Whether this media period is followed by a transition to another media period of the same
    * server-side inserted ad stream. If true, {@link #isLastInTimelinePeriod}, {@link
    * #isLastInTimelineWindow} and {@link #isFinal} will all be false.
@@ -84,13 +91,14 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
       long requestedContentPositionUs,
       long endPositionUs,
       long durationUs,
+      boolean isPrecededByTransitionFromSameStream,
       boolean isFollowedByTransitionToSameStream,
       boolean isLastInTimelinePeriod,
       boolean isLastInTimelineWindow,
       boolean isFinal) {
-    Assertions.checkArgument(!isFinal || isLastInTimelinePeriod);
-    Assertions.checkArgument(!isLastInTimelineWindow || isLastInTimelinePeriod);
-    Assertions.checkArgument(
+    checkArgument(!isFinal || isLastInTimelinePeriod);
+    checkArgument(!isLastInTimelineWindow || isLastInTimelinePeriod);
+    checkArgument(
         !isFollowedByTransitionToSameStream
             || (!isLastInTimelinePeriod && !isLastInTimelineWindow && !isFinal));
     this.id = id;
@@ -98,6 +106,7 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
     this.requestedContentPositionUs = requestedContentPositionUs;
     this.endPositionUs = endPositionUs;
     this.durationUs = durationUs;
+    this.isPrecededByTransitionFromSameStream = isPrecededByTransitionFromSameStream;
     this.isFollowedByTransitionToSameStream = isFollowedByTransitionToSameStream;
     this.isLastInTimelinePeriod = isLastInTimelinePeriod;
     this.isLastInTimelineWindow = isLastInTimelineWindow;
@@ -117,6 +126,7 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
             requestedContentPositionUs,
             endPositionUs,
             durationUs,
+            isPrecededByTransitionFromSameStream,
             isFollowedByTransitionToSameStream,
             isLastInTimelinePeriod,
             isLastInTimelineWindow,
@@ -136,6 +146,7 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
             requestedContentPositionUs,
             endPositionUs,
             durationUs,
+            isPrecededByTransitionFromSameStream,
             isFollowedByTransitionToSameStream,
             isLastInTimelinePeriod,
             isLastInTimelineWindow,
@@ -155,11 +166,12 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
         && requestedContentPositionUs == that.requestedContentPositionUs
         && endPositionUs == that.endPositionUs
         && durationUs == that.durationUs
+        && isPrecededByTransitionFromSameStream == that.isPrecededByTransitionFromSameStream
         && isFollowedByTransitionToSameStream == that.isFollowedByTransitionToSameStream
         && isLastInTimelinePeriod == that.isLastInTimelinePeriod
         && isLastInTimelineWindow == that.isLastInTimelineWindow
         && isFinal == that.isFinal
-        && Util.areEqual(id, that.id);
+        && Objects.equals(id, that.id);
   }
 
   @Override
@@ -170,6 +182,7 @@ import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
     result = 31 * result + (int) requestedContentPositionUs;
     result = 31 * result + (int) endPositionUs;
     result = 31 * result + (int) durationUs;
+    result = 31 * result + (isPrecededByTransitionFromSameStream ? 1 : 0);
     result = 31 * result + (isFollowedByTransitionToSameStream ? 1 : 0);
     result = 31 * result + (isLastInTimelinePeriod ? 1 : 0);
     result = 31 * result + (isLastInTimelineWindow ? 1 : 0);

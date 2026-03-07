@@ -15,7 +15,10 @@
  */
 package androidx.media3.test.exoplayer.playback.gts;
 
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.C.WIDEVINE_UUID;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.media.MediaDrm;
 import android.media.UnsupportedSchemeException;
@@ -26,9 +29,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.TrackGroup;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -73,7 +74,7 @@ import java.util.List;
 
   // Whether adaptive tests should enable video formats beyond those mandated by the Android CDD
   // if the device advertises support for them.
-  private static final boolean ALLOW_ADDITIONAL_VIDEO_FORMATS = Util.SDK_INT >= 24;
+  private static final boolean ALLOW_ADDITIONAL_VIDEO_FORMATS = SDK_INT >= 24;
 
   private static final String AUDIO_TAG_SUFFIX = ":Audio";
   private static final String VIDEO_TAG_SUFFIX = ":Video";
@@ -105,7 +106,9 @@ import java.util.List;
 
   @SuppressWarnings("ResourceType")
   public static boolean isL1WidevineAvailable(String mimeType) {
-    try (MediaDrm mediaDrm = new MediaDrm(WIDEVINE_UUID)) {
+    MediaDrm mediaDrm = null;
+    try {
+      mediaDrm = new MediaDrm(WIDEVINE_UUID);
       // Force L3 if secure decoder is not available.
       if (MediaCodecUtil.getDecoderInfo(mimeType, /* secure= */ true, /* tunneling= */ false)
           == null) {
@@ -115,6 +118,10 @@ import java.util.List;
       return WIDEVINE_SECURITY_LEVEL_1.equals(securityProperty);
     } catch (UnsupportedSchemeException | MediaCodecUtil.DecoderQueryException e) {
       throw new IllegalStateException(e);
+    } finally {
+      if (mediaDrm != null) {
+        mediaDrm.close();
+      }
     }
   }
 
@@ -264,7 +271,7 @@ import java.util.List;
         DataSource.Factory dataSourceFactory,
         String... videoFormats) {
       super(tag, fullPlaybackNoSeeking);
-      Assertions.checkArgument(!(isCddLimitedRetry && canIncludeAdditionalVideoFormats));
+      checkArgument(!(isCddLimitedRetry && canIncludeAdditionalVideoFormats));
       this.streamName = streamName;
       this.manifestUrl = manifestUrl;
       this.metricsLogger = metricsLogger;
@@ -431,14 +438,12 @@ import java.util.List;
         int[][][] rendererFormatSupports,
         int[] rendererMixedMimeTypeAdaptationSupports,
         Parameters parameters) {
-      Assertions.checkState(
-          mappedTrackInfo.getRendererType(VIDEO_RENDERER_INDEX) == C.TRACK_TYPE_VIDEO);
-      Assertions.checkState(
-          mappedTrackInfo.getRendererType(AUDIO_RENDERER_INDEX) == C.TRACK_TYPE_AUDIO);
+      checkState(mappedTrackInfo.getRendererType(VIDEO_RENDERER_INDEX) == C.TRACK_TYPE_VIDEO);
+      checkState(mappedTrackInfo.getRendererType(AUDIO_RENDERER_INDEX) == C.TRACK_TYPE_AUDIO);
       TrackGroupArray videoTrackGroups = mappedTrackInfo.getTrackGroups(VIDEO_RENDERER_INDEX);
       TrackGroupArray audioTrackGroups = mappedTrackInfo.getTrackGroups(AUDIO_RENDERER_INDEX);
-      Assertions.checkState(videoTrackGroups.length == 1);
-      Assertions.checkState(audioTrackGroups.length == 1);
+      checkState(videoTrackGroups.length == 1);
+      checkState(audioTrackGroups.length == 1);
       ExoTrackSelection.Definition[] definitions =
           new ExoTrackSelection.Definition[mappedTrackInfo.getRendererCount()];
       definitions[VIDEO_RENDERER_INDEX] =

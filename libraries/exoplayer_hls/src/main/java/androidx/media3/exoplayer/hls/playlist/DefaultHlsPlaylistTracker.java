@@ -15,8 +15,9 @@
  */
 package androidx.media3.exoplayer.hls.playlist;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 
 import android.net.Uri;
@@ -25,10 +26,10 @@ import android.os.SystemClock;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ParserException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.exoplayer.hls.HlsDataSourceFactory;
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist.Part;
@@ -38,11 +39,15 @@ import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist.Variant;
 import androidx.media3.exoplayer.source.LoadEventInfo;
 import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.MediaSourceEventListener.EventDispatcher;
+import androidx.media3.exoplayer.upstream.CmcdConfiguration;
+import androidx.media3.exoplayer.upstream.CmcdData;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo;
 import androidx.media3.exoplayer.upstream.Loader;
 import androidx.media3.exoplayer.upstream.Loader.LoadErrorAction;
 import androidx.media3.exoplayer.upstream.ParsingLoadable;
+import androidx.media3.exoplayer.util.ReleasableExecutor;
+import com.google.common.base.Supplier;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.util.HashMap;
@@ -69,6 +74,8 @@ public final class DefaultHlsPlaylistTracker
   private final HashMap<Uri, MediaPlaylistBundle> playlistBundles;
   private final CopyOnWriteArrayList<PlaylistEventListener> listeners;
   private final double playlistStuckTargetDurationCoefficient;
+  @Nullable private final CmcdConfiguration cmcdConfiguration;
+  @Nullable private final Supplier<ReleasableExecutor> downloadExecutorSupplier;
 
   @Nullable private EventDispatcher eventDispatcher;
   @Nullable private Loader initialPlaylistLoader;
@@ -86,16 +93,23 @@ public final class DefaultHlsPlaylistTracker
    * @param dataSourceFactory A factory for {@link DataSource} instances.
    * @param loadErrorHandlingPolicy The {@link LoadErrorHandlingPolicy}.
    * @param playlistParserFactory An {@link HlsPlaylistParserFactory}.
+   * @param cmcdConfiguration The {@link CmcdConfiguration}.
+   * @param downloadExecutorSupplier A supplier for a {@link ReleasableExecutor} that is used for
+   *     loading the playlist.
    */
   public DefaultHlsPlaylistTracker(
       HlsDataSourceFactory dataSourceFactory,
       LoadErrorHandlingPolicy loadErrorHandlingPolicy,
-      HlsPlaylistParserFactory playlistParserFactory) {
+      HlsPlaylistParserFactory playlistParserFactory,
+      @Nullable CmcdConfiguration cmcdConfiguration,
+      @Nullable Supplier<ReleasableExecutor> downloadExecutorSupplier) {
     this(
         dataSourceFactory,
         loadErrorHandlingPolicy,
         playlistParserFactory,
-        DEFAULT_PLAYLIST_STUCK_TARGET_DURATION_COEFFICIENT);
+        cmcdConfiguration,
+        DEFAULT_PLAYLIST_STUCK_TARGET_DURATION_COEFFICIENT,
+        downloadExecutorSupplier);
   }
 
   /**
@@ -104,20 +118,27 @@ public final class DefaultHlsPlaylistTracker
    * @param dataSourceFactory A factory for {@link DataSource} instances.
    * @param loadErrorHandlingPolicy The {@link LoadErrorHandlingPolicy}.
    * @param playlistParserFactory An {@link HlsPlaylistParserFactory}.
+   * @param cmcdConfiguration The {@link CmcdConfiguration}.
    * @param playlistStuckTargetDurationCoefficient A coefficient to apply to the target duration of
    *     media playlists in order to determine that a non-changing playlist is stuck. Once a
    *     playlist is deemed stuck, a {@link PlaylistStuckException} is thrown via {@link
    *     #maybeThrowPlaylistRefreshError(Uri)}.
+   * @param downloadExecutorSupplier A supplier for a {@link ReleasableExecutor} that is used for
+   *     loading the playlist.
    */
   public DefaultHlsPlaylistTracker(
       HlsDataSourceFactory dataSourceFactory,
       LoadErrorHandlingPolicy loadErrorHandlingPolicy,
       HlsPlaylistParserFactory playlistParserFactory,
-      double playlistStuckTargetDurationCoefficient) {
+      @Nullable CmcdConfiguration cmcdConfiguration,
+      double playlistStuckTargetDurationCoefficient,
+      @Nullable Supplier<ReleasableExecutor> downloadExecutorSupplier) {
     this.dataSourceFactory = dataSourceFactory;
     this.playlistParserFactory = playlistParserFactory;
     this.loadErrorHandlingPolicy = loadErrorHandlingPolicy;
+    this.cmcdConfiguration = cmcdConfiguration;
     this.playlistStuckTargetDurationCoefficient = playlistStuckTargetDurationCoefficient;
+    this.downloadExecutorSupplier = downloadExecutorSupplier;
     listeners = new CopyOnWriteArrayList<>();
     playlistBundles = new HashMap<>();
     initialStartTimeUs = C.TIME_UNSET;
@@ -133,26 +154,33 @@ public final class DefaultHlsPlaylistTracker
     this.playlistRefreshHandler = Util.createHandlerForCurrentLooper();
     this.eventDispatcher = eventDispatcher;
     this.primaryPlaylistListener = primaryPlaylistListener;
+    DataSpec dataSpec =
+        new DataSpec.Builder()
+            .setUri(initialPlaylistUri)
+            .setFlags(DataSpec.FLAG_ALLOW_GZIP)
+            .build();
+    if (cmcdConfiguration != null) {
+      CmcdData cmcdData =
+          new CmcdData.Factory(cmcdConfiguration, CmcdData.STREAMING_FORMAT_HLS)
+              .setObjectType(CmcdData.OBJECT_TYPE_MANIFEST)
+              .createCmcdData();
+      dataSpec = cmcdData.addToDataSpec(dataSpec);
+    }
     ParsingLoadable<HlsPlaylist> multivariantPlaylistLoadable =
         new ParsingLoadable<>(
             dataSourceFactory.createDataSource(C.DATA_TYPE_MANIFEST),
-            initialPlaylistUri,
+            dataSpec,
             C.DATA_TYPE_MANIFEST,
             playlistParserFactory.createPlaylistParser());
-    Assertions.checkState(initialPlaylistLoader == null);
-    initialPlaylistLoader = new Loader("DefaultHlsPlaylistTracker:MultivariantPlaylist");
-    long elapsedRealtime =
-        initialPlaylistLoader.startLoading(
-            multivariantPlaylistLoadable,
-            this,
-            loadErrorHandlingPolicy.getMinimumLoadableRetryCount(
-                multivariantPlaylistLoadable.type));
-    eventDispatcher.loadStarted(
-        new LoadEventInfo(
-            multivariantPlaylistLoadable.loadTaskId,
-            multivariantPlaylistLoadable.dataSpec,
-            elapsedRealtime),
-        multivariantPlaylistLoadable.type);
+    checkState(initialPlaylistLoader == null);
+    initialPlaylistLoader =
+        downloadExecutorSupplier != null
+            ? new Loader(downloadExecutorSupplier.get())
+            : new Loader("DefaultHlsPlaylistTracker:MultivariantPlaylist");
+    initialPlaylistLoader.startLoading(
+        multivariantPlaylistLoadable,
+        this,
+        loadErrorHandlingPolicy.getMinimumLoadableRetryCount(multivariantPlaylistLoadable.type));
   }
 
   @Override
@@ -239,7 +267,7 @@ public final class DefaultHlsPlaylistTracker
   public boolean excludeMediaPlaylist(Uri playlistUrl, long exclusionDurationMs) {
     @Nullable MediaPlaylistBundle bundle = playlistBundles.get(playlistUrl);
     if (bundle != null) {
-      return !bundle.excludePlaylist(exclusionDurationMs);
+      return bundle.excludePlaylist(exclusionDurationMs);
     }
     return false;
   }
@@ -253,6 +281,26 @@ public final class DefaultHlsPlaylistTracker
   }
 
   // Loader.Callback implementation.
+
+  @Override
+  public void onLoadStarted(
+      ParsingLoadable<HlsPlaylist> loadable,
+      long elapsedRealtimeMs,
+      long loadDurationMs,
+      int retryCount) {
+    LoadEventInfo loadEventInfo =
+        retryCount == 0
+            ? new LoadEventInfo(loadable.loadTaskId, loadable.dataSpec, elapsedRealtimeMs)
+            : new LoadEventInfo(
+                loadable.loadTaskId,
+                loadable.dataSpec,
+                loadable.getUri(),
+                loadable.getResponseHeaders(),
+                elapsedRealtimeMs,
+                loadDurationMs,
+                loadable.bytesLoaded());
+    eventDispatcher.loadStarted(loadEventInfo, loadable.type, retryCount);
+  }
 
   @Override
   public void onLoadCompleted(
@@ -556,7 +604,10 @@ public final class DefaultHlsPlaylistTracker
 
     public MediaPlaylistBundle(Uri playlistUrl) {
       this.playlistUrl = playlistUrl;
-      mediaPlaylistLoader = new Loader("DefaultHlsPlaylistTracker:MediaPlaylist");
+      mediaPlaylistLoader =
+          downloadExecutorSupplier != null
+              ? new Loader(downloadExecutorSupplier.get())
+              : new Loader("DefaultHlsPlaylistTracker:MediaPlaylist");
       mediaPlaylistDataSource = dataSourceFactory.createDataSource(C.DATA_TYPE_MANIFEST);
     }
 
@@ -601,6 +652,26 @@ public final class DefaultHlsPlaylistTracker
     }
 
     // Loader.Callback implementation.
+
+    @Override
+    public void onLoadStarted(
+        ParsingLoadable<HlsPlaylist> loadable,
+        long elapsedRealtimeMs,
+        long loadDurationMs,
+        int retryCount) {
+      LoadEventInfo loadEventInfo =
+          retryCount == 0
+              ? new LoadEventInfo(loadable.loadTaskId, loadable.dataSpec, elapsedRealtimeMs)
+              : new LoadEventInfo(
+                  loadable.loadTaskId,
+                  loadable.dataSpec,
+                  loadable.getUri(),
+                  loadable.getResponseHeaders(),
+                  elapsedRealtimeMs,
+                  loadDurationMs,
+                  loadable.bytesLoaded());
+      eventDispatcher.loadStarted(loadEventInfo, loadable.type, retryCount);
+    }
 
     @Override
     public void onLoadCompleted(
@@ -730,21 +801,27 @@ public final class DefaultHlsPlaylistTracker
     private void loadPlaylistImmediately(Uri playlistRequestUri) {
       ParsingLoadable.Parser<HlsPlaylist> mediaPlaylistParser =
           playlistParserFactory.createPlaylistParser(multivariantPlaylist, playlistSnapshot);
+      DataSpec dataSpec =
+          new DataSpec.Builder()
+              .setUri(playlistRequestUri)
+              .setFlags(DataSpec.FLAG_ALLOW_GZIP)
+              .build();
+      if (cmcdConfiguration != null) {
+        CmcdData.Factory cmcdDataFactory =
+            new CmcdData.Factory(cmcdConfiguration, CmcdData.STREAMING_FORMAT_HLS)
+                .setObjectType(CmcdData.OBJECT_TYPE_MANIFEST);
+        if (primaryMediaPlaylistSnapshot != null) {
+          cmcdDataFactory.setIsLive(!primaryMediaPlaylistSnapshot.hasEndTag);
+        }
+        dataSpec = cmcdDataFactory.createCmcdData().addToDataSpec(dataSpec);
+      }
       ParsingLoadable<HlsPlaylist> mediaPlaylistLoadable =
           new ParsingLoadable<>(
-              mediaPlaylistDataSource,
-              playlistRequestUri,
-              C.DATA_TYPE_MANIFEST,
-              mediaPlaylistParser);
-      long elapsedRealtime =
-          mediaPlaylistLoader.startLoading(
-              mediaPlaylistLoadable,
-              /* callback= */ this,
-              loadErrorHandlingPolicy.getMinimumLoadableRetryCount(mediaPlaylistLoadable.type));
-      eventDispatcher.loadStarted(
-          new LoadEventInfo(
-              mediaPlaylistLoadable.loadTaskId, mediaPlaylistLoadable.dataSpec, elapsedRealtime),
-          mediaPlaylistLoadable.type);
+              mediaPlaylistDataSource, dataSpec, C.DATA_TYPE_MANIFEST, mediaPlaylistParser);
+      mediaPlaylistLoader.startLoading(
+          mediaPlaylistLoadable,
+          /* callback= */ this,
+          loadErrorHandlingPolicy.getMinimumLoadableRetryCount(mediaPlaylistLoadable.type));
     }
 
     private void processLoadedPlaylist(
@@ -793,6 +870,14 @@ public final class DefaultHlsPlaylistTracker
             playlistSnapshot != oldPlaylist
                 ? playlistSnapshot.targetDurationUs
                 : (playlistSnapshot.targetDurationUs / 2);
+      } else if (playlistSnapshot == oldPlaylist) {
+        // To prevent infinite requests when the server responds with CAN-BLOCK-RELOAD=YES but does
+        // not actually block until the playlist updates, wait for half the target duration before
+        // retrying.
+        durationUntilNextLoadUs =
+            playlistSnapshot.partTargetDurationUs != C.TIME_UNSET
+                ? playlistSnapshot.partTargetDurationUs / 2
+                : playlistSnapshot.targetDurationUs / 2;
       }
       earliestNextLoadTimeMs =
           currentTimeMs + Util.usToMs(durationUntilNextLoadUs) - loadEventInfo.loadDurationMs;
@@ -838,11 +923,12 @@ public final class DefaultHlsPlaylistTracker
      *
      * @param exclusionDurationMs The number of milliseconds for which the playlist should be
      *     excluded.
-     * @return Whether the playlist is the primary, despite being excluded.
+     * @return {@code true} if the playlist is not the current primary playlist, or has just been
+     *     excluded from being the primary playlist, otherwise {@code false}.
      */
     private boolean excludePlaylist(long exclusionDurationMs) {
       excludeUntilMs = SystemClock.elapsedRealtime() + exclusionDurationMs;
-      return playlistUrl.equals(primaryMediaPlaylistUrl) && !maybeSelectNewPrimaryUrl();
+      return !playlistUrl.equals(primaryMediaPlaylistUrl) || maybeSelectNewPrimaryUrl();
     }
   }
 
@@ -885,7 +971,7 @@ public final class DefaultHlsPlaylistTracker
             && fallbackSelection.type == LoadErrorHandlingPolicy.FALLBACK_TYPE_TRACK) {
           @Nullable MediaPlaylistBundle mediaPlaylistBundle = playlistBundles.get(url);
           if (mediaPlaylistBundle != null) {
-            mediaPlaylistBundle.excludePlaylist(fallbackSelection.exclusionDurationMs);
+            return mediaPlaylistBundle.excludePlaylist(fallbackSelection.exclusionDurationMs);
           }
         }
       }

@@ -15,6 +15,8 @@
  */
 package androidx.media3.exoplayer.upstream;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
@@ -26,7 +28,6 @@ import android.os.SystemClock;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
@@ -93,7 +94,10 @@ public final class Loader implements LoaderErrorThrower {
     /**
      * Called when a load has started for the first time or through a retry.
      *
-     * @param loadable The loadable whose load has completed.
+     * <p>This is called for the first time with {@code retryCount == 0} just <b>before</b> the load
+     * is started.
+     *
+     * @param loadable The loadable whose load has started.
      * @param elapsedRealtimeMs {@link SystemClock#elapsedRealtime} when the load attempts to start.
      * @param loadDurationMs The duration in milliseconds of the load since {@link #startLoading}
      *     was called.
@@ -289,7 +293,7 @@ public final class Loader implements LoaderErrorThrower {
    */
   public <T extends Loadable> long startLoading(
       T loadable, Callback<T> callback, int defaultMinRetryCount) {
-    Looper looper = Assertions.checkStateNotNull(Looper.myLooper());
+    Looper looper = checkNotNull(Looper.myLooper());
     fatalError = null;
     long startTimeMs = SystemClock.elapsedRealtime();
     new LoadTask<>(looper, loadable, callback, defaultMinRetryCount, startTimeMs).start(0);
@@ -307,7 +311,7 @@ public final class Loader implements LoaderErrorThrower {
    * @throws IllegalStateException If the loader is not currently loading.
    */
   public void cancelLoading() {
-    Assertions.checkStateNotNull(currentTask).cancel(false);
+    checkNotNull(currentTask).cancel(false);
   }
 
   /** Releases the loader. This method should be called when the loader is no longer required. */
@@ -393,7 +397,7 @@ public final class Loader implements LoaderErrorThrower {
     }
 
     public void start(long delayMillis) {
-      Assertions.checkState(currentTask == null);
+      checkState(currentTask == null);
       currentTask = this;
       if (delayMillis > 0) {
         sendEmptyMessageDelayed(MSG_START, delayMillis);
@@ -426,8 +430,7 @@ public final class Loader implements LoaderErrorThrower {
       if (released) {
         finish();
         long nowMs = SystemClock.elapsedRealtime();
-        Assertions.checkNotNull(callback)
-            .onLoadCanceled(loadable, nowMs, nowMs - startTimeMs, true);
+        checkNotNull(callback).onLoadCanceled(loadable, nowMs, nowMs - startTimeMs, true);
         // If loading, this task will be referenced from a GC root (the loading thread) until
         // cancellation completes. The time taken for cancellation to complete depends on the
         // implementation of the Loadable that the task is loading. We null the callback reference
@@ -505,7 +508,7 @@ public final class Loader implements LoaderErrorThrower {
       finish();
       long nowMs = SystemClock.elapsedRealtime();
       long durationMs = nowMs - startTimeMs;
-      Loader.Callback<T> callback = Assertions.checkNotNull(this.callback);
+      Loader.Callback<T> callback = checkNotNull(this.callback);
       if (canceled) {
         callback.onLoadCanceled(loadable, nowMs, durationMs, false);
         return;
@@ -546,9 +549,9 @@ public final class Loader implements LoaderErrorThrower {
     private void execute() {
       long nowMs = SystemClock.elapsedRealtime();
       long durationMs = nowMs - startTimeMs;
-      Assertions.checkNotNull(this.callback).onLoadStarted(loadable, nowMs, durationMs, errorCount);
+      checkNotNull(this.callback).onLoadStarted(loadable, nowMs, durationMs, errorCount);
       currentError = null;
-      downloadExecutor.execute(Assertions.checkNotNull(currentTask));
+      downloadExecutor.execute(checkNotNull(currentTask));
     }
 
     private void finish() {

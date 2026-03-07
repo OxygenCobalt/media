@@ -15,12 +15,13 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.os.Bundle;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import java.util.Objects;
 
 /** A label for a {@link Format}. */
 @UnstableApi
@@ -55,7 +56,7 @@ public class Label {
       return false;
     }
     Label label = (Label) o;
-    return Util.areEqual(language, label.language) && Util.areEqual(value, label.value);
+    return Objects.equals(language, label.language) && Objects.equals(value, label.value);
   }
 
   @Override

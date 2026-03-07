@@ -15,7 +15,7 @@
  */
 package androidx.media3.container;
 
-import static androidx.media3.common.MimeTypes.containsCodecsCorrespondingToMimeType;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.math.DoubleMath.log2;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -25,7 +25,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
@@ -106,6 +105,9 @@ public final class NalUnitUtil {
    */
   @Deprecated public static final int NAL_UNIT_TYPE_PREFIX = H264_NAL_UNIT_TYPE_PREFIX;
 
+  /** H.264 unspecified NAL unit. */
+  public static final int H264_NAL_UNIT_TYPE_UNSPECIFIED = 24;
+
   /** H.265 coded slice segment of a random access skipped leading picture (RASL_R). */
   public static final int H265_NAL_UNIT_TYPE_RASL_R = 9;
 
@@ -132,6 +134,9 @@ public final class NalUnitUtil {
 
   /** H.265 suffixed supplemental enhancement information (SUFFIX_SEI_NUT). */
   public static final int H265_NAL_UNIT_TYPE_SUFFIX_SEI = 40;
+
+  /** H.265 unspecified NAL unit. */
+  public static final int H265_NAL_UNIT_TYPE_UNSPECIFIED = 48;
 
   /** Holds data parsed from a H.264 sequence parameter set NAL unit. */
   public static final class SpsData {
@@ -384,6 +389,7 @@ public final class NalUnitUtil {
   public static final class H265SpsData {
 
     public final H265NalHeader nalHeader;
+    public final int maxSubLayersMinus1;
     @Nullable public final H265ProfileTierLevel profileTierLevel;
     public final int chromaFormatIdc;
     public final int bitDepthLumaMinus8;
@@ -391,6 +397,8 @@ public final class NalUnitUtil {
     public final int seqParameterSetId;
     public final int width;
     public final int height;
+    public final int decodedWidth;
+    public final int decodedHeight;
     public final float pixelWidthHeightRatio;
     public final int maxNumReorderPics;
     public final @C.ColorSpace int colorSpace;
@@ -399,6 +407,7 @@ public final class NalUnitUtil {
 
     public H265SpsData(
         H265NalHeader nalHeader,
+        int maxSubLayersMinus1,
         @Nullable H265ProfileTierLevel profileTierLevel,
         int chromaFormatIdc,
         int bitDepthLumaMinus8,
@@ -406,12 +415,15 @@ public final class NalUnitUtil {
         int seqParameterSetId,
         int width,
         int height,
+        int decodedWidth,
+        int decodedHeight,
         float pixelWidthHeightRatio,
         int maxNumReorderPics,
         @C.ColorSpace int colorSpace,
         @C.ColorRange int colorRange,
         @C.ColorTransfer int colorTransfer) {
       this.nalHeader = nalHeader;
+      this.maxSubLayersMinus1 = maxSubLayersMinus1;
       this.profileTierLevel = profileTierLevel;
       this.chromaFormatIdc = chromaFormatIdc;
       this.bitDepthLumaMinus8 = bitDepthLumaMinus8;
@@ -424,6 +436,8 @@ public final class NalUnitUtil {
       this.colorSpace = colorSpace;
       this.colorRange = colorRange;
       this.colorTransfer = colorTransfer;
+      this.decodedWidth = decodedWidth;
+      this.decodedHeight = decodedHeight;
     }
   }
 
@@ -601,14 +615,11 @@ public final class NalUnitUtil {
   }
 
   /**
-   * Returns whether the NAL unit with the specified header contains supplemental enhancement
-   * information.
-   *
-   * @param mimeType The sample MIME type, or {@code null} if unknown.
-   * @param nalUnitHeaderFirstByte The first byte of nal_unit().
-   * @return Whether the NAL unit with the specified header is an SEI NAL unit. False is returned if
-   *     the {@code MimeType} is {@code null}.
+   * @deprecated Use {@link #isNalUnitSei(Format, byte)} in order to support {@link
+   *     MimeTypes#VIDEO_DOLBY_VISION} tracks with backwards compatible {@link MimeTypes#VIDEO_H264}
+   *     or {@link MimeTypes#VIDEO_H265} data.
    */
+  @Deprecated
   public static boolean isNalUnitSei(@Nullable String mimeType, byte nalUnitHeaderFirstByte) {
     return (MimeTypes.VIDEO_H264.equals(mimeType)
             && (nalUnitHeaderFirstByte & 0x1F) == H264_NAL_UNIT_TYPE_SEI)
@@ -626,11 +637,10 @@ public final class NalUnitUtil {
    *     the {@code MimeType} is {@code null}.
    */
   public static boolean isNalUnitSei(Format format, byte nalUnitHeaderFirstByte) {
-    return ((Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H264)
-                || containsCodecsCorrespondingToMimeType(format.codecs, MimeTypes.VIDEO_H264))
+    String mimeType = getNalStructureMimeType(format);
+    return (Objects.equals(mimeType, MimeTypes.VIDEO_H264)
             && (nalUnitHeaderFirstByte & 0x1F) == H264_NAL_UNIT_TYPE_SEI)
-        || ((Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H265)
-                || containsCodecsCorrespondingToMimeType(format.codecs, MimeTypes.VIDEO_H265))
+        || (Objects.equals(mimeType, MimeTypes.VIDEO_H265)
             && ((nalUnitHeaderFirstByte & 0x7E) >> 1) == H265_NAL_UNIT_TYPE_PREFIX_SEI);
   }
 
@@ -678,6 +688,65 @@ public final class NalUnitUtil {
     }
     // Treat any other NAL unit type as depended on. This might be too restrictive, but reduces
     // risks around closed captions, HDR metadata in SEI messages.
+    return true;
+  }
+
+  /**
+   * Returns the number of bytes in the NAL unit header.
+   *
+   * <p>The NAL unit header can be used to determine the NAL unit type and whether subsequent NAL
+   * units can depend on the current NAL unit.
+   *
+   * <p>This is {@code nalUnitHeaderBytes} from the H.264 spec, or the size of {@code
+   * nal_unit_header()} in H.265.
+   *
+   * @param format The sample {@link Format}.
+   */
+  public static int numberOfBytesInNalUnitHeader(Format format) {
+    String mimeType = getNalStructureMimeType(format);
+    if (Objects.equals(mimeType, MimeTypes.VIDEO_H264)) {
+      return 1;
+    }
+    if (Objects.equals(mimeType, MimeTypes.VIDEO_H265)) {
+      return 2;
+    }
+    return 0;
+  }
+
+  /**
+   * Returns whether the NAL unit starting with the given bytes can be depended on by subsequent NAL
+   * units in decoding order.
+   *
+   * @param data The array holding the first {@code length} bytes of the NAL unit.
+   * @param offset The offset in {@code data} at which the NAL unit starts.
+   * @param length The number of bytes available.
+   * @param format The sample {@link Format}.
+   */
+  public static boolean isDependedOn(byte[] data, int offset, int length, Format format) {
+    if (Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H264)) {
+      return isH264NalUnitDependedOn(data[offset]);
+    }
+    if (Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H265)) {
+      return isH265NalUnitDependedOn(data, offset, length, format);
+    }
+    return true;
+  }
+
+  private static boolean isH265NalUnitDependedOn(
+      byte[] data, int offset, int length, Format format) {
+    H265NalHeader header =
+        parseH265NalHeader(new ParsableNalUnitBitArray(data, offset, /* limit= */ offset + length));
+    if (header.nalUnitType == H265_NAL_UNIT_TYPE_AUD) {
+      // NAL unit delimiters are not depended on.
+      return false;
+    }
+    boolean isSubLayerNonReferencePicture = header.nalUnitType <= 14 && header.nalUnitType % 2 == 0;
+    if (isSubLayerNonReferencePicture && header.temporalId == format.maxSubLayers - 1) {
+      // Sub-layer non-reference (SLNR) pictures cannot be used for inter prediction in the same
+      // temporal layer. That is, SLNR pictures are not depended on if they are part of the highest
+      // temporal layer.
+      return false;
+    }
     return true;
   }
 
@@ -1493,6 +1562,8 @@ public final class NalUnitUtil {
     int chromaFormatIdc = 0;
     int frameWidth = 0;
     int frameHeight = 0;
+    int decodedWidth = 0;
+    int decodedHeight = 0;
     int bitDepthLumaMinus8 = 0;
     int bitDepthChromaMinus8 = 0;
     int spsRepFormatIdx = C.INDEX_UNSET;
@@ -1508,8 +1579,10 @@ public final class NalUnitUtil {
             && vpsData.repFormatsAndIndices.repFormats.size() > spsRepFormatIdx) {
           H265RepFormat repFormat = vpsData.repFormatsAndIndices.repFormats.get(spsRepFormatIdx);
           chromaFormatIdc = repFormat.chromaFormatIdc;
-          frameWidth = repFormat.width;
-          frameHeight = repFormat.height;
+          decodedWidth = repFormat.width;
+          decodedHeight = repFormat.height;
+          frameWidth = decodedWidth;
+          frameHeight = decodedHeight;
           bitDepthLumaMinus8 = repFormat.bitDepthLumaMinus8;
           bitDepthChromaMinus8 = repFormat.bitDepthChromaMinus8;
         }
@@ -1519,8 +1592,8 @@ public final class NalUnitUtil {
       if (chromaFormatIdc == 3) {
         data.skipBit(); // separate_colour_plane_flag
       }
-      frameWidth = data.readUnsignedExpGolombCodedInt();
-      frameHeight = data.readUnsignedExpGolombCodedInt();
+      decodedWidth = data.readUnsignedExpGolombCodedInt();
+      decodedHeight = data.readUnsignedExpGolombCodedInt();
       if (data.readBit()) { // conformance_window_flag
         int confWinLeftOffset = data.readUnsignedExpGolombCodedInt();
         int confWinRightOffset = data.readUnsignedExpGolombCodedInt();
@@ -1528,10 +1601,13 @@ public final class NalUnitUtil {
         int confWinBottomOffset = data.readUnsignedExpGolombCodedInt();
         frameWidth =
             applyConformanceWindowToWidth(
-                frameWidth, chromaFormatIdc, confWinLeftOffset, confWinRightOffset);
+                decodedWidth, chromaFormatIdc, confWinLeftOffset, confWinRightOffset);
         frameHeight =
             applyConformanceWindowToHeight(
-                frameHeight, chromaFormatIdc, confWinTopOffset, confWinBottomOffset);
+                decodedHeight, chromaFormatIdc, confWinTopOffset, confWinBottomOffset);
+      } else {
+        frameWidth = decodedWidth;
+        frameHeight = decodedHeight;
       }
       bitDepthLumaMinus8 = data.readUnsignedExpGolombCodedInt();
       bitDepthChromaMinus8 = data.readUnsignedExpGolombCodedInt();
@@ -1641,6 +1717,7 @@ public final class NalUnitUtil {
 
     return new H265SpsData(
         nalHeader,
+        maxSubLayersMinus1,
         profileTierLevel,
         chromaFormatIdc,
         bitDepthLumaMinus8,
@@ -1648,6 +1725,8 @@ public final class NalUnitUtil {
         seqParameterSetId,
         frameWidth,
         frameHeight,
+        decodedWidth,
+        decodedHeight,
         pixelWidthHeightRatio,
         maxNumReorderPics,
         colorSpace,
@@ -1787,6 +1866,8 @@ public final class NalUnitUtil {
             mantissaRefDisplayWidth,
             exponentRefViewingDist,
             mantissaRefViewingDist);
+      } else {
+        data.skipBits(payloadSize * 8);
       }
     }
     return null;
@@ -1817,7 +1898,7 @@ public final class NalUnitUtil {
       byte[] data, int startOffset, int endOffset, boolean[] prefixFlags) {
     int length = endOffset - startOffset;
 
-    Assertions.checkState(length >= 0);
+    checkState(length >= 0);
     if (length == 0) {
       return endOffset;
     }
@@ -2458,6 +2539,31 @@ public final class NalUnitUtil {
       previousDeltaPocS0 = deltaPocS0;
       previousDeltaPocS1 = deltaPocS1;
     }
+  }
+
+  /**
+   * Returns {@link Format#sampleMimeType}, or the MIME type of the structure of the underlying NAL
+   * units if different.
+   *
+   * <p>For example, Dolby Vision content (with MIME type {@link MimeTypes#VIDEO_DOLBY_VISION}) can
+   * be encoded with H.264 or H.265 NAL units.
+   *
+   * <p>Note: This only indicates the structure of the NAL units, it does not necessarily mean the
+   * content can be correctly decoded by a decoder of the returned MIME type (backwards
+   * compatibility). This can be queried with {@code
+   * androidx.media3.exoplayer.decoder.MediaCodecUtil#getAlternativeCodecMimeType(Format)} instead.
+   */
+  @Nullable
+  private static String getNalStructureMimeType(Format format) {
+    if (Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_DOLBY_VISION)
+        && format.codecs != null) {
+      if (format.codecs.startsWith("dva1") || format.codecs.startsWith("dvav")) {
+        return MimeTypes.VIDEO_H264;
+      } else if (format.codecs.startsWith("dvh1") || format.codecs.startsWith("dvhe")) {
+        return MimeTypes.VIDEO_H265;
+      }
+    }
+    return format.sampleMimeType;
   }
 
   private NalUnitUtil() {

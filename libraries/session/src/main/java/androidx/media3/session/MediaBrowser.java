@@ -15,17 +15,17 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotEmpty;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.postOrRun;
 import static androidx.media3.session.SessionError.ERROR_SESSION_DISCONNECTED;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 import androidx.media3.common.MediaItem;
@@ -61,6 +61,7 @@ public final class MediaBrowser extends MediaController {
     private Looper applicationLooper;
     private @MonotonicNonNull BitmapLoader bitmapLoader;
     private int maxCommandsForMediaItems;
+    private long platformSessionCallbackAggregationTimeoutMs;
 
     /**
      * Creates a builder for {@link MediaBrowser}.
@@ -78,6 +79,8 @@ public final class MediaBrowser extends MediaController {
       connectionHints = Bundle.EMPTY;
       listener = new Listener() {};
       applicationLooper = Util.getCurrentOrMainLooper();
+      platformSessionCallbackAggregationTimeoutMs =
+          DEFAULT_PLATFORM_CALLBACK_AGGREGATION_TIMEOUT_MS;
     }
 
     /**
@@ -156,7 +159,24 @@ public final class MediaBrowser extends MediaController {
       return this;
     }
 
-    // LINT.IfChange(build_async)
+    /**
+     * Sets the timeout after which updates from the platform session callbacks are applied to the
+     * browser, in milliseconds.
+     *
+     * <p>The default is 100ms.
+     *
+     * @param platformSessionCallbackAggregationTimeoutMs The timeout, in milliseconds.
+     * @return The builder to allow chaining.
+     */
+    @UnstableApi
+    @CanIgnoreReturnValue
+    public Builder experimentalSetPlatformSessionCallbackAggregationTimeoutMs(
+        long platformSessionCallbackAggregationTimeoutMs) {
+      this.platformSessionCallbackAggregationTimeoutMs =
+          platformSessionCallbackAggregationTimeoutMs;
+      return this;
+    }
+
     /**
      * Builds a {@link MediaBrowser} asynchronously.
      *
@@ -186,7 +206,7 @@ public final class MediaBrowser extends MediaController {
     public ListenableFuture<MediaBrowser> buildAsync() {
       MediaControllerHolder<MediaBrowser> holder = new MediaControllerHolder<>(applicationLooper);
       if (token.isLegacySession() && bitmapLoader == null) {
-        bitmapLoader = new CacheBitmapLoader(new DataSourceBitmapLoader(context));
+        bitmapLoader = new CacheBitmapLoader(new DataSourceBitmapLoader.Builder(context).build());
       }
       MediaBrowser browser =
           new MediaBrowser(
@@ -197,7 +217,8 @@ public final class MediaBrowser extends MediaController {
               applicationLooper,
               holder,
               bitmapLoader,
-              maxCommandsForMediaItems);
+              maxCommandsForMediaItems,
+              platformSessionCallbackAggregationTimeoutMs);
       postOrRun(new Handler(applicationLooper), () -> holder.setController(browser));
       return holder;
     }
@@ -267,7 +288,8 @@ public final class MediaBrowser extends MediaController {
       Looper applicationLooper,
       ConnectionCallback connectionCallback,
       @Nullable BitmapLoader bitmapLoader,
-      int maxCommandsForMediaItems) {
+      int maxCommandsForMediaItems,
+      long platformSessionCallbackAggregationTimeoutMs) {
     super(
         context,
         token,
@@ -276,7 +298,8 @@ public final class MediaBrowser extends MediaController {
         applicationLooper,
         connectionCallback,
         bitmapLoader,
-        maxCommandsForMediaItems);
+        maxCommandsForMediaItems,
+        platformSessionCallbackAggregationTimeoutMs);
   }
 
   @Override
@@ -287,12 +310,19 @@ public final class MediaBrowser extends MediaController {
       SessionToken token,
       Bundle connectionHints,
       Looper applicationLooper,
-      @Nullable BitmapLoader bitmapLoader) {
+      @Nullable BitmapLoader bitmapLoader,
+      long platformSessionCallbackAggregationTimeoutMs) {
     MediaBrowserImpl impl;
     if (token.isLegacySession()) {
       impl =
           new MediaBrowserImplLegacy(
-              context, this, token, connectionHints, applicationLooper, checkNotNull(bitmapLoader));
+              context,
+              this,
+              token,
+              connectionHints,
+              applicationLooper,
+              checkNotNull(bitmapLoader),
+              platformSessionCallbackAggregationTimeoutMs);
     } else {
       impl = new MediaBrowserImplBase(context, this, token, connectionHints, applicationLooper);
     }
@@ -329,7 +359,7 @@ public final class MediaBrowser extends MediaController {
   public ListenableFuture<LibraryResult<Void>> subscribe(
       String parentId, @Nullable LibraryParams params) {
     verifyApplicationThread();
-    checkNotEmpty(parentId, "parentId must not be empty");
+    checkArgument(!TextUtils.isEmpty(parentId), "parentId must not be empty");
     if (isConnected()) {
       return checkNotNull(impl).subscribe(parentId, params);
     }
@@ -348,7 +378,7 @@ public final class MediaBrowser extends MediaController {
    */
   public ListenableFuture<LibraryResult<Void>> unsubscribe(String parentId) {
     verifyApplicationThread();
-    checkNotEmpty(parentId, "parentId must not be empty");
+    checkArgument(!TextUtils.isEmpty(parentId), "parentId must not be empty");
     if (isConnected()) {
       return checkNotNull(impl).unsubscribe(parentId);
     }
@@ -372,7 +402,7 @@ public final class MediaBrowser extends MediaController {
       @IntRange(from = 1) int pageSize,
       @Nullable LibraryParams params) {
     verifyApplicationThread();
-    checkNotEmpty(parentId, "parentId must not be empty");
+    checkArgument(!TextUtils.isEmpty(parentId), "parentId must not be empty");
     checkArgument(page >= 0, "page must not be negative");
     checkArgument(pageSize >= 1, "pageSize must not be less than 1");
     if (isConnected()) {
@@ -391,7 +421,7 @@ public final class MediaBrowser extends MediaController {
    */
   public ListenableFuture<LibraryResult<MediaItem>> getItem(String mediaId) {
     verifyApplicationThread();
-    checkNotEmpty(mediaId, "mediaId must not be empty");
+    checkArgument(!TextUtils.isEmpty(mediaId), "mediaId must not be empty");
     if (isConnected()) {
       return checkNotNull(impl).getItem(mediaId);
     }
@@ -413,7 +443,7 @@ public final class MediaBrowser extends MediaController {
   public ListenableFuture<LibraryResult<Void>> search(
       String query, @Nullable LibraryParams params) {
     verifyApplicationThread();
-    checkNotEmpty(query, "query must not be empty");
+    checkArgument(!TextUtils.isEmpty(query), "query must not be empty");
     if (isConnected()) {
       return checkNotNull(impl).search(query, params);
     }
@@ -438,7 +468,7 @@ public final class MediaBrowser extends MediaController {
       @IntRange(from = 1) int pageSize,
       @Nullable LibraryParams params) {
     verifyApplicationThread();
-    checkNotEmpty(query, "query must not be empty");
+    checkArgument(!TextUtils.isEmpty(query), "query must not be empty");
     checkArgument(page >= 0, "page must not be negative");
     checkArgument(pageSize >= 1, "pageSize must not be less than 1");
     if (isConnected()) {

@@ -11,12 +11,14 @@ track 1:
   sample count = 30
   format 0:
     id = 1
+    containerMimeType = video/x-matroska
     sampleMimeType = video/avc
     codecs = avc1.640034
     width = 1080
     height = 720
     selectionFlags = [default]
     language = und
+    metadata = entries=[ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 30, hash F6F3D010
       data = length 10, hash 7A0D0F2B
@@ -145,6 +147,7 @@ track 2:
   sample count = 45
   format 0:
     id = 2
+    containerMimeType = video/x-matroska
     sampleMimeType = audio/vorbis
     maxInputSize = 8192
     channelCount = 1

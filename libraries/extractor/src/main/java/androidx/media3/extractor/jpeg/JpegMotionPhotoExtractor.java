@@ -15,9 +15,9 @@
  */
 package androidx.media3.extractor.jpeg;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.extractor.SingleSampleExtractor.IMAGE_TRACK_ID;
 import static androidx.media3.extractor.mp4.Mp4Extractor.FLAG_MARK_FIRST_VIDEO_TRACK_WITH_MAIN_ROLE;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
@@ -32,8 +32,10 @@ import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.SeekMap;
+import androidx.media3.extractor.StartOffsetExtractorInput;
+import androidx.media3.extractor.StartOffsetExtractorOutput;
 import androidx.media3.extractor.TrackOutput;
-import androidx.media3.extractor.metadata.mp4.MotionPhotoMetadata;
+import androidx.media3.extractor.metadata.MotionPhotoMetadata;
 import androidx.media3.extractor.mp4.Mp4Extractor;
 import androidx.media3.extractor.text.SubtitleParser;
 import java.io.IOException;
@@ -41,9 +43,14 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
-/** Extracts JPEG metadata and motion photo using the Exif format. */
+/**
+ * Extracts JPEG motion photos following the <a
+ * href="https://developer.android.com/media/platform/motion-photo-format">Android Motion Photo
+ * format 1.0</a>.
+ */
 /* package */ final class JpegMotionPhotoExtractor implements Extractor {
 
   /** Parser states. */
@@ -67,13 +74,13 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   private static final int STATE_READING_MOTION_PHOTO_VIDEO = 5;
   private static final int STATE_ENDED = 6;
 
-  private static final int EXIF_ID_CODE_LENGTH = 6;
-  private static final long EXIF_HEADER = 0x45786966; // Exif
   private static final int MARKER_SOI = 0xFFD8; // Start of image marker
   private static final int MARKER_SOS = 0xFFDA; // Start of scan (image data) marker
-  private static final int MARKER_APP0 = 0xFFE0; // Application data 0 marker
   private static final int MARKER_APP1 = 0xFFE1; // Application data 1 marker
   private static final String HEADER_XMP_APP1 = "http://ns.adobe.com/xap/1.0/";
+
+  private static final int MARKER_SIZE = 2;
+  private static final int SEGMENT_LENGTH_SIZE = 2;
 
   private final ParsableByteArray scratch;
 
@@ -90,31 +97,43 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Nullable private Mp4Extractor mp4Extractor;
 
   public JpegMotionPhotoExtractor() {
-    scratch = new ParsableByteArray(EXIF_ID_CODE_LENGTH);
+    scratch = new ParsableByteArray(/* limit= */ MARKER_SIZE);
     mp4StartPosition = C.INDEX_UNSET;
   }
 
   @Override
   public boolean sniff(ExtractorInput input) throws IOException {
-    // See ITU-T.81 (1992) subsection B.1.1.3 and Exif version 2.2 (2002) subsection 4.5.4.
+    // See ITU-T.81 (1992) subsection B.1.1.3.
     if (peekMarker(input) != MARKER_SOI) {
       return false;
     }
-    marker = peekMarker(input);
-    // Even though JFIF and Exif standards are incompatible in theory, Exif files often contain a
-    // JFIF APP0 marker segment preceding the Exif APP1 marker segment. Skip the JFIF segment if
-    // present.
-    if (marker == MARKER_APP0) {
-      advancePeekPositionToNextSegment(input);
+
+    while (true) {
       marker = peekMarker(input);
+
+      if (marker == MARKER_SOS) {
+        // Reached the Start of Scan (image data), no more metadata to parse.
+        break;
+      }
+
+      int payloadLength = peekSegmentLength(input);
+      if (payloadLength < 0) {
+        break;
+      }
+
+      if (marker != MARKER_APP1) {
+        input.advancePeekPosition(payloadLength);
+        continue;
+      }
+
+      scratch.reset(payloadLength);
+      input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ payloadLength);
+      if (isMotionPhotoXmp(scratch)) {
+        return true;
+      }
     }
-    if (marker != MARKER_APP1) {
-      return false;
-    }
-    input.advancePeekPosition(2); // Unused segment length
-    scratch.reset(/* limit= */ EXIF_ID_CODE_LENGTH);
-    input.peekFully(scratch.getData(), /* offset= */ 0, EXIF_ID_CODE_LENGTH);
-    return scratch.readUnsignedInt() == EXIF_HEADER && scratch.readUnsignedShort() == 0; // Exif\0\0
+
+    return false;
   }
 
   @Override
@@ -180,21 +199,21 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   private int peekMarker(ExtractorInput input) throws IOException {
-    scratch.reset(/* limit= */ 2);
-    input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ 2);
+    scratch.reset(/* limit= */ MARKER_SIZE);
+    input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ MARKER_SIZE);
     return scratch.readUnsignedShort();
   }
 
-  private void advancePeekPositionToNextSegment(ExtractorInput input) throws IOException {
-    scratch.reset(/* limit= */ 2);
-    input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ 2);
-    int segmentLength = scratch.readUnsignedShort() - 2;
-    input.advancePeekPosition(segmentLength);
+  private boolean isMotionPhotoXmp(ParsableByteArray payload) {
+    if (!Objects.equals(payload.readNullTerminatedString(), HEADER_XMP_APP1)) {
+      return false;
+    }
+    return XmpMotionPhotoDescriptionParser.isMotionPhotoXmp(payload.readNullTerminatedString());
   }
 
   private void readMarker(ExtractorInput input) throws IOException {
-    scratch.reset(/* limit= */ 2);
-    input.readFully(scratch.getData(), /* offset= */ 0, /* length= */ 2);
+    scratch.reset(/* limit= */ MARKER_SIZE);
+    input.readFully(scratch.getData(), /* offset= */ 0, /* length= */ MARKER_SIZE);
     marker = scratch.readUnsignedShort();
     if (marker == MARKER_SOS) { // Start of scan.
       if (mp4StartPosition != C.INDEX_UNSET) {
@@ -207,10 +226,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
   }
 
+  private int peekSegmentLength(ExtractorInput input) throws IOException {
+    scratch.reset(SEGMENT_LENGTH_SIZE);
+    input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ SEGMENT_LENGTH_SIZE);
+    return scratch.readUnsignedShort() - SEGMENT_LENGTH_SIZE;
+  }
+
   private void readSegmentLength(ExtractorInput input) throws IOException {
-    scratch.reset(2);
-    input.readFully(scratch.getData(), /* offset= */ 0, /* length= */ 2);
-    segmentLength = scratch.readUnsignedShort() - 2;
+    segmentLength = peekSegmentLength(input);
+    input.skipFully(SEGMENT_LENGTH_SIZE);
     state = STATE_READING_SEGMENT;
   }
 

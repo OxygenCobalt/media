@@ -15,6 +15,8 @@
  */
 package androidx.media3.effect;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import androidx.media3.common.GlObjectsProvider;
 import androidx.media3.common.GlTextureInfo;
 import androidx.media3.effect.GlShaderProgram.InputListener;
@@ -51,6 +53,10 @@ import androidx.media3.effect.GlShaderProgram.OutputListener;
       GlShaderProgram producingGlShaderProgram,
       GlShaderProgram consumingGlShaderProgram,
       VideoFrameProcessingTaskExecutor videoFrameProcessingTaskExecutor) {
+    checkArgument(
+        producingGlShaderProgram != consumingGlShaderProgram,
+        "Creating a self loop in the chain: %s",
+        producingGlShaderProgram);
     this.producingGlShaderProgram = producingGlShaderProgram;
     frameConsumptionManager =
         new FrameConsumptionManager(

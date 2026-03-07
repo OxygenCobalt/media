@@ -16,14 +16,14 @@
 
 package androidx.media3.transformer;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.util.Objects;
 
 /** A media transformation request. */
 @UnstableApi
@@ -77,7 +77,8 @@ public final class TransformationRequest {
       videoMimeType = MimeTypes.normalizeMimeType(videoMimeType);
       checkArgument(
           videoMimeType == null || MimeTypes.isVideo(videoMimeType),
-          "Not a video MIME type: " + videoMimeType);
+          "Not a video MIME type: %s",
+          videoMimeType);
       this.videoMimeType = videoMimeType;
       return this;
     }
@@ -104,7 +105,8 @@ public final class TransformationRequest {
       audioMimeType = MimeTypes.normalizeMimeType(audioMimeType);
       checkArgument(
           audioMimeType == null || MimeTypes.isAudio(audioMimeType),
-          "Not an audio MIME type: " + audioMimeType);
+          "Not an audio MIME type: %s",
+          audioMimeType);
       this.audioMimeType = audioMimeType;
       return this;
     }
@@ -124,7 +126,7 @@ public final class TransformationRequest {
     }
 
     @CanIgnoreReturnValue
-    // TODO(b/255953153): remove this method once fallback has been refactored.
+    // TODO: b/255953153 - Remove this method once fallback has been refactored.
     /* package */ Builder setResolution(int outputHeight) {
       this.outputHeight = outputHeight;
       return this;
@@ -196,8 +198,8 @@ public final class TransformationRequest {
     }
     TransformationRequest that = (TransformationRequest) o;
     return outputHeight == that.outputHeight
-        && Util.areEqual(audioMimeType, that.audioMimeType)
-        && Util.areEqual(videoMimeType, that.videoMimeType)
+        && Objects.equals(audioMimeType, that.audioMimeType)
+        && Objects.equals(videoMimeType, that.videoMimeType)
         && hdrMode == that.hdrMode;
   }
 

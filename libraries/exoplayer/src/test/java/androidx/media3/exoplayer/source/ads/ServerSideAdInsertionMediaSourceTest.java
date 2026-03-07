@@ -16,15 +16,14 @@
 package androidx.media3.exoplayer.source.ads;
 
 import static androidx.media3.common.C.DATA_TYPE_MEDIA;
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.exoplayer.source.ads.ServerSideAdInsertionUtil.addAdGroupToAdPlaybackState;
 import static androidx.media3.test.utils.FakeSampleStream.FakeSampleStreamItem.END_OF_STREAM_ITEM;
 import static androidx.media3.test.utils.FakeSampleStream.FakeSampleStreamItem.oneByteSample;
 import static androidx.media3.test.utils.robolectric.RobolectricUtil.runMainLooperUntil;
-import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.playUntilPosition;
-import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilIsLoading;
+import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.advance;
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilPendingCommandsAreFullyHandled;
 import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.runUntilPlaybackState;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -57,6 +56,9 @@ import androidx.media3.exoplayer.FormatHolder;
 import androidx.media3.exoplayer.LoadingInfo;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.analytics.PlayerId;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import androidx.media3.exoplayer.audio.TeeAudioProcessor;
 import androidx.media3.exoplayer.drm.DrmSessionEventListener;
 import androidx.media3.exoplayer.drm.DrmSessionManager;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -71,13 +73,14 @@ import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.trackselection.FixedTrackSelection;
 import androidx.media3.exoplayer.upstream.Allocator;
 import androidx.media3.exoplayer.upstream.DefaultAllocator;
-import androidx.media3.test.utils.CapturingRenderersFactory;
+import androidx.media3.test.utils.CapturingAudioSink;
 import androidx.media3.test.utils.DumpFileAsserts;
 import androidx.media3.test.utils.FakeClock;
 import androidx.media3.test.utils.FakeMediaPeriod;
 import androidx.media3.test.utils.FakeMediaSource;
 import androidx.media3.test.utils.FakeSampleStream;
 import androidx.media3.test.utils.FakeTimeline;
+import androidx.media3.test.utils.robolectric.CapturingRenderersFactory;
 import androidx.media3.test.utils.robolectric.PlaybackOutput;
 import androidx.media3.test.utils.robolectric.RobolectricUtil;
 import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
@@ -100,7 +103,7 @@ public final class ServerSideAdInsertionMediaSourceTest {
 
   @Rule
   public ShadowMediaCodecConfig mediaCodecConfig =
-      ShadowMediaCodecConfig.forAllSupportedMimeTypes();
+      ShadowMediaCodecConfig.withAllDefaultSupportedCodecs();
 
   private static final String TEST_ASSET = "asset:///media/mp4/sample.mp4";
 
@@ -108,17 +111,11 @@ public final class ServerSideAdInsertionMediaSourceTest {
   public void timeline_vodSinglePeriod_containsAdsDefinedInAdPlaybackState() throws Exception {
     FakeTimeline wrappedTimeline =
         new FakeTimeline(
-            new FakeTimeline.TimelineWindowDefinition(
-                /* periodCount= */ 1,
-                /* id= */ 0,
-                /* isSeekable= */ true,
-                /* isDynamic= */ false,
-                /* isLive= */ false,
-                /* isPlaceholder= */ false,
-                /* durationUs= */ 10_000_000,
-                /* defaultPositionUs= */ 3_000_000,
-                /* windowOffsetInFirstPeriodUs= */ 42_000_000L,
-                AdPlaybackState.NONE));
+            new FakeTimeline.TimelineWindowDefinition.Builder()
+                .setDurationUs(10_000_000L)
+                .setDefaultPositionUs(3_000_000L)
+                .setWindowPositionInFirstPeriodUs(42_000_000L)
+                .build());
     ServerSideAdInsertionMediaSource mediaSource =
         new ServerSideAdInsertionMediaSource(
             new FakeMediaSource(wrappedTimeline), /* adPlaybackStateUpdater= */ null);
@@ -196,20 +193,15 @@ public final class ServerSideAdInsertionMediaSourceTest {
           public void onContinueLoadingRequested(MediaPeriod source) {}
         };
     AdPlaybackState adPlaybackState =
-        new AdPlaybackState("adsId").withLivePostrollPlaceholderAppended();
+        new AdPlaybackState("adsId")
+            .withLivePostrollPlaceholderAppended(/* isServerSideInserted= */ true);
     FakeTimeline wrappedTimeline =
         new FakeTimeline(
-            new FakeTimeline.TimelineWindowDefinition(
-                /* periodCount= */ 1,
-                /* id= */ 0,
-                /* isSeekable= */ true,
-                /* isDynamic= */ false,
-                /* isLive= */ false,
-                /* isPlaceholder= */ false,
-                /* durationUs= */ 10_000_000L,
-                /* defaultPositionUs= */ 3_000_000L,
-                /* windowOffsetInFirstPeriodUs= */ 0L,
-                AdPlaybackState.NONE));
+            new FakeTimeline.TimelineWindowDefinition.Builder()
+                .setDurationUs(10_000_000L)
+                .setDefaultPositionUs(3_000_000L)
+                .setWindowPositionInFirstPeriodUs(0L)
+                .build());
     ServerSideAdInsertionMediaSource mediaSource =
         new ServerSideAdInsertionMediaSource(
             new FakeMediaSource(wrappedTimeline), /* adPlaybackStateUpdater= */ null);
@@ -406,11 +398,9 @@ public final class ServerSideAdInsertionMediaSourceTest {
   @Test
   public void playbackWithPredefinedAds_playsSuccessfulWithoutRendererResets() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
-    CapturingRenderersFactory renderersFactory = new CapturingRenderersFactory(context);
-    ExoPlayer player =
-        new ExoPlayer.Builder(context, renderersFactory)
-            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
-            .build();
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    CapturingRenderersFactory renderersFactory = new CapturingRenderersFactory(context, clock);
+    ExoPlayer player = new ExoPlayer.Builder(context, renderersFactory).setClock(clock).build();
     Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
     player.setVideoSurface(surface);
     PlaybackOutput playbackOutput = PlaybackOutput.register(player, renderersFactory);
@@ -481,11 +471,11 @@ public final class ServerSideAdInsertionMediaSourceTest {
   public void playbackWithNewlyInsertedAds_playsSuccessfulWithoutRendererResets() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
     AtomicReference<Object> periodUid = new AtomicReference<>();
-    CapturingRenderersFactory renderersFactory = new CapturingRenderersFactory(context);
-    ExoPlayer player =
-        new ExoPlayer.Builder(context, renderersFactory)
-            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
-            .build();
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    CapturingRenderersFactory renderersFactory =
+        new CapturingRenderersFactory(
+            context, clock, DiscontinuitySkippingCapturingAudioSink.create());
+    ExoPlayer player = new ExoPlayer.Builder(context, renderersFactory).setClock(clock).build();
     Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
     player.setVideoSurface(surface);
     PlaybackOutput playbackOutput = PlaybackOutput.register(player, renderersFactory);
@@ -521,8 +511,7 @@ public final class ServerSideAdInsertionMediaSourceTest {
 
     // Add ad at the current playback position during playback.
     runUntilPlaybackState(player, Player.STATE_READY);
-    runUntilIsLoading(player, false);
-    runMainLooperUntil(() -> player.getBufferedPercentage() == 100);
+    advance(player).untilFullyBuffered();
     AdPlaybackState secondAdPlaybackState =
         addAdGroupToAdPlaybackState(
             firstAdPlaybackState,
@@ -562,11 +551,11 @@ public final class ServerSideAdInsertionMediaSourceTest {
       throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
     AtomicReference<Object> periodUid = new AtomicReference<>();
-    CapturingRenderersFactory renderersFactory = new CapturingRenderersFactory(context);
-    ExoPlayer player =
-        new ExoPlayer.Builder(context, renderersFactory)
-            .setClock(new FakeClock(/* isAutoAdvancing= */ true))
-            .build();
+    FakeClock clock = new FakeClock(/* isAutoAdvancing= */ true);
+    CapturingRenderersFactory renderersFactory =
+        new CapturingRenderersFactory(
+            context, clock, DiscontinuitySkippingCapturingAudioSink.create());
+    ExoPlayer player = new ExoPlayer.Builder(context, renderersFactory).setClock(clock).build();
     Surface surface = new Surface(new SurfaceTexture(/* texName= */ 1));
     player.setVideoSurface(surface);
     PlaybackOutput playbackOutput = PlaybackOutput.register(player, renderersFactory);
@@ -687,14 +676,15 @@ public final class ServerSideAdInsertionMediaSourceTest {
     player.addAnalyticsListener(listener);
     player.setMediaSource(mediaSourceRef.get());
     player.prepare();
+    player.play();
     // Play to the first content part, then seek past the midroll.
-    playUntilPosition(player, /* mediaItemIndex= */ 0, /* positionMs= */ 150);
+    advance(player).untilPositionAtLeast(150);
     player.seekTo(/* positionMs= */ 1_600);
-    runUntilPendingCommandsAreFullyHandled(player);
+    advance(player).untilPendingCommandsAreFullyHandled();
     long positionAfterSeekMs = player.getCurrentPosition();
     long contentPositionAfterSeekMs = player.getContentPosition();
     player.play();
-    runUntilPlaybackState(player, Player.STATE_ENDED);
+    advance(player).untilState(Player.STATE_ENDED);
     player.release();
     surface.release();
 
@@ -841,5 +831,30 @@ public final class ServerSideAdInsertionMediaSourceTest {
     } while (result != C.RESULT_BUFFER_READ || !buffer.isEndOfStream());
 
     assertThat(readSamples).containsExactly(0L, 200L, 400L, 600L, 800L).inOrder();
+  }
+
+  private static final class DiscontinuitySkippingCapturingAudioSink extends CapturingAudioSink {
+    /** Creates the capturing audio sink that skips dumping discontinuity events. */
+    public static DiscontinuitySkippingCapturingAudioSink create() {
+      InterceptingBufferSink interceptingBufferSink = new InterceptingBufferSink();
+      DiscontinuitySkippingCapturingAudioSink capturingAudioSink =
+          new DiscontinuitySkippingCapturingAudioSink(
+              new DefaultAudioSink.Builder(ApplicationProvider.getApplicationContext())
+                  .setAudioProcessorChain(
+                      new DefaultAudioSink.DefaultAudioProcessorChain(
+                          new TeeAudioProcessor(interceptingBufferSink)))
+                  .build());
+      interceptingBufferSink.setCapturingAudioSink(capturingAudioSink);
+      return capturingAudioSink;
+    }
+
+    private DiscontinuitySkippingCapturingAudioSink(AudioSink sink) {
+      super(sink);
+    }
+
+    @Override
+    public void handleDiscontinuity() {
+      getDelegateAudioSink().handleDiscontinuity();
+    }
   }
 }

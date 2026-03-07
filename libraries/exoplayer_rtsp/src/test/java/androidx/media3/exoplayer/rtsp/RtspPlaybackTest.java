@@ -15,10 +15,14 @@
  */
 package androidx.media3.exoplayer.rtsp;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.advance;
+import static androidx.media3.test.utils.robolectric.TestPlayerRunHelper.play;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 import static java.lang.Math.min;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import android.content.Context;
 import android.net.Uri;
@@ -33,9 +37,9 @@ import androidx.media3.common.util.Util;
 import androidx.media3.datasource.BaseDataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.test.utils.CapturingRenderersFactory;
 import androidx.media3.test.utils.DumpFileAsserts;
 import androidx.media3.test.utils.FakeClock;
+import androidx.media3.test.utils.robolectric.CapturingRenderersFactory;
 import androidx.media3.test.utils.robolectric.PlaybackOutput;
 import androidx.media3.test.utils.robolectric.RobolectricUtil;
 import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
@@ -80,13 +84,13 @@ public final class RtspPlaybackTest {
 
   @Rule
   public ShadowMediaCodecConfig mediaCodecConfig =
-      ShadowMediaCodecConfig.forAllSupportedMimeTypes();
+      ShadowMediaCodecConfig.withAllDefaultSupportedCodecs();
 
   @Before
   public void setUp() throws Exception {
     applicationContext = ApplicationProvider.getApplicationContext();
-    capturingRenderersFactory = new CapturingRenderersFactory(applicationContext);
     clock = new FakeClock(/* isAutoAdvancing= */ true);
+    capturingRenderersFactory = new CapturingRenderersFactory(applicationContext, clock);
     aacRtpPacketStreamDump = RtspTestUtils.readRtpPacketStreamDump("media/rtsp/aac-dump.json");
     mpeg2tsRtpPacketStreamDump =
         RtspTestUtils.readRtpPacketStreamDump("media/rtsp/mpeg2ts-dump.json");
@@ -274,6 +278,33 @@ public final class RtspPlaybackTest {
     player.release();
   }
 
+  @Test
+  public void seekToEnd_afterLoadingFinished_doesNotLoadAgain() throws Exception {
+    FakeUdpDataSourceRtpDataChannel fakeRtpDataChannel = new FakeUdpDataSourceRtpDataChannel();
+    RtpDataChannel.Factory rtpDataChannelFactory = (trackId) -> fakeRtpDataChannel;
+    ResponseProvider responseProvider =
+        new ResponseProvider(
+            clock,
+            ImmutableList.of(aacRtpPacketStreamDump, mpeg2tsRtpPacketStreamDump),
+            fakeRtpDataChannel,
+            RtspMessageUtil.DEFAULT_RTSP_TIMEOUT_MS,
+            /* optionsRequestCounter= */ Optional.empty());
+    rtspServer = new RtspServer(responseProvider);
+    ExoPlayer player = createExoPlayer(rtspServer.startAndGetPortNumber(), rtpDataChannelFactory);
+    Player.Listener listener = mock(Player.Listener.class);
+    player.prepare();
+    player.play();
+    advance(player).untilBackgroundThreadCondition(() -> player.getBufferedPosition() > 0);
+    advance(player).untilLoadingIs(false);
+
+    player.addListener(listener);
+    player.seekTo(player.getDuration());
+    play(player).untilState(Player.STATE_ENDED);
+    player.release();
+
+    verify(listener, never()).onIsLoadingChanged(true);
+  }
+
   private ExoPlayer createExoPlayer(
       int serverRtspPortNumber, RtpDataChannel.Factory rtpDataChannelFactory) {
     ExoPlayer player =
@@ -373,7 +404,7 @@ public final class RtspPlaybackTest {
 
     @Override
     public RtspResponse getPlayResponse() {
-      checkStateNotNull(packetTransmitter);
+      checkNotNull(packetTransmitter);
       packetTransmitter.startTransmitting(binaryDataListener);
 
       return new RtspResponse(

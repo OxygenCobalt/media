@@ -16,6 +16,7 @@
 package androidx.media3.extractor.text.ttml;
 
 import static androidx.media3.test.utils.truth.SpannedSubject.assertThat;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.text.Layout;
@@ -23,7 +24,6 @@ import android.text.Spanned;
 import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.TextAnnotation;
 import androidx.media3.common.text.TextEmphasisSpan;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.ColorParser;
 import androidx.media3.extractor.text.CuesWithTiming;
 import androidx.media3.extractor.text.SubtitleParser.OutputOptions;
@@ -74,6 +74,8 @@ public final class TtmlParserTest {
   private static final String RUBIES_FILE = "media/ttml/rubies.xml";
   private static final String TEXT_EMPHASIS_FILE = "media/ttml/text_emphasis.xml";
   private static final String SHEAR_FILE = "media/ttml/shear.xml";
+  private static final String REGION_ATTRS_FROM_STYLE_FILE =
+      "media/ttml/inherit_region_attributes_from_style.xml";
 
   @Test
   public void simple_allCues() throws Exception {
@@ -485,13 +487,9 @@ public final class TtmlParserTest {
 
     cue = Iterables.getOnlyElement(allCues.get(2).cues);
     assertThat(cue.text.toString()).isEqualTo("dolor");
-    assertThat(cue.position).isEqualTo(Cue.DIMEN_UNSET);
-    assertThat(cue.line).isEqualTo(Cue.DIMEN_UNSET);
-    assertThat(cue.size).isEqualTo(Cue.DIMEN_UNSET);
-    // TODO: Should be as below, once https://github.com/google/ExoPlayer/issues/2953 is fixed.
-    // assertEquals(10f / 100f, cue.position);
-    // assertEquals(80f / 100f, cue.line);
-    // assertEquals(1f, cue.size);
+    assertThat(cue.position).isEqualTo(10f / 100f);
+    assertThat(cue.line).isEqualTo(80f / 100f);
+    assertThat(cue.size).isEqualTo(1f);
 
     cue = Iterables.getOnlyElement(allCues.get(3).cues);
     assertThat(cue.text.toString()).isEqualTo("They first said this");
@@ -1093,10 +1091,30 @@ public final class TtmlParserTest {
     assertThat(eighthCue.shearDegrees).isWithin(0.01f).of(90f);
   }
 
+  @Test
+  public void regionAttrsFromStyle() throws Exception {
+    ImmutableList<CuesWithTiming> allCues = getAllCues(REGION_ATTRS_FROM_STYLE_FILE);
+
+    Cue firstCue = Iterables.getOnlyElement(allCues.get(0).cues);
+    assertThat(firstCue.position).isEqualTo(10f / 100f);
+    assertThat(firstCue.line).isEqualTo(10f / 100f);
+    assertThat(firstCue.size).isEqualTo(20f / 100f);
+
+    Cue secondCue = Iterables.getOnlyElement(allCues.get(1).cues);
+    assertThat(secondCue.position).isEqualTo(30f / 100f);
+    assertThat(secondCue.line).isEqualTo(30f / 100f);
+    assertThat(secondCue.size).isEqualTo(40f / 100f);
+
+    Cue thirdCue = Iterables.getOnlyElement(allCues.get(2).cues);
+    assertThat(thirdCue.position).isEqualTo(30f / 100f);
+    assertThat(thirdCue.line).isEqualTo(30f / 100f);
+    assertThat(thirdCue.size).isEqualTo(20f / 100f);
+  }
+
   private static Spanned getOnlyCueTextAtIndex(List<CuesWithTiming> allCues, int index) {
     Cue cue = getOnlyCueAtIndex(allCues, index);
     assertThat(cue.text).isInstanceOf(Spanned.class);
-    return (Spanned) Assertions.checkNotNull(cue.text);
+    return (Spanned) checkNotNull(cue.text);
   }
 
   private static Cue getOnlyCueAtIndex(List<CuesWithTiming> allCues, int index) {

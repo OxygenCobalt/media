@@ -15,21 +15,22 @@
  */
 package androidx.media3.common;
 
-import android.os.Parcel;
-import android.os.Parcelable;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
+import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Longs;
 import java.util.Arrays;
 import java.util.List;
 
 /** A collection of metadata entries. */
 @UnstableApi
-public final class Metadata implements Parcelable {
+public final class Metadata {
 
   /** A metadata entry. */
-  public interface Entry extends Parcelable {
+  public interface Entry {
 
     /**
      * Returns the {@link Format} that can be used to decode the wrapped metadata in {@link
@@ -100,14 +101,6 @@ public final class Metadata implements Parcelable {
     this(presentationTimeUs, entries.toArray(new Entry[0]));
   }
 
-  /* package */ Metadata(Parcel in) {
-    entries = new Metadata.Entry[in.readInt()];
-    for (int i = 0; i < entries.length; i++) {
-      entries[i] = in.readParcelable(Entry.class.getClassLoader());
-    }
-    presentationTimeUs = in.readLong();
-  }
-
   /** Returns the number of metadata entries. */
   public int length() {
     return entries.length;
@@ -121,6 +114,61 @@ public final class Metadata implements Parcelable {
    */
   public Metadata.Entry get(int index) {
     return entries[index];
+  }
+
+  /** Returns the first entry of type (or subtype of) {@code clazz}. */
+  @Nullable
+  public <T extends Entry> T getFirstEntryOfType(Class<T> clazz) {
+    return getFirstMatchingEntry(clazz, Predicates.alwaysTrue());
+  }
+
+  /**
+   * Returns the first entry of type (or subtype of) {@code clazz} that satisfies {@code predicate}.
+   */
+  @Nullable
+  public <T extends Entry> T getFirstMatchingEntry(Class<T> clazz, Predicate<T> predicate) {
+    for (Entry entry : entries) {
+      @Nullable T castEntry = entryIfMatches(entry, clazz, predicate);
+      if (castEntry != null) {
+        return castEntry;
+      }
+    }
+    return null;
+  }
+
+  /** Returns the entries of type (or subtype of) {@code clazz}. */
+  public <T extends Entry> ImmutableList<T> getEntriesOfType(Class<T> clazz) {
+    ImmutableList.Builder<T> matchingEntries = ImmutableList.builder();
+    for (Entry entry : entries) {
+      if (clazz.isAssignableFrom(entry.getClass())) {
+        matchingEntries.add(clazz.cast(entry));
+      }
+    }
+    return matchingEntries.build();
+  }
+
+  /** Returns the entries of type (or subtype of) {@code clazz} that satisfy {@code predicate}. */
+  public <T extends Entry> ImmutableList<T> getMatchingEntries(
+      Class<T> clazz, Predicate<T> predicate) {
+    ImmutableList.Builder<T> matchingEntries = ImmutableList.builder();
+    for (Entry entry : entries) {
+      T castEntry = entryIfMatches(entry, clazz, predicate);
+      if (castEntry != null) {
+        matchingEntries.add(castEntry);
+      }
+    }
+    return matchingEntries.build();
+  }
+
+  @Nullable
+  private <T extends Entry> T entryIfMatches(Entry entry, Class<T> clazz, Predicate<T> predicate) {
+    if (clazz.isAssignableFrom(entry.getClass())) {
+      T castEntry = clazz.cast(entry);
+      if (predicate.apply(castEntry)) {
+        return castEntry;
+      }
+    }
+    return null;
   }
 
   /**
@@ -190,33 +238,4 @@ public final class Metadata implements Parcelable {
         + Arrays.toString(entries)
         + (presentationTimeUs == C.TIME_UNSET ? "" : ", presentationTimeUs=" + presentationTimeUs);
   }
-
-  // Parcelable implementation.
-
-  @Override
-  public int describeContents() {
-    return 0;
-  }
-
-  @Override
-  public void writeToParcel(Parcel dest, int flags) {
-    dest.writeInt(entries.length);
-    for (Entry entry : entries) {
-      dest.writeParcelable(entry, 0);
-    }
-    dest.writeLong(presentationTimeUs);
-  }
-
-  public static final Parcelable.Creator<Metadata> CREATOR =
-      new Parcelable.Creator<Metadata>() {
-        @Override
-        public Metadata createFromParcel(Parcel in) {
-          return new Metadata(in);
-        }
-
-        @Override
-        public Metadata[] newArray(int size) {
-          return new Metadata[size];
-        }
-      };
 }

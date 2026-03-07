@@ -27,8 +27,10 @@ import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.util.ParsableBitArray;
+import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
@@ -262,6 +264,7 @@ public final class DtsUtil {
    * @param trackId The track identifier to set on the format.
    * @param language The language to set on the format.
    * @param roleFlags The role flags to set on the format.
+   * @param containerMimeType The MIME type of the container to set on the format.
    * @param drmInitData {@link DrmInitData} to be included in the format.
    * @return The DTS format parsed from data in the header.
    */
@@ -270,6 +273,7 @@ public final class DtsUtil {
       @Nullable String trackId,
       @Nullable String language,
       @C.RoleFlags int roleFlags,
+      String containerMimeType,
       @Nullable DrmInitData drmInitData) {
     ParsableBitArray frameBits = getNormalizedFrame(frame);
     frameBits.skipBits(32 + 1 + 5 + 1 + 7 + 14); // SYNC, FTYPE, SHORT, CPF, NBLKS, FSIZE
@@ -286,6 +290,7 @@ public final class DtsUtil {
     channelCount += frameBits.readBits(2) > 0 ? 1 : 0; // LFF
     return new Format.Builder()
         .setId(trackId)
+        .setContainerMimeType(containerMimeType)
         .setSampleMimeType(MimeTypes.AUDIO_DTS)
         .setAverageBitrate(bitrate)
         .setChannelCount(channelCount)
@@ -676,6 +681,33 @@ public final class DtsUtil {
     return parseUnsignedVarInt(
             headerPrefixBits, UHD_HEADER_SIZE_LENGTH_TABLE, /* extractAndAddFlag= */ true)
         + 1;
+  }
+
+  /** Returns whether the sample data at the current {@link ExtractorInput} is a DTS-HD sample. */
+  public static boolean isSampleDtsHd(ExtractorInput input, int sampleSize) throws IOException {
+    ParsableByteArray sampleData = new ParsableByteArray(sampleSize);
+    if (!input.peekFully(
+        sampleData.getData(), /* offset= */ 0, sampleSize, /* allowEndOfInput= */ true)) {
+      return false;
+    }
+    input.resetPeekPosition();
+    int word = sampleData.peekInt();
+    if (DtsUtil.getFrameType(word) == DtsUtil.FRAME_TYPE_CORE) {
+      if (sampleData.bytesLeft() < 10) {
+        return false;
+      }
+      byte[] header = new byte[10];
+      sampleData.readBytes(header, /* offset= */ 0, /* length= */ 10);
+      sampleData.setPosition(0);
+      int frameSize = DtsUtil.getDtsFrameSize(header);
+      if (frameSize <= 0 || sampleData.bytesLeft() < frameSize + 4) {
+        return false;
+      }
+      sampleData.skipBytes(frameSize);
+      word = sampleData.readInt();
+      return DtsUtil.getFrameType(word) == DtsUtil.FRAME_TYPE_EXTENSION_SUBSTREAM;
+    }
+    return false;
   }
 
   /**

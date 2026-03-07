@@ -18,20 +18,17 @@ package androidx.media3.session;
 import static androidx.media3.common.MimeTypes.AUDIO_AAC;
 import static androidx.media3.common.MimeTypes.VIDEO_H264;
 import static androidx.media3.common.MimeTypes.VIDEO_H265;
+import static androidx.media3.test.session.common.CommonConstants.MOCK_MEDIA3_LIBRARY_SERVICE;
 import static com.google.common.truth.Truth.assertThat;
 
-import android.content.Context;
 import android.os.Bundle;
 import android.os.Parcel;
-import android.util.Pair;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.Tracks;
-import androidx.media3.common.util.BitmapLoader;
-import androidx.media3.datasource.DataSourceBitmapLoader;
 import androidx.media3.session.PlayerInfo.BundlingExclusions;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -40,7 +37,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -49,14 +45,8 @@ import org.junit.runner.RunWith;
 @SmallTest
 public final class MediaUtilsTest {
 
-  private Context context;
-  private BitmapLoader bitmapLoader;
-
-  @Before
-  public void setUp() {
-    context = ApplicationProvider.getApplicationContext();
-    bitmapLoader = new CacheBitmapLoader(new DataSourceBitmapLoader(context));
-  }
+  private final SessionToken sessionToken =
+      new SessionToken(ApplicationProvider.getApplicationContext(), MOCK_MEDIA3_LIBRARY_SERVICE);
 
   @Test
   public void truncateListBySize() {
@@ -108,19 +98,18 @@ public final class MediaUtilsTest {
             .add(Player.COMMAND_GET_TRACKS)
             .build();
 
-    Pair<PlayerInfo, BundlingExclusions> mergeResult =
+    PlayerInfo mergeResult =
         MediaUtils.mergePlayerInfo(
             oldPlayerInfo,
-            BundlingExclusions.NONE,
             newPlayerInfo,
             new BundlingExclusions(
                 /* isTimelineExcluded= */ true, /* areCurrentTracksExcluded= */ true),
-            availableCommands);
+            availableCommands,
+            /* keepOldUnmuteVolumeForMutedSessions= */ false,
+            sessionToken);
 
-    assertThat(mergeResult.first.timeline).isSameInstanceAs(oldPlayerInfo.timeline);
-    assertThat(mergeResult.first.currentTracks).isSameInstanceAs(oldPlayerInfo.currentTracks);
-    assertThat(mergeResult.second.isTimelineExcluded).isFalse();
-    assertThat(mergeResult.second.areCurrentTracksExcluded).isFalse();
+    assertThat(mergeResult.timeline).isSameInstanceAs(oldPlayerInfo.timeline);
+    assertThat(mergeResult.currentTracks).isSameInstanceAs(oldPlayerInfo.currentTracks);
   }
 
   @Test
@@ -151,19 +140,18 @@ public final class MediaUtilsTest {
     Player.Commands availableCommands =
         Player.Commands.EMPTY.buildUpon().add(Player.COMMAND_GET_TRACKS).build();
 
-    Pair<PlayerInfo, BundlingExclusions> mergeResult =
+    PlayerInfo mergeResult =
         MediaUtils.mergePlayerInfo(
             oldPlayerInfo,
-            BundlingExclusions.NONE,
             newPlayerInfo,
             new BundlingExclusions(
                 /* isTimelineExcluded= */ true, /* areCurrentTracksExcluded= */ true),
-            availableCommands);
+            availableCommands,
+            /* keepOldUnmuteVolumeForMutedSessions= */ false,
+            sessionToken);
 
-    assertThat(mergeResult.first.timeline).isSameInstanceAs(Timeline.EMPTY);
-    assertThat(mergeResult.first.currentTracks).isSameInstanceAs(oldPlayerInfo.currentTracks);
-    assertThat(mergeResult.second.isTimelineExcluded).isTrue();
-    assertThat(mergeResult.second.areCurrentTracksExcluded).isFalse();
+    assertThat(mergeResult.timeline).isSameInstanceAs(Timeline.EMPTY);
+    assertThat(mergeResult.currentTracks).isSameInstanceAs(oldPlayerInfo.currentTracks);
   }
 
   @Test
@@ -194,18 +182,65 @@ public final class MediaUtilsTest {
     Player.Commands availableCommands =
         Player.Commands.EMPTY.buildUpon().add(Player.COMMAND_GET_TIMELINE).build();
 
-    Pair<PlayerInfo, BundlingExclusions> mergeResult =
+    PlayerInfo mergeResult =
         MediaUtils.mergePlayerInfo(
             oldPlayerInfo,
-            BundlingExclusions.NONE,
             newPlayerInfo,
             new BundlingExclusions(
                 /* isTimelineExcluded= */ true, /* areCurrentTracksExcluded= */ true),
-            availableCommands);
+            availableCommands,
+            /* keepOldUnmuteVolumeForMutedSessions= */ false,
+            sessionToken);
 
-    assertThat(mergeResult.first.timeline).isSameInstanceAs(oldPlayerInfo.timeline);
-    assertThat(mergeResult.first.currentTracks).isSameInstanceAs(Tracks.EMPTY);
-    assertThat(mergeResult.second.isTimelineExcluded).isFalse();
-    assertThat(mergeResult.second.areCurrentTracksExcluded).isTrue();
+    assertThat(mergeResult.timeline).isSameInstanceAs(oldPlayerInfo.timeline);
+    assertThat(mergeResult.currentTracks).isSameInstanceAs(Tracks.EMPTY);
+  }
+
+  @Test
+  public void mergePlayerInfo_keepOldUnmuteVolumeForMutedSessions_correctMerge() {
+    PlayerInfo oldPlayerInfo = PlayerInfo.DEFAULT.copyWithVolume(0.7f);
+    PlayerInfo newPlayerInfo = PlayerInfo.DEFAULT.copyWithVolume(0f).copyWithUnmuteVolume(0.5f);
+    Player.Commands availableCommands =
+        Player.Commands.EMPTY
+            .buildUpon()
+            .add(Player.COMMAND_GET_TIMELINE)
+            .add(Player.COMMAND_GET_TRACKS)
+            .build();
+
+    PlayerInfo mergeResult =
+        MediaUtils.mergePlayerInfo(
+            oldPlayerInfo,
+            newPlayerInfo,
+            BundlingExclusions.NONE,
+            availableCommands,
+            /* keepOldUnmuteVolumeForMutedSessions= */ true,
+            sessionToken);
+
+    assertThat(mergeResult.volume).isEqualTo(newPlayerInfo.volume);
+    assertThat(mergeResult.unmuteVolume).isEqualTo(oldPlayerInfo.unmuteVolume);
+  }
+
+  @Test
+  public void mergePlayerInfo_keepOldUnmuteVolumeForUnmutedSessions_correctMerge() {
+    PlayerInfo oldPlayerInfo = PlayerInfo.DEFAULT.copyWithVolume(0.7f);
+    PlayerInfo newPlayerInfo = PlayerInfo.DEFAULT.copyWithVolume(0.5f); // unmuteVolume=0.5 as well
+    Player.Commands availableCommands =
+        Player.Commands.EMPTY
+            .buildUpon()
+            .add(Player.COMMAND_GET_TIMELINE)
+            .add(Player.COMMAND_GET_TRACKS)
+            .build();
+
+    PlayerInfo mergeResult =
+        MediaUtils.mergePlayerInfo(
+            oldPlayerInfo,
+            newPlayerInfo,
+            BundlingExclusions.NONE,
+            availableCommands,
+            /* keepOldUnmuteVolumeForMutedSessions= */ true,
+            sessionToken);
+
+    assertThat(mergeResult.volume).isEqualTo(newPlayerInfo.volume);
+    assertThat(mergeResult.unmuteVolume).isEqualTo(newPlayerInfo.unmuteVolume);
   }
 }

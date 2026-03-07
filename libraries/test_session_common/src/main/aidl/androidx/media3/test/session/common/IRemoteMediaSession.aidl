@@ -30,13 +30,14 @@ interface IRemoteMediaSession {
   void broadcastCustomCommand(String sessionId, in Bundle command, in Bundle args);
   void sendCustomCommand(String sessionId, in Bundle command, in Bundle args);
   void release(String sessionId);
-  void setAvailableCommands(String sessionId, in Bundle sessionCommands, in Bundle playerCommands);
+  void setAvailableCommands(String sessionId, String controllerKey, in Bundle sessionCommands, in Bundle playerCommands);
   void setCustomLayout(String sessionId, in List<Bundle> layout);
   void setMediaButtonPreferences(String sessionId, in List<Bundle> mediaButtonPreferences);
   void setSessionExtras(String sessionId, in Bundle extras);
   void setSessionExtrasForController(String sessionId, in String controllerKey, in Bundle extras);
   void sendError(String sessionId, String controllerKey, in Bundle SessionError);
   void setSessionActivity(String sessionId, String controllerKey, in PendingIntent sessionActivity);
+  void setPlaybackException(String sessionId, String controllerKey, in Bundle playerErrorBundle);
 
   // Player Methods
   void setPlayWhenReady(String sessionId, boolean playWhenReady, int reason);
@@ -68,9 +69,11 @@ interface IRemoteMediaSession {
   void notifyPlaybackParametersChanged(String sessionId, in Bundle playbackParametersBundle);
   void notifyMediaItemTransition(String sessionId, int index, int reason);
   void notifyAudioAttributesChanged(String sessionId, in Bundle audioAttributes);
+  void notifyAudioSessionIdChanged(String sessionId, int audioSessionId);
   void notifyVideoSizeChanged(String sessionId, in Bundle videoSize);
   void notifyAvailableCommandsChanged(String sessionId, in Bundle commandsBundle);
   boolean surfaceExists(String sessionId);
+  Bundle getSurfaceSize(String sessionId);
 
   void setTimeline(String sessionId, in Bundle timeline);
   void createAndSetFakeTimeline(String sessionId, int windowCount);
@@ -79,6 +82,8 @@ interface IRemoteMediaSession {
   void setShuffleModeEnabled(String sessionId, boolean shuffleMode);
   void setRepeatMode(String sessionId, int repeatMode);
   void setCurrentMediaItemIndex(String sessionId, int index);
+  void setCurrentMediaItemIndexAndPeriodIndex(String sessionId, int mediaItemIndex, int periodIndex);
+  void setCurrentPeriodIndex(String sessionId, int index);
   void setTrackSelectionParameters(String sessionId, in Bundle parameters);
   void notifyTimelineChanged(String sessionId, int reason);
   void notifyPlaylistMetadataChanged(String sessionId);

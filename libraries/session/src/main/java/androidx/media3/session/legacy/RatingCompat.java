@@ -16,17 +16,16 @@
 package androidx.media3.session.legacy;
 
 import static androidx.annotation.RestrictTo.Scope.LIBRARY;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.annotation.SuppressLint;
 import android.media.Rating;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
-import androidx.media3.common.util.UnstableApi;
+import androidx.media3.common.util.Log;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -37,7 +36,6 @@ import java.lang.annotation.RetentionPolicy;
  * rating value (which may be defined as "unrated"), both of which are defined when the rating
  * instance is constructed through one of the factory methods.
  */
-@UnstableApi
 @RestrictTo(LIBRARY)
 @SuppressLint("BanParcelableUsage")
 public final class RatingCompat implements Parcelable {
@@ -90,33 +88,33 @@ public final class RatingCompat implements Parcelable {
 
   private static final float RATING_NOT_RATED = -1.0f;
 
-  private final int mRatingStyle;
-  private final float mRatingValue;
+  private final int ratingStyle;
+  private final float ratingValue;
 
-  @Nullable private Object mRatingObj; // framework Rating object
+  @Nullable private Object ratingObj; // framework Rating object
 
   RatingCompat(@Style int ratingStyle, float rating) {
-    mRatingStyle = ratingStyle;
-    mRatingValue = rating;
+    this.ratingStyle = ratingStyle;
+    ratingValue = rating;
   }
 
   @Override
   public String toString() {
     return "Rating:style="
-        + mRatingStyle
+        + ratingStyle
         + " rating="
-        + (mRatingValue < 0.0f ? "unrated" : String.valueOf(mRatingValue));
+        + (ratingValue < 0.0f ? "unrated" : String.valueOf(ratingValue));
   }
 
   @Override
   public int describeContents() {
-    return mRatingStyle;
+    return ratingStyle;
   }
 
   @Override
   public void writeToParcel(Parcel dest, int flags) {
-    dest.writeInt(mRatingStyle);
-    dest.writeFloat(mRatingValue);
+    dest.writeInt(ratingStyle);
+    dest.writeFloat(ratingValue);
   }
 
   public static final Parcelable.Creator<RatingCompat> CREATOR =
@@ -244,7 +242,7 @@ public final class RatingCompat implements Parcelable {
    * @return true if the instance was not created with {@link #newUnratedRating(int)}.
    */
   public boolean isRated() {
-    return mRatingValue >= 0.0f;
+    return ratingValue >= 0.0f;
   }
 
   /**
@@ -255,7 +253,7 @@ public final class RatingCompat implements Parcelable {
    */
   @Style
   public int getRatingStyle() {
-    return mRatingStyle;
+    return ratingStyle;
   }
 
   /**
@@ -265,10 +263,10 @@ public final class RatingCompat implements Parcelable {
    *     the rating style is not {@link #RATING_HEART} or if it is unrated.
    */
   public boolean hasHeart() {
-    if (mRatingStyle != RATING_HEART) {
+    if (ratingStyle != RATING_HEART) {
       return false;
     } else {
-      return (mRatingValue == 1.0f);
+      return (ratingValue == 1.0f);
     }
   }
 
@@ -279,10 +277,10 @@ public final class RatingCompat implements Parcelable {
    *     style is not {@link #RATING_THUMB_UP_DOWN} or if it is unrated.
    */
   public boolean isThumbUp() {
-    if (mRatingStyle != RATING_THUMB_UP_DOWN) {
+    if (ratingStyle != RATING_THUMB_UP_DOWN) {
       return false;
     } else {
-      return (mRatingValue == 1.0f);
+      return (ratingValue == 1.0f);
     }
   }
 
@@ -293,12 +291,12 @@ public final class RatingCompat implements Parcelable {
    *     star-based, or if it is unrated.
    */
   public float getStarRating() {
-    switch (mRatingStyle) {
+    switch (ratingStyle) {
       case RATING_3_STARS:
       case RATING_4_STARS:
       case RATING_5_STARS:
         if (isRated()) {
-          return mRatingValue;
+          return ratingValue;
         }
       // fall through
       default:
@@ -313,10 +311,10 @@ public final class RatingCompat implements Parcelable {
    *     percentage-based, or if it is unrated.
    */
   public float getPercentRating() {
-    if ((mRatingStyle != RATING_PERCENTAGE) || !isRated()) {
+    if ((ratingStyle != RATING_PERCENTAGE) || !isRated()) {
       return -1.0f;
     } else {
-      return mRatingValue;
+      return ratingValue;
     }
   }
 
@@ -356,7 +354,7 @@ public final class RatingCompat implements Parcelable {
       } else {
         rating = newUnratedRating(ratingStyle);
       }
-      checkNotNull(rating).mRatingObj = ratingObj;
+      checkNotNull(rating).ratingObj = ratingObj;
       return rating;
     } else {
       return null;
@@ -372,30 +370,30 @@ public final class RatingCompat implements Parcelable {
    */
   @Nullable
   public Object getRating() {
-    if (mRatingObj == null) {
+    if (ratingObj == null) {
       if (isRated()) {
-        switch (mRatingStyle) {
+        switch (ratingStyle) {
           case RATING_HEART:
-            mRatingObj = Rating.newHeartRating(hasHeart());
+            ratingObj = Rating.newHeartRating(hasHeart());
             break;
           case RATING_THUMB_UP_DOWN:
-            mRatingObj = Rating.newThumbRating(isThumbUp());
+            ratingObj = Rating.newThumbRating(isThumbUp());
             break;
           case RATING_3_STARS:
           case RATING_4_STARS:
           case RATING_5_STARS:
-            mRatingObj = Rating.newStarRating(mRatingStyle, getStarRating());
+            ratingObj = Rating.newStarRating(ratingStyle, getStarRating());
             break;
           case RATING_PERCENTAGE:
-            mRatingObj = Rating.newPercentageRating(getPercentRating());
+            ratingObj = Rating.newPercentageRating(getPercentRating());
             break;
           default:
             return null;
         }
       } else {
-        mRatingObj = Rating.newUnratedRating(mRatingStyle);
+        ratingObj = Rating.newUnratedRating(ratingStyle);
       }
     }
-    return mRatingObj;
+    return ratingObj;
   }
 }

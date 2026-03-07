@@ -15,10 +15,10 @@
  */
 package androidx.media3.test.utils;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.test.utils.WebServerDispatcher.Resource.GZIP_SUPPORT_DISABLED;
 import static androidx.media3.test.utils.WebServerDispatcher.Resource.GZIP_SUPPORT_FORCED;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
@@ -58,13 +58,13 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
  * customisation of the static data served.
  */
 @UnstableApi
-public class WebServerDispatcher extends Dispatcher {
+public final class WebServerDispatcher extends Dispatcher {
 
   /** The body associated with a response for an unrecognized path. */
   public static final String NOT_FOUND_BODY = "Resource not found!";
 
   /** A resource served by {@link WebServerDispatcher}. */
-  public static class Resource {
+  public static final class Resource {
 
     /**
      * The level of gzip support offered by the server for a resource.
@@ -103,7 +103,7 @@ public class WebServerDispatcher extends Dispatcher {
     public static final int GZIP_SUPPORT_FORCED = 3;
 
     /** Builder for {@link Resource}. */
-    public static class Builder {
+    public static final class Builder {
       private @MonotonicNonNull String path;
       private byte @MonotonicNonNull [] data;
       private boolean supportsRangeRequests;

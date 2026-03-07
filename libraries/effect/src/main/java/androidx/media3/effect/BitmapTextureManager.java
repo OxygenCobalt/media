@@ -15,13 +15,14 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.effect.DebugTraceUtil.COMPONENT_BITMAP_TEXTURE_MANAGER;
 import static androidx.media3.effect.DebugTraceUtil.COMPONENT_VFP;
 import static androidx.media3.effect.DebugTraceUtil.EVENT_QUEUE_BITMAP;
 import static androidx.media3.effect.DebugTraceUtil.EVENT_SIGNAL_EOS;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.graphics.Bitmap;
 import androidx.annotation.Nullable;
@@ -32,7 +33,6 @@ import androidx.media3.common.GlTextureInfo;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.TimestampIterator;
-import androidx.media3.common.util.Util;
 import java.util.Queue;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -169,8 +169,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         EVENT_QUEUE_BITMAP,
         currentPresentationTimeUs,
         /* extraFormat= */ "%dx%d",
-        /* extraArgs...= */ currentFrameInfo.width,
-        currentFrameInfo.height);
+        /* extraArgs...= */ currentFrameInfo.format.width,
+        currentFrameInfo.format.height);
 
     if (!currentBitmapInfo.inStreamOffsetsUs.hasNext()) {
       isNextFrameInTexture = false;
@@ -216,9 +216,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
               currentTexId,
               /* fboId= */ C.INDEX_UNSET,
               /* rboId= */ C.INDEX_UNSET,
-              frameInfo.width,
-              frameInfo.height);
-      if (Util.SDK_INT >= 34 && bitmap.hasGainmap()) {
+              frameInfo.format.width,
+              frameInfo.format.height);
+      if (SDK_INT >= 34 && bitmap.hasGainmap()) {
         checkNotNull(repeatingGainmapShaderProgram).setGainmap(checkNotNull(bitmap.getGainmap()));
       }
       if (signalRepeatingSequence) {

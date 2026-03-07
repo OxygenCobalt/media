@@ -33,6 +33,7 @@ import androidx.media3.common.util.Size;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.analytics.PlayerId;
+import androidx.media3.exoplayer.audio.AudioOutputProvider;
 import androidx.media3.exoplayer.image.ImageOutput;
 import androidx.media3.exoplayer.source.MediaPeriod;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
@@ -155,6 +156,15 @@ public interface Renderer extends PlayerMessage.Target {
   long DEFAULT_DURATION_TO_PROGRESS_US = 10_000L;
 
   /**
+   * Default duration to progress reported if the renderer does not need calls to {@link #render} to
+   * progress, if it's in {@link #STATE_ENABLED} and already {@linkplain #isReady() ready} or
+   * {@linkplain #isEnded() ended}.
+   *
+   * @see #getDurationToProgressUs
+   */
+  long DEFAULT_IDLE_DURATION_TO_PROGRESS_US = 1_000_000L;
+
+  /**
    * Some renderers can signal when {@link #render(long, long)} should be called.
    *
    * <p>That allows the player to sleep until the next wakeup, instead of calling {@link
@@ -185,8 +195,12 @@ public interface Renderer extends PlayerMessage.Target {
    * #MSG_SET_SCALING_MODE}, {@link #MSG_SET_CHANGE_FRAME_RATE_STRATEGY}, {@link
    * #MSG_SET_AUX_EFFECT_INFO}, {@link #MSG_SET_VIDEO_FRAME_METADATA_LISTENER}, {@link
    * #MSG_SET_CAMERA_MOTION_LISTENER}, {@link #MSG_SET_SKIP_SILENCE_ENABLED}, {@link
-   * #MSG_SET_AUDIO_SESSION_ID}, {@link #MSG_SET_WAKEUP_LISTENER}, {@link #MSG_SET_VIDEO_EFFECTS},
-   * {@link #MSG_SET_VIDEO_OUTPUT_RESOLUTION} or {@link #MSG_SET_IMAGE_OUTPUT}. May also be an
+   * #MSG_SET_AUDIO_SESSION_ID}, {@link #MSG_SET_WAKEUP_LISTENER}, {@link
+   * #MSG_SET_PREFERRED_AUDIO_DEVICE}, {@link #MSG_SET_VIDEO_EFFECTS}, {@link
+   * #MSG_SET_VIDEO_OUTPUT_RESOLUTION}, {@link #MSG_SET_IMAGE_OUTPUT}, {@link #MSG_SET_PRIORITY},
+   * {@link #MSG_TRANSFER_RESOURCES}, {@link #MSG_SET_SCRUBBING_MODE}, {@link
+   * #MSG_SET_VIRTUAL_DEVICE_ID}, {@link #MSG_SET_AUDIO_OUTPUT_PROVIDER}, {@link
+   * #MSG_SET_CODEC_PARAMETERS} or {@link #MSG_SET_SUBSCRIBED_CODEC_PARAMETER_KEYS}. May also be an
    * app-defined value (see {@link #MSG_CUSTOM_BASE}).
    */
   @Documented
@@ -206,10 +220,17 @@ public interface Renderer extends PlayerMessage.Target {
         MSG_SET_SKIP_SILENCE_ENABLED,
         MSG_SET_AUDIO_SESSION_ID,
         MSG_SET_WAKEUP_LISTENER,
+        MSG_SET_PREFERRED_AUDIO_DEVICE,
         MSG_SET_VIDEO_EFFECTS,
         MSG_SET_VIDEO_OUTPUT_RESOLUTION,
         MSG_SET_IMAGE_OUTPUT,
-        MSG_SET_PRIORITY
+        MSG_SET_PRIORITY,
+        MSG_TRANSFER_RESOURCES,
+        MSG_SET_SCRUBBING_MODE,
+        MSG_SET_VIRTUAL_DEVICE_ID,
+        MSG_SET_AUDIO_OUTPUT_PROVIDER,
+        MSG_SET_CODEC_PARAMETERS,
+        MSG_SET_SUBSCRIBED_CODEC_PARAMETER_KEYS
       })
   public @interface MessageType {}
 
@@ -242,10 +263,6 @@ public interface Renderer extends PlayerMessage.Target {
    *
    * <p>If tunneling is enabled by the track selector, the specified audio attributes will be
    * ignored, but they will take effect if audio is later played without tunneling.
-   *
-   * <p>If the device is running a build before platform API version 21, audio attributes cannot be
-   * set directly on the underlying audio track. In this case, the usage will be mapped onto an
-   * equivalent stream type using {@link Util#getStreamTypeForAudioUsage(int)}.
    *
    * <p>To get audio attributes that are equivalent to a legacy stream type, pass the stream type to
    * {@link Util#getAudioUsageForStreamType(int)} and use the returned {@link C.AudioUsage} to build
@@ -350,6 +367,47 @@ public interface Renderer extends PlayerMessage.Target {
    * constants for predefined values.
    */
   int MSG_SET_PRIORITY = 16;
+
+  /**
+   * The type of message that can be passed to a renderer to direct it to transfer relevant
+   * resources to another renderer. The message payload should be a instance of the same {@link
+   * Renderer} type as the renderer being passed the message.
+   */
+  int MSG_TRANSFER_RESOURCES = 17;
+
+  /**
+   * The type of message that can be passed to a renderer to direct it to enable or disable
+   * scrubbing mode. The message payload should be a {@link ScrubbingModeParameters} instance to
+   * enable or {@code null} to disable scrubbing mode.
+   */
+  int MSG_SET_SCRUBBING_MODE = 18;
+
+  /**
+   * The type of a message that can be passed to audio renderers via {@link
+   * ExoPlayer#createMessage(PlayerMessage.Target)}. The message payload should be an {@link
+   * Integer} instance representing the virtual device id, or {@link C#INDEX_UNSET} if unspecified.
+   */
+  int MSG_SET_VIRTUAL_DEVICE_ID = 19;
+
+  /**
+   * The type of a message that can be passed to audio renderers via {@link
+   * ExoPlayer#createMessage(PlayerMessage.Target)}. The message payload should be an {@link
+   * AudioOutputProvider} instance.
+   */
+  int MSG_SET_AUDIO_OUTPUT_PROVIDER = 20;
+
+  /**
+   * The type of a message that can be passed to renderers via {@link
+   * ExoPlayer#createMessage(PlayerMessage.Target)}. The message payload should be a {@link
+   * CodecParameters} instance.
+   */
+  int MSG_SET_CODEC_PARAMETERS = 21;
+
+  /**
+   * A message to set the keys for which a renderer should report parameter changes. The message
+   * payload will be an {@code ImmutableSet<String>} of keys.
+   */
+  int MSG_SET_SUBSCRIBED_CODEC_PARAMETER_KEYS = 22;
 
   /**
    * Applications or extensions may define custom {@code MSG_*} constants that can be passed to
@@ -528,10 +586,16 @@ public interface Renderer extends PlayerMessage.Target {
   long getReadingPositionUs();
 
   /**
-   * Returns minimum amount of playback clock time that must pass in order for the {@link #render}
-   * call to make progress.
+   * Returns minimum amount of playback clock time that must pass from {@code elapsedRealtimeUs} in
+   * order for the {@link #render} call to make progress.
    *
-   * <p>The default return time is {@link #DEFAULT_DURATION_TO_PROGRESS_US}.
+   * <p>This method may be called when the renderer is in the following states: {@link
+   * #STATE_ENABLED}, {@link #STATE_STARTED}.
+   *
+   * <p>The default return time is {@link #DEFAULT_DURATION_TO_PROGRESS_US} if the renderer is in
+   * {@link #STATE_STARTED}, or in {@link #STATE_ENABLED} and not yet {@linkplain #isReady() ready}
+   * or {@linkplain #isEnded() ended}. Otherwise, it returns {@link
+   * #DEFAULT_IDLE_DURATION_TO_PROGRESS_US}.
    *
    * @param positionUs The current render position in microseconds, measured at the start of the
    *     current iteration of the rendering loop.
@@ -541,7 +605,9 @@ public interface Renderer extends PlayerMessage.Target {
    *     progress.
    */
   default long getDurationToProgressUs(long positionUs, long elapsedRealtimeUs) {
-    return DEFAULT_DURATION_TO_PROGRESS_US;
+    return getState() == STATE_ENABLED && (isReady() || isEnded())
+        ? DEFAULT_IDLE_DURATION_TO_PROGRESS_US
+        : DEFAULT_DURATION_TO_PROGRESS_US;
   }
 
   /**
@@ -574,16 +640,36 @@ public interface Renderer extends PlayerMessage.Target {
   /**
    * Signals to the renderer that a position discontinuity has occurred.
    *
-   * <p>After a position discontinuity, the renderer's {@link SampleStream} is guaranteed to provide
-   * samples starting from a key frame.
+   * <p>If {@code sampleStreamIsResetToKeyFrame} is {@code true} then after the position
+   * discontinuity, the renderer's {@link SampleStream} is guaranteed to provide samples starting
+   * from a key frame.
+   *
+   * <p>{@code sampleStreamIsResetToKeyFrame} is guaranteed to be {@code true} unless the
+   * implementation overrides {@link #supportsResetPositionWithoutKeyFrameReset(long positionUs)} to
+   * return {@code true}.
    *
    * <p>This method may be called when the renderer is in the following states: {@link
    * #STATE_ENABLED}, {@link #STATE_STARTED}.
    *
    * @param positionUs The new playback position in microseconds.
+   * @param sampleStreamIsResetToKeyFrame Whether the renderer's {@link SampleStream} is guaranteed
+   *     to provide samples starting from a key frame.
    * @throws ExoPlaybackException If an error occurs handling the reset.
    */
-  void resetPosition(long positionUs) throws ExoPlaybackException;
+  void resetPosition(long positionUs, boolean sampleStreamIsResetToKeyFrame)
+      throws ExoPlaybackException;
+
+  /**
+   * Returns whether the renderer can support processing a position discontinuity without a key
+   * frame reset.
+   *
+   * @param positionUs The new playback position in microseconds.
+   * @return Whether the renderer can support processing a position discontinuity without a key
+   *     frame reset.
+   */
+  default boolean supportsResetPositionWithoutKeyFrameReset(long positionUs) {
+    return false;
+  }
 
   /**
    * Indicates the playback speed to this renderer.

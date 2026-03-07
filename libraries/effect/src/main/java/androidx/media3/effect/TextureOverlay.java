@@ -15,6 +15,7 @@
  */
 package androidx.media3.effect;
 
+import androidx.media3.common.OverlaySettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Size;
@@ -73,7 +74,7 @@ public abstract class TextureOverlay {
    * @param presentationTimeUs The presentation timestamp of the current frame, in microseconds.
    */
   public OverlaySettings getOverlaySettings(long presentationTimeUs) {
-    return new OverlaySettings.Builder().build();
+    return new OverlaySettings() {};
   }
 
   /**

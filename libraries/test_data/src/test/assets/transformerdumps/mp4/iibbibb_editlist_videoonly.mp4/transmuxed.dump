@@ -1,5 +1,8 @@
 format video:
+  averageBitrate = 29212
+  peakBitrate = 29211
   id = 1
+  containerMimeType = video/mp4
   sampleMimeType = video/avc
   codecs = avc1.F40016
   maxInputSize = 7838
@@ -10,13 +13,15 @@ format video:
   colorInfo:
     lumaBitdepth = 8
     chromaBitdepth = 8
-  metadata = entries=[TSSE: description=null: values=[Lavf60.3.100], Mp4Timestamp: creation time=0, modification time=0, timescale=1000]
+  language = und
+  metadata = entries=[TSSE: description=null: values=[Lavf60.3.100], Mp4Timestamp: creation time=0, modification time=0, timescale=1000, ThumbnailMetadata: presentationTimeUs=2500000]
   initializationData:
     data = length 30, hash 9DFD8D5
     data = length 9, hash FBADD682
 container metadata:
   entry = Mp4Timestamp: creation time=0, modification time=0, timescale=1000
   entry = TSSE: description=null: values=[Lavf60.3.100]
+  entry = ThumbnailMetadata: presentationTimeUs=2500000
 sample:
   trackType = video
   dataHashCode = 1491581480

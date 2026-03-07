@@ -16,12 +16,12 @@
 
 package androidx.media3.transformer;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.decoder.DecoderInputBuffer.BUFFER_REPLACEMENT_MODE_DISABLED;
 import static androidx.media3.exoplayer.source.SampleStream.FLAG_REQUIRE_FORMAT;
 import static androidx.media3.transformer.AssetLoader.SUPPORTED_OUTPUT_TYPE_DECODED;
 import static androidx.media3.transformer.AssetLoader.SUPPORTED_OUTPUT_TYPE_ENCODED;
 import static androidx.media3.transformer.TransformerUtil.getProcessedTrackType;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -225,8 +225,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
     if (shouldInitDecoder) {
       if (getProcessedTrackType(inputFormat.sampleMimeType) == C.TRACK_TYPE_VIDEO) {
-        // TODO(b/278259383): Move surface creation out of video sampleConsumer. Init decoder and
-        // get decoder output Format before init sampleConsumer.
+        // TODO: b/278259383 - Move surface creation out of video sampleConsumer. Init decoder and
+        //  get decoder output Format before init sampleConsumer.
         if (!ensureSampleConsumerInitialized()) {
           return false;
         }
@@ -263,8 +263,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
         }
         outputFormat = overrideOutputFormat(decoderOutputFormat);
       } else {
-        // TODO(b/278259383): Move surface creation out of video sampleConsumer. Init decoder and
-        // get decoderOutput Format before init sampleConsumer.
+        // TODO: b/278259383 - Move surface creation out of video sampleConsumer. Init decoder and
+        //  get decoderOutput Format before init sampleConsumer.
         outputFormat = overrideOutputFormat(inputFormat);
       }
     }

@@ -9,23 +9,29 @@ numberOfTracks = 4
 track 0:
   total output bytes = 1572110
   sample count = 23
+  track duration = 2100700
   format 0:
+    averageBitrate = 12593505
     id = 1
+    containerMimeType = video/mp4
     sampleMimeType = video/hevc
     codecs = hvc1.1.6.L153
     maxInputSize = 229249
     maxNumReorderSamples = 0
     width = 1024
     height = 768
+    decodedWidth = 1024
+    decodedHeight = 768
     frameRate = 27.61
     rotationDegrees = 90
+    maxSubLayers = 1
     colorInfo:
       colorSpace = 1
       colorRange = 1
       colorTransfer = 3
       lumaBitdepth = 8
       chromaBitdepth = 8
-    metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000]
+    metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000, ThumbnailMetadata: presentationTimeUs=1767244]
     initializationData:
       data = length 82, hash C508E2F1
   sample 0:
@@ -123,23 +129,29 @@ track 0:
 track 1:
   total output bytes = 151315
   sample count = 1
+  track duration = 466800
   format 0:
+    averageBitrate = 2593047
     id = 2
+    containerMimeType = video/mp4
     sampleMimeType = video/hevc
     codecs = hvc1.1.6.L153
     maxInputSize = 151345
     maxNumReorderSamples = 0
     width = 2048
     height = 1536
+    decodedWidth = 2048
+    decodedHeight = 1536
     frameRate = 2.14
     rotationDegrees = 90
+    maxSubLayers = 1
     colorInfo:
       colorSpace = 1
       colorRange = 1
       colorTransfer = 3
       lumaBitdepth = 8
       chromaBitdepth = 8
-    metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000]
+    metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000, ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 82, hash 1924973
   sample 0:
@@ -149,8 +161,11 @@ track 1:
 track 2:
   total output bytes = 7650
   sample count = 17
+  track duration = 2100700
   format 0:
+    averageBitrate = 99395
     id = 3
+    containerMimeType = video/mp4
     sampleMimeType = application/microvideo-meta-stream
     maxInputSize = 480
     metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000]
@@ -225,8 +240,11 @@ track 2:
 track 3:
   total output bytes = 59
   sample count = 1
+  track duration = 1133700
   format 0:
+    averageBitrate = 416
     id = 4
+    containerMimeType = video/mp4
     sampleMimeType = application/motionphoto-image-meta
     maxInputSize = 89
     metadata = entries=[Mp4Timestamp: creation time=3784612704, modification time=3784612704, timescale=10000]

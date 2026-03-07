@@ -16,23 +16,25 @@
 
 package androidx.media3.transformer;
 
+import static androidx.media3.common.C.TRACK_TYPE_AUDIO;
+import static androidx.media3.common.C.TRACK_TYPE_VIDEO;
+import static androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig.CODEC_INFO_RAW;
 import static androidx.media3.transformer.TestUtil.ASSET_URI_PREFIX;
 import static androidx.media3.transformer.TestUtil.FILE_AUDIO_RAW;
 import static androidx.media3.transformer.TestUtil.FILE_AUDIO_RAW_VIDEO;
-import static androidx.media3.transformer.TestUtil.addAudioDecoders;
-import static androidx.media3.transformer.TestUtil.addAudioEncoders;
 import static androidx.media3.transformer.TestUtil.createAudioEffects;
 import static androidx.media3.transformer.TestUtil.createPitchChangingAudioProcessor;
-import static androidx.media3.transformer.TestUtil.createTransformerBuilder;
 import static androidx.media3.transformer.TestUtil.getSequenceDumpFilePath;
-import static androidx.media3.transformer.TestUtil.removeEncodersAndDecoders;
 import static com.google.common.truth.Truth.assertThat;
 import static java.util.stream.Collectors.toList;
 
+import android.content.Context;
+import androidx.media3.common.C.TrackType;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.Util;
 import androidx.media3.test.utils.DumpFileAsserts;
+import androidx.media3.test.utils.TestTransformerBuilder;
+import androidx.media3.test.utils.robolectric.ShadowMediaCodecConfig;
 import androidx.test.core.app.ApplicationProvider;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
@@ -44,8 +46,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -63,17 +63,20 @@ public final class ParameterizedAudioExportTest {
   @Parameters(name = "{0}")
   public static List<SequenceConfig> params() {
     return new ImmutableList.Builder<SequenceConfig>()
-        .addAll(getAllPermutationsOfAllCombinations(AUDIO_ITEMS))
-        .addAll(getAllPermutationsOfAllCombinations(AUDIO_VIDEO_ITEMS))
+        .addAll(getAllPermutationsOfAllCombinations(AUDIO_ITEMS, ImmutableSet.of(TRACK_TYPE_AUDIO)))
+        .addAll(
+            getAllPermutationsOfAllCombinations(
+                AUDIO_VIDEO_ITEMS, ImmutableSet.of(TRACK_TYPE_AUDIO, TRACK_TYPE_VIDEO)))
         .build();
   }
 
-  private static List<SequenceConfig> getAllPermutationsOfAllCombinations(Set<ItemConfig> items) {
+  private static List<SequenceConfig> getAllPermutationsOfAllCombinations(
+      Set<ItemConfig> items, Set<@TrackType Integer> trackTypes) {
     return Sets.powerSet(items).stream()
         .filter(s -> !s.isEmpty())
         .flatMap(s -> Collections2.permutations(s).stream())
         .filter(permutation -> permutation.size() < 4)
-        .map(SequenceConfig::new)
+        .map(permutation -> new SequenceConfig(trackTypes, permutation))
         .collect(toList());
   }
 
@@ -125,26 +128,23 @@ public final class ParameterizedAudioExportTest {
 
   @Rule public final TemporaryFolder outputDir = new TemporaryFolder();
 
+  @Rule
+  public ShadowMediaCodecConfig shadowMediaCodecConfig =
+      ShadowMediaCodecConfig.withCodecs(
+          /* decoders= */ ImmutableList.of(CODEC_INFO_RAW),
+          /* encoders= */ ImmutableList.of(CODEC_INFO_RAW));
+
   @Parameter public SequenceConfig sequence;
+
+  private final Context context = ApplicationProvider.getApplicationContext();
 
   private final CapturingMuxer.Factory muxerFactory =
       new CapturingMuxer.Factory(/* handleAudioAsPcm= */ true);
 
-  @Before
-  public void setUp() {
-    addAudioDecoders(MimeTypes.AUDIO_RAW);
-    addAudioEncoders(MimeTypes.AUDIO_AAC);
-  }
-
-  @After
-  public void tearDown() {
-    removeEncodersAndDecoders();
-  }
-
   @Test
   public void export() throws Exception {
     Transformer transformer =
-        createTransformerBuilder(muxerFactory, /* enableFallback= */ false).build();
+        new TestTransformerBuilder(context).setMuxerFactory(muxerFactory).build();
 
     transformer.start(sequence.asComposition(), outputDir.newFile().getPath());
 
@@ -157,9 +157,11 @@ public final class ParameterizedAudioExportTest {
   }
 
   private static class SequenceConfig {
+    private final ImmutableSet<@TrackType Integer> trackTypes;
     private final List<ItemConfig> itemConfigs;
 
-    public SequenceConfig(List<ItemConfig> itemConfigs) {
+    private SequenceConfig(Set<@TrackType Integer> trackTypes, List<ItemConfig> itemConfigs) {
+      this.trackTypes = ImmutableSet.copyOf(trackTypes);
       this.itemConfigs = itemConfigs;
     }
 
@@ -169,9 +171,9 @@ public final class ParameterizedAudioExportTest {
         items.add(itemConfig.asItem());
       }
 
-      return new Composition.Builder(new EditedMediaItemSequence.Builder(items.build()).build())
+      return new Composition.Builder(
+              new EditedMediaItemSequence.Builder(trackTypes).addItems(items.build()).build())
           .setTransmuxVideo(true)
-          .experimentalSetForceAudioTrack(true)
           .build();
     }
 

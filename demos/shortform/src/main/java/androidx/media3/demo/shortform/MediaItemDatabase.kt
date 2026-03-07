@@ -15,8 +15,11 @@
  */
 package androidx.media3.demo.shortform
 
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 
+@OptIn(UnstableApi::class)
 class MediaItemDatabase {
 
   private val mediaUris =
@@ -29,7 +32,11 @@ class MediaItemDatabase {
     )
 
   fun get(index: Int): MediaItem {
-    val uri = mediaUris.get(index.mod(mediaUris.size))
-    return MediaItem.Builder().setUri(uri).setMediaId(index.toString()).build()
+    val uri = mediaUris[index.mod(mediaUris.size)]
+    return MediaItem.Builder()
+      .setUri(uri)
+      .setMediaId(index.toString())
+      .setCustomCacheKey(index.toString())
+      .build()
   }
 }

@@ -48,6 +48,7 @@ import java.util.concurrent.CountDownLatch;
  *
  * <p>Users can run {@link MediaControllerCompat} methods remotely with this object.
  */
+@SuppressWarnings("deprecation") // Test utils for deprecated MediaControllerCompat
 public class RemoteMediaControllerCompat {
 
   public static final int QUEUE_IS_NULL = -1;
@@ -217,13 +218,8 @@ public class RemoteMediaControllerCompat {
       binder.setShuffleMode(controllerId, shuffleMode);
     }
 
-    public void sendCustomAction(PlaybackStateCompat.CustomAction customAction, Bundle args)
-        throws RemoteException {
-      binder.sendCustomAction(controllerId, createBundleWithParcelable(customAction), args);
-    }
-
-    public void sendCustomAction(String action, Bundle args) throws RemoteException {
-      binder.sendCustomActionWithName(controllerId, action, args);
+    public void sendCustomActionByIndex(int customActionIndex) throws RemoteException {
+      binder.sendCustomActionByIndex(controllerId, customActionIndex);
     }
   }
 

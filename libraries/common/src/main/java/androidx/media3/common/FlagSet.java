@@ -15,13 +15,13 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkIndex;
-import static androidx.media3.common.util.Assertions.checkState;
+import static android.os.Build.VERSION.SDK_INT;
+import static com.google.common.base.Preconditions.checkElementIndex;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.util.SparseBooleanArray;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
@@ -196,6 +196,21 @@ public final class FlagSet {
     return false;
   }
 
+  /**
+   * Returns whether this FlagSet contains at least one of the flags in the other Flagset.
+   *
+   * @param other The flag.
+   * @return Whether the set contains the flag.
+   */
+  public boolean containsAny(FlagSet other) {
+    for (int i = 0; i < other.size(); i++) {
+      if (contains(other.get(i))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Returns the number of flags in this set. */
   public int size() {
     return flags.size();
@@ -209,7 +224,7 @@ public final class FlagSet {
    * @throws IndexOutOfBoundsException If index is outside the allowed range.
    */
   public int get(int index) {
-    checkIndex(index, /* start= */ 0, /* limit= */ size());
+    checkElementIndex(index, size());
     return flags.keyAt(index);
   }
 
@@ -222,7 +237,7 @@ public final class FlagSet {
       return false;
     }
     FlagSet that = (FlagSet) o;
-    if (Util.SDK_INT < 24) {
+    if (SDK_INT < 24) {
       // SparseBooleanArray.equals() is not implemented on API levels below 24.
       if (size() != that.size()) {
         return false;
@@ -240,7 +255,7 @@ public final class FlagSet {
 
   @Override
   public int hashCode() {
-    if (Util.SDK_INT < 24) {
+    if (SDK_INT < 24) {
       // SparseBooleanArray.hashCode() is not implemented on API levels below 24.
       int hashCode = size();
       for (int i = 0; i < size(); i++) {

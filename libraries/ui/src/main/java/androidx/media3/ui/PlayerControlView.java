@@ -15,10 +15,10 @@
  */
 package androidx.media3.ui;
 
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_GET_TIMELINE;
 import static androidx.media3.common.Player.COMMAND_GET_TRACKS;
-import static androidx.media3.common.Player.COMMAND_PLAY_PAUSE;
 import static androidx.media3.common.Player.COMMAND_SEEK_BACK;
 import static androidx.media3.common.Player.COMMAND_SEEK_FORWARD;
 import static androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM;
@@ -41,19 +41,20 @@ import static androidx.media3.common.Player.EVENT_SEEK_FORWARD_INCREMENT_CHANGED
 import static androidx.media3.common.Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED;
 import static androidx.media3.common.Player.EVENT_TIMELINE_CHANGED;
 import static androidx.media3.common.Player.EVENT_TRACKS_CHANGED;
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
 import static androidx.media3.common.util.Util.getDrawable;
 import static androidx.media3.common.util.Util.msToUs;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
 import android.os.Looper;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
@@ -78,13 +79,18 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
-import androidx.media3.common.util.Assertions;
+import androidx.media3.common.ViewProvider;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.util.RepeatModeUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,6 +98,7 @@ import java.util.Formatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
 
 /**
  * A view for controlling {@link Player} instances.
@@ -155,6 +162,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *       <ul>
  *         <li>Corresponding method: {@link #setAnimationEnabled(boolean)}
  *         <li>Default: true
+ *       </ul>
+ *   <li><b>{@code time_bar_scrubbing_enabled}</b> - Whether the time bar should {@linkplain
+ *       Player#seekTo seek} immediately as the user drags the scrubber around (true), or only seek
+ *       when the user releases the scrubber (false). This can only be used if the {@linkplain
+ *       #setPlayer connected player} is an instance of {@code androidx.media3.exoplayer.ExoPlayer}.
+ *       <ul>
+ *         <li>Corresponding method: {@link #setTimeBarScrubbingEnabled(boolean)}
+ *         <li>Default: {@code false}
  *       </ul>
  *   <li><b>{@code time_bar_min_update_interval}</b> - Specifies the minimum interval between time
  *       bar position updates.
@@ -288,6 +303,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 @UnstableApi
 public class PlayerControlView extends FrameLayout {
+  // TODO: b/422411856 - Add tests for PlayerControlView.
 
   static {
     MediaLibraryInfo.registerModule("media3.ui");
@@ -352,19 +368,29 @@ public class PlayerControlView extends FrameLayout {
   /** The maximum number of windows that can be shown in a multi-window time bar. */
   public static final int MAX_WINDOWS_FOR_MULTI_WINDOW_TIME_BAR = 100;
 
+  private static final String TAG = "PlayerControlView";
+
   /** The maximum interval between time bar position updates. */
   private static final int MAX_UPDATE_INTERVAL_MS = 1_000;
 
   // LINT.IfChange(playback_speeds)
   private static final float[] PLAYBACK_SPEEDS =
       new float[] {0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+  // LINT.ThenChange("../../../../res/values/strings.xml:playback_speeds")
 
   private static final int SETTINGS_PLAYBACK_SPEED_POSITION = 0;
   private static final int SETTINGS_AUDIO_TRACK_SELECTION_POSITION = 1;
 
   private final PlayerControlViewLayoutManager controlViewLayoutManager;
   private final Resources resources;
+  private final Handler handler;
   private final ComponentListener componentListener;
+  @Nullable private final Class<?> exoplayerClazz;
+  @Nullable private final Method setScrubbingModeEnabledMethod;
+  @Nullable private final Method isScrubbingModeEnabledMethod;
+  @Nullable private final Class<?> compositionPlayerClazz;
+  @Nullable private final Method compositionPlayerSetScrubbingModeEnabledMethod;
+  @Nullable private final Method compositionPlayerIsScrubbingModeEnabledMethod;
 
   @SuppressWarnings("deprecation") // Using the deprecated type for now.
   private final CopyOnWriteArrayList<VisibilityListener> visibilityListeners;
@@ -441,6 +467,7 @@ public class PlayerControlView extends FrameLayout {
   private boolean multiWindowTimeBar;
   private boolean scrubbing;
   private int showTimeoutMs;
+  private boolean timeBarScrubbingEnabled;
   private int timeBarMinUpdateIntervalMs;
   private @RepeatModeUtil.RepeatToggleModes int repeatToggleModes;
   private long[] adGroupTimesMs;
@@ -571,6 +598,8 @@ public class PlayerControlView extends FrameLayout {
         showSubtitleButton =
             a.getBoolean(R.styleable.PlayerControlView_show_subtitle_button, showSubtitleButton);
         showVrButton = a.getBoolean(R.styleable.PlayerControlView_show_vr_button, showVrButton);
+        timeBarScrubbingEnabled =
+            a.getBoolean(R.styleable.PlayerControlView_time_bar_scrubbing_enabled, false);
         setTimeBarMinUpdateInterval(
             a.getInt(
                 R.styleable.PlayerControlView_time_bar_min_update_interval,
@@ -596,6 +625,40 @@ public class PlayerControlView extends FrameLayout {
     extraAdGroupTimesMs = new long[0];
     extraPlayedAdGroups = new boolean[0];
     updateProgressAction = this::updateProgress;
+
+    // TODO: b/422124120 - Make scrubbing mode part of BasePlayer or Player.
+    Class<?> exoplayerClazz = null;
+    Method setScrubbingModeEnabledMethod = null;
+    Method isScrubbingModeEnabledMethod = null;
+    try {
+      exoplayerClazz = Class.forName("androidx.media3.exoplayer.ExoPlayer");
+      setScrubbingModeEnabledMethod =
+          exoplayerClazz.getMethod("setScrubbingModeEnabled", boolean.class);
+      isScrubbingModeEnabledMethod = exoplayerClazz.getMethod("isScrubbingModeEnabled");
+    } catch (ClassNotFoundException | NoSuchMethodException e) {
+      // Expected if ExoPlayer module not available.
+    }
+    this.exoplayerClazz = exoplayerClazz;
+    this.setScrubbingModeEnabledMethod = setScrubbingModeEnabledMethod;
+    this.isScrubbingModeEnabledMethod = isScrubbingModeEnabledMethod;
+
+    Class<?> compositionPlayerClazz = null;
+    Method compositionPlayerSetScrubbingModeEnabledMethod = null;
+    Method compositionPlayerIsScrubbingModeEnabledMethod = null;
+    try {
+      compositionPlayerClazz = Class.forName("androidx.media3.transformer.CompositionPlayer");
+      compositionPlayerSetScrubbingModeEnabledMethod =
+          compositionPlayerClazz.getMethod("setScrubbingModeEnabled", boolean.class);
+      compositionPlayerIsScrubbingModeEnabledMethod =
+          compositionPlayerClazz.getMethod("isScrubbingModeEnabled");
+    } catch (ClassNotFoundException | NoSuchMethodException e) {
+      // Expected if transformer module not available.
+    }
+    this.compositionPlayerClazz = compositionPlayerClazz;
+    this.compositionPlayerSetScrubbingModeEnabledMethod =
+        compositionPlayerSetScrubbingModeEnabledMethod;
+    this.compositionPlayerIsScrubbingModeEnabledMethod =
+        compositionPlayerIsScrubbingModeEnabledMethod;
 
     durationView = findViewById(R.id.exo_duration);
     positionView = findViewById(R.id.exo_position);
@@ -648,6 +711,7 @@ public class PlayerControlView extends FrameLayout {
       timeBar.addListener(componentListener);
     }
 
+    handler = Util.createHandlerForCurrentLooper();
     resources = context.getResources();
     playPauseButton = findViewById(R.id.exo_play_pause);
     if (playPauseButton != null) {
@@ -745,11 +809,6 @@ public class PlayerControlView extends FrameLayout {
     settingsView.setLayoutManager(new LinearLayoutManager(getContext()));
     settingsWindow =
         new PopupWindow(settingsView, LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, true);
-    if (Util.SDK_INT < 23) {
-      // Work around issue where tapping outside of the menu area or pressing the back button
-      // doesn't dismiss the menu as expected. See: https://github.com/google/ExoPlayer/issues/8272.
-      settingsWindow.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-    }
     settingsWindow.setOnDismissListener(componentListener);
     needToHideBars = true;
 
@@ -821,9 +880,8 @@ public class PlayerControlView extends FrameLayout {
    *     player.getApplicationLooper() == Looper.getMainLooper()}).
    */
   public void setPlayer(@Nullable Player player) {
-    Assertions.checkState(Looper.myLooper() == Looper.getMainLooper());
-    Assertions.checkArgument(
-        player == null || player.getApplicationLooper() == Looper.getMainLooper());
+    checkState(Looper.myLooper() == Looper.getMainLooper());
+    checkArgument(player == null || player.getApplicationLooper() == Looper.getMainLooper());
     if (this.player == player) {
       return;
     }
@@ -877,8 +935,8 @@ public class PlayerControlView extends FrameLayout {
       this.extraAdGroupTimesMs = new long[0];
       this.extraPlayedAdGroups = new boolean[0];
     } else {
-      extraPlayedAdGroups = checkNotNull(extraPlayedAdGroups);
-      Assertions.checkArgument(extraAdGroupTimesMs.length == extraPlayedAdGroups.length);
+      checkNotNull(extraPlayedAdGroups);
+      checkArgument(extraAdGroupTimesMs.length == extraPlayedAdGroups.length);
       this.extraAdGroupTimesMs = extraAdGroupTimesMs;
       this.extraPlayedAdGroups = extraPlayedAdGroups;
     }
@@ -1047,6 +1105,61 @@ public class PlayerControlView extends FrameLayout {
     controlViewLayoutManager.setShowButton(subtitleButton, showSubtitleButton);
   }
 
+  /**
+   * Sets a {@link ViewProvider} to be used for creating the media route button view.
+   *
+   * <p>If a provider is set, this {@link PlayerControlView} will obtain the media route button view
+   * from the provider and display it.
+   *
+   * <p>If {@code ViewProvider} is {@code null}, any previously set media route button will be
+   * removed.
+   *
+   * @param mediaRouteButtonViewProvider The {@link ViewProvider} to be used for providing the media
+   *     route button view, or {@code null} to remove the media route button.
+   * @throws IllegalStateException if the media route button fails to display due to an unexpected
+   *     error.
+   */
+  public void setMediaRouteButtonViewProvider(@Nullable ViewProvider mediaRouteButtonViewProvider) {
+    View mediaRouteButtonPlaceholder = findViewById(R.id.exo_media_route_button_placeholder);
+    if (mediaRouteButtonPlaceholder == null) {
+      throw new IllegalStateException("The media route button placeholder is missing.");
+    }
+    if (mediaRouteButtonViewProvider == null) {
+      mediaRouteButtonPlaceholder.setVisibility(GONE);
+      return;
+    }
+
+    ViewGroup parent = (ViewGroup) mediaRouteButtonPlaceholder.getParent();
+    if (parent == null) {
+      throw new IllegalStateException("The media route button placeholder has no parent view.");
+    }
+    Futures.addCallback(
+        mediaRouteButtonViewProvider.getView(parent),
+        new FutureCallback<View>() {
+          @Override
+          public void onSuccess(View mediaRouteButtonView) {
+            ViewGroup.LayoutParams layoutParams = mediaRouteButtonPlaceholder.getLayoutParams();
+            if (layoutParams == null) {
+              throw new IllegalStateException(
+                  "The media route button placeholder missing layout params.");
+            }
+            mediaRouteButtonView.setId(R.id.exo_media_route_button_placeholder);
+            mediaRouteButtonView.setLayoutParams(layoutParams);
+            int mediaRouteButtonIndex = parent.indexOfChild(mediaRouteButtonPlaceholder);
+            parent.removeView(mediaRouteButtonPlaceholder);
+            parent.addView(mediaRouteButtonView, mediaRouteButtonIndex);
+            mediaRouteButtonView.setVisibility(VISIBLE);
+            controlViewLayoutManager.setShowButton(mediaRouteButtonView, true);
+          }
+
+          @Override
+          public void onFailure(Throwable e) {
+            mediaRouteButtonPlaceholder.setVisibility(GONE);
+          }
+        },
+        handler::post);
+  }
+
   /** Returns whether the VR button is shown. */
   public boolean getShowVrButton() {
     return controlViewLayoutManager.getShowButton(vrButton);
@@ -1085,6 +1198,17 @@ public class PlayerControlView extends FrameLayout {
   /** Returns whether an animation is used to show and hide the playback controls. */
   public boolean isAnimationEnabled() {
     return controlViewLayoutManager.isAnimationEnabled();
+  }
+
+  /**
+   * Sets whether the time bar should {@linkplain Player#seekTo seek} immediately as the user drags
+   * the scrubber around (true), or only seek when the user releases the scrubber (false).
+   *
+   * <p>This can only be used if the {@linkplain #setPlayer connected player} is an instance of
+   * {@code androidx.media3.exoplayer.ExoPlayer}.
+   */
+  public void setTimeBarScrubbingEnabled(boolean timeBarScrubbingEnabled) {
+    this.timeBarScrubbingEnabled = timeBarScrubbingEnabled;
   }
 
   /**
@@ -1178,7 +1302,7 @@ public class PlayerControlView extends FrameLayout {
       playPauseButton.setImageDrawable(drawable);
       playPauseButton.setContentDescription(resources.getString(stringRes));
 
-      boolean enablePlayPause = shouldEnablePlayPauseButton();
+      boolean enablePlayPause = Util.shouldEnablePlayPauseButton(player);
       updateButton(enablePlayPause, playPauseButton);
     }
   }
@@ -1381,7 +1505,7 @@ public class PlayerControlView extends FrameLayout {
         }
         timeline.getWindow(i, window);
         if (window.durationUs == C.TIME_UNSET) {
-          Assertions.checkState(!multiWindowTimeBar);
+          checkState(!multiWindowTimeBar);
           break;
         }
         for (int j = window.firstPeriodIndex; j <= window.lastPeriodIndex; j++) {
@@ -1453,7 +1577,8 @@ public class PlayerControlView extends FrameLayout {
     }
     if (timeBar != null) {
       timeBar.setPosition(position);
-      timeBar.setBufferedPosition(bufferedPosition);
+      // Hide the buffering bar in scrubbing mode.
+      timeBar.setBufferedPosition(isScrubbingModeEnabled(player) ? position : bufferedPosition);
     }
     if (progressUpdateListener != null) {
       progressUpdateListener.onProgressUpdate(position, bufferedPosition);
@@ -1732,13 +1857,6 @@ public class PlayerControlView extends FrameLayout {
     }
   }
 
-  private boolean shouldEnablePlayPauseButton() {
-    return player != null
-        && player.isCommandAvailable(COMMAND_PLAY_PAUSE)
-        && (!player.isCommandAvailable(COMMAND_GET_TIMELINE)
-            || !player.getCurrentTimeline().isEmpty());
-  }
-
   @SuppressLint("InlinedApi")
   private static boolean isHandledMediaKey(int keyCode) {
     return keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
@@ -1801,6 +1919,34 @@ public class PlayerControlView extends FrameLayout {
     return a.getInt(R.styleable.PlayerControlView_repeat_toggle_modes, defaultValue);
   }
 
+  @EnsuresNonNullIf(result = true, expression = "#1")
+  private boolean isScrubbingModeEnabled(@Nullable Player player) {
+    try {
+      return (isExoPlayer(player)
+              && (boolean) checkNotNull(checkNotNull(isScrubbingModeEnabledMethod).invoke(player)))
+          || (isCompositionPlayer(player)
+              && (boolean)
+                  checkNotNull(
+                      checkNotNull(compositionPlayerIsScrubbingModeEnabledMethod).invoke(player)));
+    } catch (IllegalAccessException | InvocationTargetException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @EnsuresNonNullIf(result = true, expression = "#1")
+  private boolean isExoPlayer(@Nullable Player player) {
+    return player != null
+        && exoplayerClazz != null
+        && exoplayerClazz.isAssignableFrom(player.getClass());
+  }
+
+  @EnsuresNonNullIf(result = true, expression = "#1")
+  private boolean isCompositionPlayer(@Nullable Player player) {
+    return player != null
+        && compositionPlayerClazz != null
+        && compositionPlayerClazz.isAssignableFrom(player.getClass());
+  }
+
   private final class ComponentListener
       implements Player.Listener,
           TimeBar.OnScrubListener,
@@ -1858,6 +2004,30 @@ public class PlayerControlView extends FrameLayout {
         positionView.setText(Util.getStringForTime(formatBuilder, formatter, position));
       }
       controlViewLayoutManager.removeHideCallbacks();
+      if (player != null && timeBarScrubbingEnabled) {
+        if (isExoPlayer(player)) {
+          try {
+            checkNotNull(setScrubbingModeEnabledMethod).invoke(player, true);
+          } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+          }
+        } else if (isCompositionPlayer(player)) {
+          try {
+            checkNotNull(compositionPlayerSetScrubbingModeEnabledMethod).invoke(player, true);
+          } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+          }
+        } else {
+          Log.w(
+              TAG,
+              "Time bar scrubbing is enabled, but player is not an ExoPlayer or CompositionPlayer"
+                  + " instance, so ignoring (because we can't enable scrubbing mode). player.class="
+                  + checkNotNull(player).getClass());
+        }
+      }
+      if (isScrubbingModeEnabled(player)) {
+        seekToTimeBarPosition(player, position);
+      }
     }
 
     @Override
@@ -1865,13 +2035,31 @@ public class PlayerControlView extends FrameLayout {
       if (positionView != null) {
         positionView.setText(Util.getStringForTime(formatBuilder, formatter, position));
       }
+      if (isScrubbingModeEnabled(player)) {
+        seekToTimeBarPosition(player, position);
+      }
     }
 
     @Override
     public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
       scrubbing = false;
-      if (!canceled && player != null) {
-        seekToTimeBarPosition(player, position);
+      if (player != null) {
+        if (!canceled) {
+          seekToTimeBarPosition(player, position);
+        }
+        if (isExoPlayer(player)) {
+          try {
+            checkNotNull(setScrubbingModeEnabledMethod).invoke(player, false);
+          } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+          }
+        } else if (isCompositionPlayer(player)) {
+          try {
+            checkNotNull(compositionPlayerSetScrubbingModeEnabledMethod).invoke(player, false);
+          } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+          }
+        }
       }
       controlViewLayoutManager.resetHideCallbacks();
     }
@@ -2022,7 +2210,7 @@ public class PlayerControlView extends FrameLayout {
 
     public SettingViewHolder(View itemView) {
       super(itemView);
-      if (Util.SDK_INT < 26) {
+      if (SDK_INT < 26) {
         // Workaround for https://github.com/google/ExoPlayer/issues/9061.
         itemView.setFocusable(true);
       }
@@ -2333,7 +2521,7 @@ public class PlayerControlView extends FrameLayout {
 
     public SubSettingViewHolder(View itemView) {
       super(itemView);
-      if (Util.SDK_INT < 26) {
+      if (SDK_INT < 26) {
         // Workaround for https://github.com/google/ExoPlayer/issues/9061.
         itemView.setFocusable(true);
       }

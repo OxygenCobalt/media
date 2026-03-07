@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer;
 
+import android.os.SystemClock;
 import androidx.media3.common.C;
 import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
@@ -81,6 +82,18 @@ public interface LoadControl {
     public final long targetLiveOffsetUs;
 
     /**
+     * Sets the time at which the last rebuffering occurred, in milliseconds since boot including
+     * time spent in sleep.
+     *
+     * <p>The time base used is the same as that measured by {@link SystemClock#elapsedRealtime}.
+     *
+     * <p><b>Note:</b> If rebuffer events are not known when the load is started or continued, or if
+     * no rebuffering has occurred, or if there have been any user interactions such as seeking or
+     * stopping the player, the value will be set to {@link C#TIME_UNSET}.
+     */
+    public final long lastRebufferRealtimeMs;
+
+    /**
      * Creates parameters for {@link LoadControl} methods.
      *
      * @param playerId See {@link #playerId}.
@@ -92,6 +105,7 @@ public interface LoadControl {
      * @param playWhenReady See {@link #playWhenReady}.
      * @param rebuffering See {@link #rebuffering}.
      * @param targetLiveOffsetUs See {@link #targetLiveOffsetUs}.
+     * @param lastRebufferRealtimeMs see {@link #lastRebufferRealtimeMs}
      */
     public Parameters(
         PlayerId playerId,
@@ -102,7 +116,8 @@ public interface LoadControl {
         float playbackSpeed,
         boolean playWhenReady,
         boolean rebuffering,
-        long targetLiveOffsetUs) {
+        long targetLiveOffsetUs,
+        long lastRebufferRealtimeMs) {
       this.playerId = playerId;
       this.timeline = timeline;
       this.mediaPeriodId = mediaPeriodId;
@@ -112,6 +127,7 @@ public interface LoadControl {
       this.playWhenReady = playWhenReady;
       this.rebuffering = rebuffering;
       this.targetLiveOffsetUs = targetLiveOffsetUs;
+      this.lastRebufferRealtimeMs = lastRebufferRealtimeMs;
     }
   }
 
@@ -247,8 +263,11 @@ public interface LoadControl {
     throw new IllegalStateException("onReleased not implemented");
   }
 
-  /** Returns the {@link Allocator} that should be used to obtain media buffer allocations. */
-  Allocator getAllocator();
+  /**
+   * Returns the {@link Allocator} that should be used to obtain media buffer allocations for the
+   * specified {@link PlayerId}.
+   */
+  Allocator getAllocator(PlayerId playerId);
 
   /**
    * Returns the duration of media to retain in the buffer prior to the current playback position,
@@ -344,6 +363,7 @@ public interface LoadControl {
    * Called to determine whether preloading should be continued. If this method returns true, the
    * presented period will continue to load media.
    *
+   * @param playerId The {@linkplain PlayerId ID of the player} that wants to continue preloading.
    * @param timeline The Timeline containing the preload period that can be looked up with
    *     MediaPeriodId.periodUid.
    * @param mediaPeriodId The MediaPeriodId of the preloading period.
@@ -351,7 +371,7 @@ public interface LoadControl {
    * @return Whether the preloading should continue for the given period.
    */
   default boolean shouldContinuePreloading(
-      Timeline timeline, MediaPeriodId mediaPeriodId, long bufferedDurationUs) {
+      PlayerId playerId, Timeline timeline, MediaPeriodId mediaPeriodId, long bufferedDurationUs) {
     Log.w(
         "LoadControl",
         "shouldContinuePreloading needs to be implemented when playlist preloading is enabled");

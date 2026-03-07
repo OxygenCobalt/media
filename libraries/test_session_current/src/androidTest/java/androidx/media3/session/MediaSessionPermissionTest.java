@@ -164,7 +164,7 @@ public class MediaSessionPermissionTest {
   public void removeMediaItems() throws Exception {
     testOnCommandRequest(
         COMMAND_CHANGE_MEDIA_ITEMS,
-        /* mediaItems= */ MediaTestUtils.createMediaItems(/* size= */ 5),
+        /* mediaItems= */ MediaTestUtils.createMediaItems(/* size= */ 5, /* buildWithUri= */ true),
         controller -> controller.removeMediaItems(/* fromIndex= */ 0, /* toIndex= */ 1));
   }
 
@@ -280,9 +280,7 @@ public class MediaSessionPermissionTest {
   public void setTrackSelectionParameters() throws Exception {
     testOnCommandRequest(
         COMMAND_SET_TRACK_SELECTION_PARAMETERS,
-        controller ->
-            controller.setTrackSelectionParameters(
-                TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT));
+        controller -> controller.setTrackSelectionParameters(TrackSelectionParameters.DEFAULT));
   }
 
   @Test

@@ -15,7 +15,7 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import android.os.Bundle;
 import androidx.annotation.Nullable;
@@ -24,7 +24,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Player;
 import androidx.media3.common.Player.PositionInfo;
 import androidx.media3.common.util.Util;
-import com.google.common.base.Objects;
+import java.util.Objects;
 
 /**
  * Position information to be shared between session and controller.
@@ -116,7 +116,7 @@ import com.google.common.base.Objects;
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(positionInfo, isPlayingAd);
+    return Objects.hash(positionInfo, isPlayingAd);
   }
 
   @Override

@@ -19,29 +19,78 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.os.bundleOf
+import androidx.datastore.core.DataStore
+import androidx.datastore.core.Serializer
+import androidx.datastore.dataStore
+import androidx.media3.cast.CastPlayer
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.Player
+import androidx.media3.common.listenTo
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.demo.session.service.R
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.util.EventLogger
-import androidx.media3.session.MediaConstants
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ControllerInfo
+import com.google.protobuf.ByteString
+import java.io.InputStream
+import java.io.OutputStream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.launch
 
 open class DemoPlaybackService : MediaLibraryService() {
 
   private lateinit var mediaLibrarySession: MediaLibrarySession
 
+  private val turnShuffleOnButton by
+    lazy @OptIn(UnstableApi::class) {
+      CommandButton.Builder(CommandButton.ICON_SHUFFLE_OFF)
+        .setDisplayName(getString(androidx.media3.ui.R.string.exo_controls_shuffle_off_description))
+        .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE, /* parameter= */ true)
+        .build()
+    }
+  private val turnShuffleOffButton by
+    lazy @OptIn(UnstableApi::class) {
+      CommandButton.Builder(CommandButton.ICON_SHUFFLE_ON)
+        .setDisplayName(getString(androidx.media3.ui.R.string.exo_controls_shuffle_on_description))
+        .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE, /* parameter= */ false)
+        .build()
+    }
+
   companion object {
     private const val NOTIFICATION_ID = 123
     private const val CHANNEL_ID = "demo_session_notification_channel_id"
+  }
+
+  object PreferenceDataStore {
+    private val Context._dataStore: DataStore<Preferences> by
+      dataStore(
+        fileName = "preferences.pb",
+        serializer =
+          object : Serializer<Preferences> {
+            override val defaultValue: Preferences = Preferences.getDefaultInstance()
+
+            override suspend fun readFrom(input: InputStream): Preferences =
+              Preferences.parseFrom(input)
+
+            override suspend fun writeTo(preferences: Preferences, output: OutputStream) =
+              preferences.writeTo(output)
+          },
+      )
+
+    fun get(context: Context) = context.applicationContext._dataStore
   }
 
   /**
@@ -102,28 +151,87 @@ open class DemoPlaybackService : MediaLibraryService() {
     super.onDestroy()
   }
 
+  @OptIn(UnstableApi::class) // Player.listen
   private fun initializeSessionAndPlayer() {
-    val player =
-      ExoPlayer.Builder(this)
-        .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
-        .build()
-    player.addAnalyticsListener(EventLogger())
+    val player = buildPlayer()
+    // TODO: b/466098427 - Use scope tied to the lifecycle of DemoPlaybackService instead.
+    CoroutineScope(Dispatchers.Unconfined).launch {
+      player.listenTo(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION) {
+        storeCurrentMediaItem()
+      }
+    }
 
     mediaLibrarySession =
       MediaLibrarySession.Builder(this, player, createLibrarySessionCallback())
         .also { builder -> getSingleTopActivity()?.let { builder.setSessionActivity(it) } }
         .build()
-        .also { mediaLibrarySession ->
-          // The media session always supports skip, except at the start and end of the playlist.
-          // Reserve the space for the skip action in these cases to avoid custom actions jumping
-          // around when the user skips.
-          mediaLibrarySession.setSessionExtras(
-            bundleOf(
-              MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV to true,
-              MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT to true,
-            )
-          )
+
+    mediaLibrarySession.setCustomShuffleModeButton()
+    // TODO: b/466098427 - Use scope tied to the lifecycle of DemoPlaybackService instead.
+    CoroutineScope(Dispatchers.Unconfined).launch {
+      player.listenTo(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED) {
+        mediaLibrarySession.setCustomShuffleModeButton()
+      }
+    }
+  }
+
+  @OptIn(UnstableApi::class)
+  protected open fun buildPlayer(): Player {
+    val exoPlayer =
+      ExoPlayer.Builder(this)
+        .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus= */ true)
+        .build()
+    exoPlayer.addAnalyticsListener(EventLogger())
+    return CastPlayer.Builder(/* context= */ this).setLocalPlayer(exoPlayer).build()
+  }
+
+  @OptIn(UnstableApi::class)
+  private fun MediaSession.setCustomShuffleModeButton() =
+    setMediaButtonPreferences(
+      listOf(if (player.shuffleModeEnabled) turnShuffleOffButton else turnShuffleOnButton)
+    )
+
+  @OptIn(UnstableApi::class) // BitmapLoader
+  private fun storeCurrentMediaItem() {
+    val mediaID = mediaLibrarySession.player.currentMediaItem?.mediaId
+    if (mediaID == null) {
+      return
+    }
+    val artworkUri = mediaLibrarySession.player.currentMediaItem?.mediaMetadata?.artworkUri
+    val positionMs = mediaLibrarySession.player.currentPosition
+    val durationMs = mediaLibrarySession.player.duration
+    CoroutineScope(Dispatchers.IO).launch {
+      PreferenceDataStore.get(this@DemoPlaybackService).updateData { preferences ->
+        val builder =
+          preferences
+            .toBuilder()
+            .setMediaId(mediaID)
+            .setPositionMs(positionMs)
+            .setDurationMs(durationMs)
+        val artworkUriString = artworkUri?.toString() ?: ""
+        if (artworkUriString != preferences.artworkOriginalUri) {
+          builder.setArtworkOriginalUri(artworkUriString)
+          if (artworkUri == null) {
+            builder.setArtworkData(ByteString.EMPTY)
+          } else {
+            try {
+              val bitmap = mediaLibrarySession.bitmapLoader.loadBitmap(artworkUri).await()
+              val outputStream = ByteString.newOutput()
+              bitmap.compress(Bitmap.CompressFormat.PNG, /* quality= */ 90, outputStream)
+              builder.setArtworkData(outputStream.toByteString())
+            } catch (_: Exception) {
+              // Bitmap loading failed. Do nothing.
+            }
+          }
         }
+        builder.build()
+      }
+    }
+  }
+
+  suspend fun retrieveLastStoredMediaItem(): Preferences? {
+    val preferences = PreferenceDataStore.get(this).data.first()
+    return if (preferences != Preferences.getDefaultInstance()) preferences else null
   }
 
   @OptIn(UnstableApi::class) // MediaSessionService.Listener
@@ -147,7 +255,7 @@ open class DemoPlaybackService : MediaLibraryService() {
       ensureNotificationChannel(notificationManagerCompat)
       val builder =
         NotificationCompat.Builder(this@DemoPlaybackService, CHANNEL_ID)
-          .setSmallIcon(R.drawable.media3_notification_small_icon)
+          .setSmallIcon(androidx.media3.session.R.drawable.media3_notification_small_icon)
           .setContentTitle(getString(R.string.notification_content_title))
           .setStyle(
             NotificationCompat.BigTextStyle().bigText(getString(R.string.notification_content_text))

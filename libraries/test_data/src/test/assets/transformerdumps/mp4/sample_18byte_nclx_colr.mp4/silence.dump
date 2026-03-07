@@ -1,11 +1,14 @@
 format audio:
   averageBitrate = 131072
-  sampleMimeType = audio/mp4a-latm
+  sampleMimeType = audio/raw
   channelCount = 2
   sampleRate = 44100
   pcmEncoding = 2
 format video:
+  averageBitrate = 718290
+  peakBitrate = 718288
   id = 1
+  containerMimeType = video/mp4
   sampleMimeType = video/avc
   codecs = avc1.64001F
   maxInputSize = 36722
@@ -19,12 +22,14 @@ format video:
     colorTransfer = 3
     lumaBitdepth = 8
     chromaBitdepth = 8
-  metadata = entries=[Mp4Timestamp: creation time=3718109610, modification time=3718109610, timescale=1000]
+  language = und
+  metadata = entries=[Mp4Timestamp: creation time=3718109610, modification time=3718109610, timescale=1000, ThumbnailMetadata: presentationTimeUs=0]
   initializationData:
     data = length 29, hash 4746B5D9
     data = length 10, hash 7A0D0F2B
 container metadata:
   entry = Mp4Timestamp: creation time=3718109610, modification time=3718109610, timescale=1000
+  entry = ThumbnailMetadata: presentationTimeUs=0
 sample:
   trackType = audio
   dataHashCode = 1742602241

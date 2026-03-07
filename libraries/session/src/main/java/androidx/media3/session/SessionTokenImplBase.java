@@ -15,9 +15,9 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotEmpty;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.content.ComponentName;
 import android.media.session.MediaSession;
@@ -27,7 +27,7 @@ import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.core.app.BundleCompat;
 import androidx.media3.common.util.Util;
-import com.google.common.base.Objects;
+import java.util.Objects;
 
 /* package */ final class SessionTokenImplBase implements SessionToken.SessionTokenImpl {
 
@@ -55,8 +55,8 @@ import com.google.common.base.Objects;
     this(
         uid,
         type,
-        /* libraryVersion= */ 0,
-        /* interfaceVersion= */ 0,
+        SessionToken.UNKNOWN_SESSION_VERSION,
+        SessionToken.UNKNOWN_INTERFACE_VERSION,
         checkNotNull(serviceComponent).getPackageName(),
         /* serviceName= */ serviceComponent.getClassName(),
         /* componentName= */ serviceComponent,
@@ -112,7 +112,7 @@ import com.google.common.base.Objects;
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(
+    return Objects.hash(
         uid,
         type,
         libraryVersion,
@@ -136,9 +136,9 @@ import com.google.common.base.Objects;
         && interfaceVersion == other.interfaceVersion
         && TextUtils.equals(packageName, other.packageName)
         && TextUtils.equals(serviceName, other.serviceName)
-        && Objects.equal(componentName, other.componentName)
-        && Objects.equal(iSession, other.iSession)
-        && Objects.equal(platformToken, other.platformToken);
+        && Objects.equals(componentName, other.componentName)
+        && Objects.equals(iSession, other.iSession)
+        && Objects.equals(platformToken, other.platformToken);
   }
 
   @Override
@@ -257,14 +257,18 @@ import com.google.common.base.Objects;
     int uid = bundle.getInt(FIELD_UID);
     checkArgument(bundle.containsKey(FIELD_TYPE), "type should be set.");
     int type = bundle.getInt(FIELD_TYPE);
-    int libraryVersion = bundle.getInt(FIELD_LIBRARY_VERSION, /* defaultValue= */ 0);
-    int interfaceVersion = bundle.getInt(FIELD_INTERFACE_VERSION, /* defaultValue= */ 0);
-    String packageName =
-        checkNotEmpty(bundle.getString(FIELD_PACKAGE_NAME), "package name should be set.");
+    int libraryVersion =
+        bundle.getInt(
+            FIELD_LIBRARY_VERSION, /* defaultValue= */ SessionToken.UNKNOWN_SESSION_VERSION);
+    int interfaceVersion =
+        bundle.getInt(
+            FIELD_INTERFACE_VERSION, /* defaultValue= */ SessionToken.UNKNOWN_INTERFACE_VERSION);
+    String packageName = bundle.getString(FIELD_PACKAGE_NAME);
+    checkArgument(!TextUtils.isEmpty(packageName), "package name should be set.");
     String serviceName = bundle.getString(FIELD_SERVICE_NAME, /* defaultValue= */ "");
     @Nullable IBinder iSession = BundleCompat.getBinder(bundle, FIELD_ISESSION);
     @Nullable ComponentName componentName = bundle.getParcelable(FIELD_COMPONENT_NAME);
-    @Nullable Bundle extras = bundle.getBundle(FIELD_EXTRAS);
+    @Nullable Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS));
     @Nullable
     MediaSession.Token platformTokenFromBundle = bundle.getParcelable(FIELD_PLATFORM_TOKEN);
     if (platformTokenFromBundle != null) {

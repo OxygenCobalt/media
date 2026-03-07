@@ -16,6 +16,7 @@
 package androidx.media3.exoplayer.smoothstreaming;
 
 import static androidx.media3.exoplayer.trackselection.TrackSelectionUtil.createFallbackOptions;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 
 import android.net.Uri;
@@ -24,7 +25,6 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.UriUtil;
 import androidx.media3.datasource.DataSource;
@@ -193,7 +193,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
       @Nullable
       TrackEncryptionBox[] trackEncryptionBoxes =
           format.drmInitData != null
-              ? Assertions.checkNotNull(manifest.protectionElement).trackEncryptionBoxes
+              ? checkNotNull(manifest.protectionElement).trackEncryptionBoxes
               : null;
       int nalUnitLengthFieldLength = streamElement.type == C.TRACK_TYPE_VIDEO ? 4 : 0;
       Track track =
@@ -360,17 +360,14 @@ public class DefaultSsChunkSource implements SsChunkSource {
     @Nullable CmcdData.Factory cmcdDataFactory = null;
     if (cmcdConfiguration != null) {
       cmcdDataFactory =
-          new CmcdData.Factory(
-                  cmcdConfiguration,
-                  trackSelection,
-                  max(0, bufferedDurationUs),
-                  /* playbackRate= */ loadingInfo.playbackSpeed,
-                  /* streamingFormat= */ CmcdData.Factory.STREAMING_FORMAT_SS,
-                  /* isLive= */ manifest.isLive,
-                  /* didRebuffer= */ loadingInfo.rebufferedSince(lastChunkRequestRealtimeMs),
-                  /* isBufferEmpty= */ queue.isEmpty())
-              .setChunkDurationUs(chunkEndTimeUs - chunkStartTimeUs)
-              .setObjectType(CmcdData.Factory.getObjectType(trackSelection));
+          new CmcdData.Factory(cmcdConfiguration, CmcdData.STREAMING_FORMAT_SS)
+              .setTrackSelection(trackSelection)
+              .setBufferedDurationUs(max(0, bufferedDurationUs))
+              .setPlaybackRate(loadingInfo.playbackSpeed)
+              .setIsLive(manifest.isLive)
+              .setDidRebuffer(loadingInfo.rebufferedSince(lastChunkRequestRealtimeMs))
+              .setIsBufferEmpty(queue.isEmpty())
+              .setChunkDurationUs(chunkEndTimeUs - chunkStartTimeUs);
 
       if (chunkIndex + 1 < streamElement.chunkCount) {
         Uri nextUri = streamElement.buildRequestUri(manifestTrackIndex, chunkIndex + 1);

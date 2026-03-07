@@ -15,7 +15,7 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -23,6 +23,7 @@ import android.net.Uri;
 import android.opengl.Matrix;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.OverlaySettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.BitmapLoader;
 import androidx.media3.common.util.GlUtil;
@@ -79,7 +80,7 @@ public abstract class BitmapOverlay extends TextureOverlay {
    *     the frames.
    */
   public static BitmapOverlay createStaticBitmapOverlay(
-      Bitmap overlayBitmap, OverlaySettings overlaySettings) {
+      Bitmap overlayBitmap, StaticOverlaySettings overlaySettings) {
     return new BitmapOverlay() {
       @Override
       public Bitmap getBitmap(long presentationTimeUs) {
@@ -95,22 +96,22 @@ public abstract class BitmapOverlay extends TextureOverlay {
 
   /**
    * Creates a {@link BitmapOverlay} that shows the input at {@code overlayBitmapUri} with the same
-   * {@link OverlaySettings} throughout the whole video.
+   * {@link StaticOverlaySettings} throughout the whole video.
    *
    * @param context The {@link Context}.
    * @param overlayBitmapUri The {@link Uri} pointing to the resource to be converted into a bitmap.
-   * @param overlaySettings The {@link OverlaySettings} configuring how the overlay is displayed on
-   *     the frames.
+   * @param overlaySettings The {@link StaticOverlaySettings} configuring how the overlay is
+   *     displayed on the frames.
    */
   public static BitmapOverlay createStaticBitmapOverlay(
-      Context context, Uri overlayBitmapUri, OverlaySettings overlaySettings) {
+      Context context, Uri overlayBitmapUri, StaticOverlaySettings overlaySettings) {
     return new BitmapOverlay() {
       private @MonotonicNonNull Bitmap lastBitmap;
 
       @Override
       public Bitmap getBitmap(long presentationTimeUs) throws VideoFrameProcessingException {
         if (lastBitmap == null) {
-          BitmapLoader bitmapLoader = new DataSourceBitmapLoader(context);
+          BitmapLoader bitmapLoader = new DataSourceBitmapLoader.Builder(context).build();
           ListenableFuture<Bitmap> future = bitmapLoader.loadBitmap(overlayBitmapUri);
           try {
             lastBitmap = future.get();

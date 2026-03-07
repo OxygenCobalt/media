@@ -15,11 +15,11 @@
  */
 package androidx.media3.transformer.mh;
 
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_1080P_5_SECOND_HLG10;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_720P_4_SECOND_HDR10;
+import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
 import static androidx.media3.test.utils.TestUtil.retrieveTrackFormat;
 import static androidx.media3.transformer.AndroidTestUtil.FORCE_TRANSCODE_VIDEO_EFFECTS;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_1080P_5_SECOND_HLG10;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_720P_4_SECOND_HDR10;
-import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
@@ -36,6 +36,7 @@ import androidx.media3.transformer.Transformer;
 import androidx.media3.transformer.TransformerAndroidTestRunner;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.common.collect.ImmutableList;
 import java.util.Objects;
 import org.junit.Before;
 import org.junit.Rule;
@@ -74,7 +75,7 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
                 new Transformer.Listener() {
                   @Override
                   public void onFallbackApplied(
-                      MediaItem inputMediaItem,
+                      Composition composition,
                       TransformationRequest originalTransformationRequest,
                       TransformationRequest fallbackTransformationRequest) {
                     // Tone mapping flag shouldn't change in fallback when tone mapping is
@@ -88,7 +89,8 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
         new EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(MP4_ASSET_720P_4_SECOND_HDR10.uri)))
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
             .build();
 
@@ -134,7 +136,7 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
                 new Transformer.Listener() {
                   @Override
                   public void onFallbackApplied(
-                      MediaItem inputMediaItem,
+                      Composition composition,
                       TransformationRequest originalTransformationRequest,
                       TransformationRequest fallbackTransformationRequest) {
                     // Tone mapping flag shouldn't change in fallback when tone mapping is
@@ -149,7 +151,8 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
                 MediaItem.fromUri(Uri.parse(MP4_ASSET_1080P_5_SECOND_HLG10.uri)))
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
             .build();
 
@@ -195,7 +198,7 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
                 new Transformer.Listener() {
                   @Override
                   public void onFallbackApplied(
-                      MediaItem inputMediaItem,
+                      Composition composition,
                       TransformationRequest originalTransformationRequest,
                       TransformationRequest fallbackTransformationRequest) {
                     // Tone mapping flag shouldn't change in fallback when tone mapping is
@@ -210,7 +213,8 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
             .setEffects(FORCE_TRANSCODE_VIDEO_EFFECTS)
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
             .build();
 
@@ -256,7 +260,7 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
                 new Transformer.Listener() {
                   @Override
                   public void onFallbackApplied(
-                      MediaItem inputMediaItem,
+                      Composition composition,
                       TransformationRequest originalTransformationRequest,
                       TransformationRequest fallbackTransformationRequest) {
                     // Tone mapping flag shouldn't change in fallback when tone mapping is
@@ -272,7 +276,8 @@ public class ToneMapHdrToSdrUsingMediaCodecTest {
             .setEffects(FORCE_TRANSCODE_VIDEO_EFFECTS)
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC)
             .build();
 

@@ -49,7 +49,10 @@ public class ConnectionStateTest {
             MediaSessionStub.VERSION_INT,
             new MediaSessionStub(session.getImpl()),
             /* sessionActivity= */ PendingIntent.getActivity(
-                context, /* requestCode= */ 0, new Intent(), /* flags= */ 0),
+                context,
+                /* requestCode= */ 0,
+                new Intent(),
+                /* flags= */ PendingIntent.FLAG_IMMUTABLE),
             /* customLayout= */ ImmutableList.of(
                 new CommandButton.Builder(CommandButton.ICON_ARTIST)
                     .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT)
@@ -116,7 +119,7 @@ public class ConnectionStateTest {
             /* customLayout= */ ImmutableList.of(),
             /* mediaButtonPreferences= */ ImmutableList.of(
                 new CommandButton.Builder(CommandButton.ICON_HEART_FILLED)
-                    .setPlayerCommand(Player.COMMAND_PREPARE)
+                    .setSessionCommand(new SessionCommand("action", Bundle.EMPTY))
                     .build()),
             /* commandButtonsForMediaItems= */ ImmutableList.of(),
             SessionCommands.EMPTY,

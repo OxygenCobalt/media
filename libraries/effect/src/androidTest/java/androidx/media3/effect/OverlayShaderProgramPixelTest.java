@@ -15,7 +15,6 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.createArgb8888BitmapFromFocusedGlFramebuffer;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.createGlTextureFromBitmap;
@@ -23,6 +22,7 @@ import static androidx.media3.test.utils.BitmapPixelTestUtil.getBitmapAveragePix
 import static androidx.media3.test.utils.BitmapPixelTestUtil.maybeSaveTestBitmap;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
 import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
@@ -35,10 +35,10 @@ import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
+import androidx.media3.common.OverlaySettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Size;
-import androidx.media3.test.utils.BitmapPixelTestUtil;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -169,8 +169,8 @@ public class OverlayShaderProgramPixelTest {
   public void drawFrame_anchoredAndTranslatedBitmapOverlay_blendsBitmapIntoTopLeftOfFrame()
       throws Exception {
     Bitmap overlayBitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings =
-        new OverlaySettings.Builder()
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder()
             .setOverlayFrameAnchor(/* x= */ -1f, /* y= */ 1f)
             .setBackgroundFrameAnchor(/* x= */ -1f, /* y= */ 1f)
             .build();
@@ -198,8 +198,10 @@ public class OverlayShaderProgramPixelTest {
       drawFrame_overlayFrameAnchoredOnlyBitmapOverlay_anchorsOverlayFromTopLeftCornerOfFrame()
           throws Exception {
     Bitmap overlayBitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings =
-        new OverlaySettings.Builder().setOverlayFrameAnchor(/* x= */ -1f, /* y= */ 1f).build();
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder()
+            .setOverlayFrameAnchor(/* x= */ -1f, /* y= */ 1f)
+            .build();
     BitmapOverlay staticBitmapOverlay =
         BitmapOverlay.createStaticBitmapOverlay(overlayBitmap, overlaySettings);
     overlayShaderProgram =
@@ -222,7 +224,8 @@ public class OverlayShaderProgramPixelTest {
   @Test
   public void drawFrame_rotatedBitmapOverlay_blendsBitmapRotated90degrees() throws Exception {
     Bitmap overlayBitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings = new OverlaySettings.Builder().setRotationDegrees(90f).build();
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder().setRotationDegrees(90f).build();
     BitmapOverlay staticBitmapOverlay =
         BitmapOverlay.createStaticBitmapOverlay(overlayBitmap, overlaySettings);
     overlayShaderProgram =
@@ -245,7 +248,8 @@ public class OverlayShaderProgramPixelTest {
   @Test
   public void drawFrame_translucentBitmapOverlay_blendsBitmapIntoFrame() throws Exception {
     Bitmap bitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings = new OverlaySettings.Builder().setAlphaScale(0.5f).build();
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder().setAlphaScale(0.5f).build();
     BitmapOverlay translucentBitmapOverlay =
         BitmapOverlay.createStaticBitmapOverlay(bitmap, overlaySettings);
     overlayShaderProgram =
@@ -268,7 +272,8 @@ public class OverlayShaderProgramPixelTest {
   @Test
   public void drawFrame_transparentTextOverlay_blendsBitmapIntoFrame() throws Exception {
     SpannableString overlayText = new SpannableString(/* source= */ "Text styling");
-    OverlaySettings overlaySettings = new OverlaySettings.Builder().setAlphaScale(0f).build();
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder().setAlphaScale(0f).build();
     overlayText.setSpan(
         new ForegroundColorSpan(Color.GRAY),
         /* start= */ 0,
@@ -354,8 +359,8 @@ public class OverlayShaderProgramPixelTest {
         /* start= */ 0,
         /* end= */ 4,
         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-    OverlaySettings overlaySettings =
-        new OverlaySettings.Builder().setBackgroundFrameAnchor(0.5f, 0.5f).build();
+    StaticOverlaySettings overlaySettings =
+        new StaticOverlaySettings.Builder().setBackgroundFrameAnchor(0.5f, 0.5f).build();
     TextOverlay staticTextOverlay =
         TextOverlay.createStaticTextOverlay(overlayText, overlaySettings);
     overlayShaderProgram =
@@ -383,11 +388,12 @@ public class OverlayShaderProgramPixelTest {
         /* start= */ 0,
         /* end= */ 4,
         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-    OverlaySettings overlaySettings1 =
-        new OverlaySettings.Builder().setBackgroundFrameAnchor(0.5f, 0.5f).build();
+    StaticOverlaySettings overlaySettings1 =
+        new StaticOverlaySettings.Builder().setBackgroundFrameAnchor(0.5f, 0.5f).build();
     TextOverlay textOverlay = TextOverlay.createStaticTextOverlay(overlayText, overlaySettings1);
     Bitmap bitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings2 = new OverlaySettings.Builder().setAlphaScale(0.5f).build();
+    StaticOverlaySettings overlaySettings2 =
+        new StaticOverlaySettings.Builder().setAlphaScale(0.5f).build();
     BitmapOverlay bitmapOverlay = BitmapOverlay.createStaticBitmapOverlay(bitmap, overlaySettings2);
     overlayShaderProgram =
         new OverlayEffect(ImmutableList.of(textOverlay, bitmapOverlay))
@@ -414,12 +420,12 @@ public class OverlayShaderProgramPixelTest {
         /* start= */ 0,
         /* end= */ overlayText.length(),
         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-    OverlaySettings overlaySettings1 =
-        new OverlaySettings.Builder().setScale(/* x= */ 0.5f, /* y= */ 0.5f).build();
+    StaticOverlaySettings overlaySettings1 =
+        new StaticOverlaySettings.Builder().setScale(/* x= */ 0.5f, /* y= */ 0.5f).build();
     TextOverlay textOverlay = TextOverlay.createStaticTextOverlay(overlayText, overlaySettings1);
     Bitmap bitmap = readBitmap(OVERLAY_PNG_ASSET_PATH);
-    OverlaySettings overlaySettings2 =
-        new OverlaySettings.Builder().setScale(/* x= */ 3, /* y= */ 3).build();
+    StaticOverlaySettings overlaySettings2 =
+        new StaticOverlaySettings.Builder().setScale(/* x= */ 3, /* y= */ 3).build();
     BitmapOverlay bitmapOverlay = BitmapOverlay.createStaticBitmapOverlay(bitmap, overlaySettings2);
 
     overlayShaderProgram =
@@ -461,14 +467,14 @@ public class OverlayShaderProgramPixelTest {
 
   private static final class LetterBoxStretchedBitmapOverlay extends BitmapOverlay {
 
-    private final OverlaySettings.Builder overlaySettingsBuilder;
+    private final StaticOverlaySettings.Builder overlaySettingsBuilder;
     private final Bitmap overlayBitmap;
 
-    private @MonotonicNonNull OverlaySettings overlaySettings;
+    private @MonotonicNonNull StaticOverlaySettings overlaySettings;
 
     public LetterBoxStretchedBitmapOverlay(Bitmap overlayBitmap) {
       this.overlayBitmap = overlayBitmap;
-      overlaySettingsBuilder = new OverlaySettings.Builder();
+      overlaySettingsBuilder = new StaticOverlaySettings.Builder();
     }
 
     @Override

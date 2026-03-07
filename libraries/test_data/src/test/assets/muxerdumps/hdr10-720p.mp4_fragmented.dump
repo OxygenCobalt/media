@@ -8,17 +8,22 @@ track 0:
   sample count = 127
   format 0:
     id = 1
+    containerMimeType = video/mp4
     sampleMimeType = video/hevc
     codecs = hvc1.2.4.L153
     maxNumReorderSamples = 0
     width = 1280
     height = 720
+    decodedWidth = 1280
+    decodedHeight = 720
+    maxSubLayers = 1
     colorInfo:
       colorSpace = 6
       colorRange = 2
       colorTransfer = 6
       lumaBitdepth = 10
       chromaBitdepth = 10
+    metadata = entries=[Mp4Timestamp: creation time=100000000, modification time=500000000, timescale=10000]
     initializationData:
       data = length 99, hash 99842E5A
   sample 0:
@@ -536,11 +541,12 @@ track 1:
     averageBitrate = 256000
     peakBitrate = 256000
     id = 2
+    containerMimeType = video/mp4
     sampleMimeType = audio/mp4a-latm
     codecs = mp4a.40.2
     channelCount = 2
     sampleRate = 48000
-    language = ```
+    metadata = entries=[Mp4Timestamp: creation time=100000000, modification time=500000000, timescale=10000]
     initializationData:
       data = length 2, hash 560
   sample 0:

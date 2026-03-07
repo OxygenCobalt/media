@@ -17,7 +17,7 @@
 package androidx.media3.session;
 
 import static androidx.media3.test.session.common.TestUtils.TIMEOUT_MS;
-import static androidx.media3.test.session.common.TestUtils.getEventsAsList;
+import static androidx.media3.test.utils.TestUtil.getEventsAsList;
 import static androidx.test.platform.app.InstrumentationRegistry.getInstrumentation;
 import static com.google.common.truth.Truth.assertThat;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -45,8 +45,8 @@ import androidx.media3.common.util.Consumer;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession.ConnectionResult;
 import androidx.media3.session.MediaSession.ConnectionResult.AcceptedResultBuilder;
-import androidx.media3.test.session.R;
 import androidx.media3.test.session.common.HandlerThreadTestRule;
+import androidx.media3.test.session.common.TestUtils;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.LargeTest;
@@ -71,6 +71,7 @@ import org.junit.runner.RunWith;
  */
 @RunWith(AndroidJUnit4.class)
 @LargeTest
+@SuppressWarnings("deprecation") // Tests behavior of deprecated MediaControllerCompat
 public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest {
 
   private static final String TAG = "MCCPSActionWithMS3";
@@ -78,10 +79,14 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
   @Rule public final HandlerThreadTestRule threadTestRule = new HandlerThreadTestRule(TAG);
 
   @Test
-  public void playerWithCommandPlayPause_actionsPlayAndPauseAndPlayPauseAdvertised()
+  public void playerWithCommandPlayPauseAndShouldShowPlayButton_actionsPlayAndPlayPauseAdvertised()
       throws Exception {
     Player player =
-        createPlayerWithAvailableCommand(createDefaultPlayer(), Player.COMMAND_PLAY_PAUSE);
+        createPlayerWithAvailableCommand(
+            createPlayer(
+                /* onPostCreationTask= */ createdPlayer ->
+                    createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"))),
+            Player.COMMAND_PLAY_PAUSE);
     MediaSession mediaSession = createMediaSession(player);
     MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
 
@@ -89,7 +94,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
 
     assertThat(actions & PlaybackStateCompat.ACTION_PLAY_PAUSE).isNotEqualTo(0);
     assertThat(actions & PlaybackStateCompat.ACTION_PLAY).isNotEqualTo(0);
-    assertThat(actions & PlaybackStateCompat.ACTION_PAUSE).isNotEqualTo(0);
+    assertThat(actions & PlaybackStateCompat.ACTION_PAUSE).isEqualTo(0);
 
     CountDownLatch latch = new CountDownLatch(2);
     List<Boolean> receivedPlayWhenReady = new ArrayList<>();
@@ -109,6 +114,51 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
 
     assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(receivedPlayWhenReady).containsExactly(true, false).inOrder();
+
+    mediaSession.release();
+    releasePlayer(player);
+  }
+
+  @Test
+  public void
+      playerWithCommandPlayPauseAndShouldShowPauseButton_actionsPauseAndPlayPauseAdvertised()
+          throws Exception {
+    Player player =
+        createPlayerWithAvailableCommand(
+            createPlayer(
+                /* onPostCreationTask= */ createdPlayer -> {
+                  createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"));
+                  createdPlayer.prepare();
+                  createdPlayer.play();
+                }),
+            Player.COMMAND_PLAY_PAUSE);
+    MediaSession mediaSession = createMediaSession(player);
+    MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
+
+    long actions = controllerCompat.getPlaybackState().getActions();
+
+    assertThat(actions & PlaybackStateCompat.ACTION_PLAY_PAUSE).isNotEqualTo(0);
+    assertThat(actions & PlaybackStateCompat.ACTION_PLAY).isEqualTo(0);
+    assertThat(actions & PlaybackStateCompat.ACTION_PAUSE).isNotEqualTo(0);
+
+    CountDownLatch latch = new CountDownLatch(2);
+    List<Boolean> receivedPlayWhenReady = new ArrayList<>();
+    Player.Listener listener =
+        new Player.Listener() {
+          @Override
+          public void onPlayWhenReadyChanged(
+              boolean playWhenReady, @Player.PlayWhenReadyChangeReason int reason) {
+            receivedPlayWhenReady.add(playWhenReady);
+            latch.countDown();
+          }
+        };
+    player.addListener(listener);
+
+    controllerCompat.getTransportControls().pause();
+    controllerCompat.getTransportControls().play();
+
+    assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
+    assertThat(receivedPlayWhenReady).containsExactly(false, true).inOrder();
 
     mediaSession.release();
     releasePlayer(player);
@@ -235,7 +285,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItem(
-                      MediaItem.fromUri("asset://media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
                       /* startPositionMs= */ 500);
                   createdPlayer.prepare();
                 }),
@@ -277,7 +327,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItem(
-                      MediaItem.fromUri("asset://media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
                       /* startPositionMs= */ 500);
                   createdPlayer.prepare();
                 }),
@@ -325,7 +375,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
         createPlayerWithAvailableCommand(
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
-                  createdPlayer.setMediaItem(MediaItem.fromUri("asset://media/wav/sample.wav"));
+                  createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_FORWARD);
@@ -367,7 +417,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
         createPlayerWithExcludedCommand(
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
-                  createdPlayer.setMediaItem(MediaItem.fromUri("asset://media/wav/sample.wav"));
+                  createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_FORWARD);
@@ -416,7 +466,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
         createPlayerWithAvailableCommand(
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
-                  createdPlayer.setMediaItem(MediaItem.fromUri("asset://media/wav/sample.wav"));
+                  createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM);
@@ -458,7 +508,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
         createPlayerWithExcludedCommand(
             createPlayer(
                 /* onPostCreationTask= */ createdPlayer -> {
-                  createdPlayer.setMediaItem(MediaItem.fromUri("asset://media/wav/sample.wav"));
+                  createdPlayer.setMediaItem(MediaItem.fromUri("asset:///media/wav/sample.wav"));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM);
@@ -507,8 +557,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")));
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_TO_MEDIA_ITEM);
@@ -551,8 +601,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")));
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")));
                   createdPlayer.prepare();
                 }),
             Player.COMMAND_SEEK_TO_MEDIA_ITEM);
@@ -602,8 +652,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")));
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")));
                   createdPlayer.prepare();
                 }),
             /* availableCommands= */ new Player.Commands.Builder()
@@ -652,8 +702,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")));
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")));
                   createdPlayer.prepare();
                 }),
             /* availableCommands= */ new Player.Commands.Builder()
@@ -702,8 +752,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")));
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")));
                   createdPlayer.prepare();
                 }),
             /* availableCommands= */ Player.Commands.EMPTY,
@@ -756,8 +806,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")),
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")),
                       /* startIndex= */ 1,
                       /* startPositionMs= */ C.TIME_UNSET);
                   createdPlayer.prepare();
@@ -808,8 +858,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")),
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")),
                       /* startIndex= */ 1,
                       /* startPositionMs= */ C.TIME_UNSET);
                   createdPlayer.prepare();
@@ -860,8 +910,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 /* onPostCreationTask= */ createdPlayer -> {
                   createdPlayer.setMediaItems(
                       ImmutableList.of(
-                          MediaItem.fromUri("asset://media/wav/sample.wav"),
-                          MediaItem.fromUri("asset://media/wav/sample_rf64.wav")),
+                          MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                          MediaItem.fromUri("asset:///media/wav/sample_rf64.wav")),
                       /* startIndex= */ 1,
                       /* startPositionMs= */ C.TIME_UNSET);
                   createdPlayer.prepare();
@@ -921,7 +971,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                   MediaSession.ControllerInfo controller,
                   List<MediaItem> mediaItems) {
                 return Futures.immediateFuture(
-                    ImmutableList.of(MediaItem.fromUri("asset://media/wav/sample.wav")));
+                    ImmutableList.of(MediaItem.fromUri("asset:///media/wav/sample.wav")));
               }
             });
     MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
@@ -993,7 +1043,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                   MediaSession.ControllerInfo controller,
                   List<MediaItem> mediaItems) {
                 return Futures.immediateFuture(
-                    ImmutableList.of(MediaItem.fromUri("asset://media/wav/sample.wav")));
+                    ImmutableList.of(MediaItem.fromUri("asset:///media/wav/sample.wav")));
               }
             });
     MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
@@ -1272,7 +1322,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                   MediaSession.ControllerInfo controller,
                   List<MediaItem> mediaItems) {
                 return Futures.immediateFuture(
-                    ImmutableList.of(MediaItem.fromUri("asset://media/wav/sample.wav")));
+                    ImmutableList.of(MediaItem.fromUri("asset:///media/wav/sample.wav")));
               }
             });
     MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
@@ -1327,7 +1377,7 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                   MediaSession.ControllerInfo controller,
                   List<MediaItem> mediaItems) {
                 return Futures.immediateFuture(
-                    ImmutableList.of(MediaItem.fromUri("asset://media/wav/sample.wav")));
+                    ImmutableList.of(MediaItem.fromUri("asset:///media/wav/sample.wav")));
               }
             });
     MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
@@ -1640,15 +1690,18 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
             new CommandButton.Builder(CommandButton.ICON_PLAY)
                 .setDisplayName("button1")
                 .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
             new CommandButton.Builder(CommandButton.ICON_PAUSE)
                 .setDisplayName("button2")
                 .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
             new CommandButton.Builder(CommandButton.ICON_PAUSE)
                 .setDisplayName("button3")
                 .setEnabled(false)
                 .setSessionCommand(command3)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build());
     MediaSession.Callback callback =
         new MediaSession.Callback() {
@@ -1702,10 +1755,12 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
             new CommandButton.Builder(CommandButton.ICON_PLAY)
                 .setDisplayName("button1")
                 .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
             new CommandButton.Builder(CommandButton.ICON_PAUSE)
                 .setDisplayName("button2")
                 .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build());
     MediaSession.Callback callback =
         new MediaSession.Callback() {
@@ -1773,10 +1828,12 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
             new CommandButton.Builder(CommandButton.ICON_PLAY)
                 .setDisplayName("button1")
                 .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build(),
             new CommandButton.Builder(CommandButton.ICON_PAUSE)
                 .setDisplayName("button2")
                 .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
                 .build());
     MediaSession.Callback callback =
         new MediaSession.Callback() {
@@ -1827,6 +1884,360 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
                 .getExtras()
                 .get(MediaConstants.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT))
         .isEqualTo(CommandButton.ICON_PLAY);
+    mediaSession.release();
+    releasePlayer(player);
+  }
+
+  @Test
+  public void
+      playerWithMediaButtonPreferences_withBackForwardSlots_overridesPrevNextActionsWhenNeeded()
+          throws Exception {
+    Player player =
+        createPlayer(
+            /* onPostCreationTask= */ createdPlayer -> {
+              createdPlayer.setMediaItems(
+                  ImmutableList.of(
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav")));
+              createdPlayer.seekToDefaultPosition(/* mediaItemIndex= */ 1);
+            });
+    SessionCommand command1 = new SessionCommand("command1", Bundle.EMPTY);
+    SessionCommand command2 = new SessionCommand("command2", Bundle.EMPTY);
+    SessionCommand command3 = new SessionCommand("command3", Bundle.EMPTY);
+    SessionCommand commandIgnored = new SessionCommand("shouldBeIgnored", Bundle.EMPTY);
+    ImmutableList<CommandButton> mediaButtonPreferencesWithBackForward =
+        ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("button1")
+                .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("shouldBeIgnored")
+                .setSessionCommand(commandIgnored)
+                .setSlots(CommandButton.SLOT_BACK_SECONDARY)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setDisplayName("button2")
+                .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_FORWARD)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setDisplayName("button3")
+                .setSessionCommand(command3)
+                .setSlots(CommandButton.SLOT_BACK)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("shouldBeIgnored")
+                .setSessionCommand(commandIgnored)
+                .setSlots(CommandButton.SLOT_BACK)
+                .build());
+    ImmutableList<CommandButton> mediaButtonPreferencesWithoutBackForward =
+        ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("button1")
+                .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("shouldBeIgnored")
+                .setSessionCommand(commandIgnored)
+                .setSlots(CommandButton.SLOT_BACK_SECONDARY)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setDisplayName("button2")
+                .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build());
+    MediaSession.Callback callback =
+        new MediaSession.Callback() {
+          @Override
+          public ConnectionResult onConnect(
+              MediaSession session, MediaSession.ControllerInfo controller) {
+            return new AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(
+                    ConnectionResult.DEFAULT_SESSION_COMMANDS
+                        .buildUpon()
+                        .add(command1)
+                        .add(command2)
+                        .add(command3)
+                        .add(commandIgnored)
+                        .build())
+                .build();
+          }
+        };
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player)
+            .setCallback(callback)
+            .setMediaButtonPreferences(mediaButtonPreferencesWithBackForward)
+            .build();
+    connectMediaNotificationController(mediaSession);
+    MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
+    CountDownLatch controllerUpdatedLatch = new CountDownLatch(1);
+    MediaControllerCompat.Callback controllerCallback =
+        new MediaControllerCompat.Callback() {
+          @Override
+          public void onPlaybackStateChanged(PlaybackStateCompat state) {
+            controllerUpdatedLatch.countDown();
+          }
+        };
+
+    List<PlaybackStateCompat.CustomAction> customActions1 =
+        controllerCompat.getPlaybackState().getCustomActions();
+    Bundle extras1 = controllerCompat.getExtras();
+    if (extras1 == null) {
+      extras1 = new Bundle();
+    }
+    long actions1 = controllerCompat.getPlaybackState().getActions();
+    controllerCompat.registerCallback(controllerCallback, threadTestRule.getHandler());
+    mediaSession.setMediaButtonPreferences(mediaButtonPreferencesWithoutBackForward);
+    controllerUpdatedLatch.await(TIMEOUT_MS, MILLISECONDS);
+    List<PlaybackStateCompat.CustomAction> customActions2 =
+        controllerCompat.getPlaybackState().getCustomActions();
+    Bundle extras2 = controllerCompat.getExtras();
+    if (extras2 == null) {
+      extras2 = new Bundle();
+    }
+    long actions2 = controllerCompat.getPlaybackState().getActions();
+    mediaSession.release();
+    releasePlayer(player);
+
+    assertThat(customActions1).hasSize(3);
+    assertThat(customActions1.get(0).getAction()).isEqualTo("command3");
+    assertThat(customActions1.get(1).getAction()).isEqualTo("command2");
+    assertThat(customActions1.get(2).getAction()).isEqualTo("command1");
+    assertThat(
+            extras1.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_PREV))
+        .isFalse();
+    assertThat(
+            extras1.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_NEXT))
+        .isFalse();
+    assertThat(actions1 & PlaybackStateCompat.ACTION_SKIP_TO_NEXT).isEqualTo(0);
+    assertThat(actions1 & PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS).isEqualTo(0);
+    assertThat(customActions2).hasSize(2);
+    assertThat(customActions2.get(0).getAction()).isEqualTo("command1");
+    assertThat(customActions2.get(1).getAction()).isEqualTo("command2");
+    assertThat(
+            extras2.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_PREV))
+        .isTrue();
+    assertThat(
+            extras2.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_NEXT))
+        .isFalse();
+    assertThat(actions2 & PlaybackStateCompat.ACTION_SKIP_TO_NEXT).isNotEqualTo(0);
+    assertThat(actions2 & PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS).isNotEqualTo(0);
+  }
+
+  @Test
+  public void
+      playerWithMediaButtonPreferences_withForwardAndOverflowSlotsOnly_overridesPrevNextActionsWhenNeeded()
+          throws Exception {
+    Player player =
+        createPlayer(
+            /* onPostCreationTask= */ createdPlayer -> {
+              createdPlayer.setMediaItems(
+                  ImmutableList.of(
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav"),
+                      MediaItem.fromUri("asset:///media/wav/sample.wav")));
+              createdPlayer.seekToDefaultPosition(/* mediaItemIndex= */ 1);
+            });
+    SessionCommand command1 = new SessionCommand("command1", Bundle.EMPTY);
+    SessionCommand command2 = new SessionCommand("command2", Bundle.EMPTY);
+    ImmutableList<CommandButton> mediaButtonPreferences =
+        ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("button1")
+                .setSessionCommand(command1)
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setDisplayName("button2")
+                .setSessionCommand(command2)
+                .setSlots(CommandButton.SLOT_FORWARD)
+                .build());
+    MediaSession.Callback callback =
+        new MediaSession.Callback() {
+          @Override
+          public ConnectionResult onConnect(
+              MediaSession session, MediaSession.ControllerInfo controller) {
+            return new AcceptedResultBuilder(session)
+                .setAvailablePlayerCommands(Player.Commands.EMPTY)
+                .setAvailableSessionCommands(
+                    ConnectionResult.DEFAULT_SESSION_COMMANDS
+                        .buildUpon()
+                        .add(command1)
+                        .add(command2)
+                        .build())
+                .build();
+          }
+        };
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player)
+            .setCallback(callback)
+            .setMediaButtonPreferences(mediaButtonPreferences)
+            .build();
+    connectMediaNotificationController(mediaSession);
+    MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
+
+    List<PlaybackStateCompat.CustomAction> customActions =
+        controllerCompat.getPlaybackState().getCustomActions();
+    Bundle extras = controllerCompat.getExtras();
+    if (extras == null) {
+      extras = new Bundle();
+    }
+    long actions = controllerCompat.getPlaybackState().getActions();
+    mediaSession.release();
+    releasePlayer(player);
+
+    assertThat(customActions).hasSize(2);
+    assertThat(customActions.get(0).getAction()).isEqualTo("command2");
+    assertThat(customActions.get(1).getAction()).isEqualTo("command1");
+    assertThat(
+            extras.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_PREV))
+        .isTrue();
+    assertThat(
+            extras.getBoolean(
+                androidx.media.utils.MediaConstants
+                    .SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_NEXT))
+        .isFalse();
+    assertThat(actions & PlaybackStateCompat.ACTION_SKIP_TO_NEXT).isEqualTo(0);
+    assertThat(actions & PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS).isEqualTo(0);
+  }
+
+  @Test
+  public void
+      playerWithMediaButtonPreferences_commandButtonCustomIconUri_playbackStateChangedWithIconUriInExtras()
+          throws Exception {
+    Player player = createDefaultPlayer();
+    SessionCommand command = new SessionCommand("command1", Bundle.EMPTY);
+    ImmutableList<CommandButton> mediaButtonPreferences =
+        ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setDisplayName("button")
+                .setSessionCommand(command)
+                .setIconUri(Uri.parse("content://my_icon"))
+                .setSlots(CommandButton.SLOT_OVERFLOW)
+                .build());
+    MediaSession.Callback callback =
+        new MediaSession.Callback() {
+          @Override
+          public ConnectionResult onConnect(
+              MediaSession session, MediaSession.ControllerInfo controller) {
+            return new ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(
+                    ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(command).build())
+                .build();
+          }
+        };
+    MediaSession mediaSession = createMediaSession(player, callback);
+    connectMediaNotificationController(mediaSession);
+    MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
+    AtomicReference<List<PlaybackStateCompat.CustomAction>> reportedCustomActions =
+        new AtomicReference<>();
+    CountDownLatch latch = new CountDownLatch(1);
+    controllerCompat.registerCallback(
+        new MediaControllerCompat.Callback() {
+          @Override
+          public void onPlaybackStateChanged(PlaybackStateCompat state) {
+            reportedCustomActions.set(state.getCustomActions());
+            latch.countDown();
+          }
+        },
+        threadTestRule.getHandler());
+
+    getInstrumentation()
+        .runOnMainSync(() -> mediaSession.setMediaButtonPreferences(mediaButtonPreferences));
+
+    assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
+    assertThat(reportedCustomActions.get()).hasSize(1);
+    assertThat(
+            reportedCustomActions
+                .get()
+                .get(0)
+                .getExtras()
+                .getString(MediaConstants.EXTRAS_KEY_COMMAND_BUTTON_ICON_URI_COMPAT))
+        .isEqualTo("content://my_icon");
+    mediaSession.release();
+    releasePlayer(player);
+  }
+
+  @Test
+  public void
+      playerWithMediaButtonPreferences_withExtrasInSessionCommandAndCommandButton_forwardsExtrasToCustomAction()
+          throws Exception {
+    Player player = createDefaultPlayer();
+    Bundle testArgsCommand = new Bundle();
+    testArgsCommand.putString("args1", "test_command");
+    testArgsCommand.putString("args2", "test_command");
+    Bundle testArgsButton = new Bundle();
+    testArgsButton.putString("args1", "test_button");
+    testArgsButton.putString("args3", "test_button");
+    Bundle expectedCombinedParameters = new Bundle();
+    expectedCombinedParameters.putString("args1", "test_button");
+    expectedCombinedParameters.putString("args2", "test_command");
+    expectedCombinedParameters.putString("args3", "test_button");
+    SessionCommand command1 = new SessionCommand("command1", testArgsCommand);
+    SessionCommand command2 = new SessionCommand("command2", Bundle.EMPTY);
+    SessionCommand command3 = new SessionCommand("command3", testArgsCommand);
+    ImmutableList<CommandButton> mediaButtonPreferences =
+        ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_ALBUM)
+                .setSessionCommand(command1)
+                .setDisplayName("button1")
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_ALBUM)
+                .setSessionCommand(command2)
+                .setDisplayName("button2")
+                .setExtras(testArgsButton)
+                .build(),
+            new CommandButton.Builder(CommandButton.ICON_ALBUM)
+                .setSessionCommand(command3)
+                .setDisplayName("button3")
+                .setExtras(testArgsButton)
+                .build());
+    MediaSession.Callback callback =
+        new MediaSession.Callback() {
+          @Override
+          public ConnectionResult onConnect(
+              MediaSession session, MediaSession.ControllerInfo controller) {
+            return new AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(
+                    ConnectionResult.DEFAULT_SESSION_COMMANDS
+                        .buildUpon()
+                        .add(command1)
+                        .add(command2)
+                        .add(command3)
+                        .build())
+                .build();
+          }
+        };
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player)
+            .setCallback(callback)
+            .setMediaButtonPreferences(mediaButtonPreferences)
+            .build();
+
+    connectMediaNotificationController(mediaSession);
+    MediaControllerCompat controllerCompat = createMediaControllerCompat(mediaSession);
+    List<PlaybackStateCompat.CustomAction> customActions =
+        controllerCompat.getPlaybackState().getCustomActions();
+
+    assertThat(customActions).hasSize(3);
+    assertThat(TestUtils.contains(customActions.get(0).getExtras(), testArgsCommand)).isTrue();
+    assertThat(TestUtils.contains(customActions.get(1).getExtras(), testArgsButton)).isTrue();
+    assertThat(TestUtils.contains(customActions.get(2).getExtras(), expectedCombinedParameters))
+        .isTrue();
     mediaSession.release();
     releasePlayer(player);
   }
@@ -1893,7 +2304,8 @@ public class MediaControllerCompatPlaybackStateCompatActionsWithMediaSessionTest
       throws Exception {
     MediaControllerCompat controllerCompat =
         new MediaControllerCompat(
-            ApplicationProvider.getApplicationContext(), mediaSession.getSessionCompatToken());
+            ApplicationProvider.getApplicationContext(),
+            MediaSessionCompat.Token.fromToken(mediaSession.getPlatformToken()));
     CountDownLatch controllerReady = new CountDownLatch(1);
     controllerCompat.registerCallback(
         new MediaControllerCompat.Callback() {

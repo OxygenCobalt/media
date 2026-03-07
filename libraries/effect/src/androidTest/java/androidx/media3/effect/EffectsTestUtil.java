@@ -16,22 +16,21 @@
 package androidx.media3.effect;
 
 import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_SURFACE;
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceArgb8888;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.maybeSaveTestBitmap;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
 import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.text.SpannableString;
 import androidx.annotation.Nullable;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
-import androidx.media3.common.FrameInfo;
+import androidx.media3.common.Format;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.Consumer;
@@ -41,8 +40,10 @@ import androidx.media3.test.utils.TextureBitmapReader;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Utilities for effects tests. */
@@ -133,13 +134,14 @@ import java.util.concurrent.atomic.AtomicReference;
                         @Override
                         public void onInputStreamRegistered(
                             @VideoFrameProcessor.InputType int inputType,
-                            List<Effect> effects,
-                            FrameInfo frameInfo) {
+                            Format format,
+                            List<Effect> effects) {
                           videoFrameProcessorReadyCountDownLatch.countDown();
                         }
 
                         @Override
-                        public void onOutputFrameAvailableForRendering(long presentationTimeUs) {
+                        public void onOutputFrameAvailableForRendering(
+                            long presentationTimeUs, boolean isRedrawnFrame) {
                           actualPresentationTimesUs.add(presentationTimeUs);
                         }
 
@@ -162,6 +164,11 @@ import java.util.concurrent.atomic.AtomicReference;
       checkNotNull(defaultVideoFrameProcessor)
           .registerInputStream(
               INPUT_TYPE_SURFACE,
+              new Format.Builder()
+                  .setColorInfo(ColorInfo.SDR_BT709_LIMITED)
+                  .setWidth(frameWidth)
+                  .setHeight(frameHeight)
+                  .build(),
               /* effects= */ ImmutableList.of(
                   (GlEffect) (context, useHdr) -> blankFrameProducer,
                   // Use an overlay effect to generate bitmaps with timestamps on it.
@@ -177,7 +184,7 @@ import java.util.concurrent.atomic.AtomicReference;
                             }
                           })),
                   glEffect),
-              new FrameInfo.Builder(ColorInfo.SDR_BT709_LIMITED, frameWidth, frameHeight).build());
+              /* offsetToAddUs= */ 0);
       videoFrameProcessorReadyCountDownLatch.await();
       checkNoVideoFrameProcessingExceptionIsThrown(videoFrameProcessingExceptionReference);
       blankFrameProducer.produceBlankFrames(presentationTimesUs);
@@ -200,6 +207,47 @@ import java.util.concurrent.atomic.AtomicReference;
     Exception videoFrameProcessingException = videoFrameProcessingExceptionReference.get();
     if (videoFrameProcessingException != null) {
       throw videoFrameProcessingException;
+    }
+  }
+
+  /** A fake {@link FrameProcessor} for capturing output frames. */
+  public static final class FakeFrameConsumer<I extends Frame> implements FrameConsumer<I> {
+    private Runnable onQueueFrame;
+    public final List<I> receivedFrames;
+    @Nullable private Runnable onCapacityAvailableCallback;
+    @Nullable private Executor onCapacityAvailableExecutor;
+
+    public FakeFrameConsumer(Runnable onQueueFrame) {
+      this.onQueueFrame = onQueueFrame;
+      this.receivedFrames = new ArrayList<>();
+    }
+
+    @Override
+    public boolean queueFrame(I frame) {
+      receivedFrames.add(frame);
+      onQueueFrame.run();
+      return true;
+    }
+
+    @Override
+    public void setOnCapacityAvailableCallback(
+        Executor executor, Runnable onCapacityAvailableCallback) {
+      this.onCapacityAvailableCallback = onCapacityAvailableCallback;
+      this.onCapacityAvailableExecutor = executor;
+    }
+
+    @Override
+    public void clearOnCapacityAvailableCallback() {
+      this.onCapacityAvailableCallback = null;
+      this.onCapacityAvailableExecutor = null;
+    }
+
+    public void setOnQueueFrame(Runnable onQueueFrame) {
+      this.onQueueFrame = onQueueFrame;
+    }
+
+    public void notifyCallbackListener() {
+      checkNotNull(onCapacityAvailableExecutor).execute(checkNotNull(onCapacityAvailableCallback));
     }
   }
 

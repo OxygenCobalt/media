@@ -15,7 +15,7 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkState;
 
 import androidx.media3.common.C;
 import androidx.media3.common.GlObjectsProvider;
@@ -39,6 +39,7 @@ public class PassthroughShaderProgram implements GlShaderProgram {
   private ErrorListener errorListener;
   private Executor errorListenerExecutor;
   private int texIdInUse;
+  private boolean released;
 
   public PassthroughShaderProgram() {
     inputListener = new InputListener() {};
@@ -76,7 +77,7 @@ public class PassthroughShaderProgram implements GlShaderProgram {
 
   @Override
   public void releaseOutputFrame(GlTextureInfo outputTexture) {
-    checkState(outputTexture.texId == texIdInUse);
+    checkState(outputTexture.texId == texIdInUse || released);
     texIdInUse = C.INDEX_UNSET;
     inputListener.onInputFrameProcessed(outputTexture);
     inputListener.onReadyToAcceptInputFrame();
@@ -96,6 +97,7 @@ public class PassthroughShaderProgram implements GlShaderProgram {
 
   @Override
   public void release() throws VideoFrameProcessingException {
+    released = true;
     texIdInUse = C.INDEX_UNSET;
   }
 

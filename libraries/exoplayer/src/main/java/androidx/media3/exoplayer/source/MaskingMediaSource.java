@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer.source;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 
 import android.util.Pair;
@@ -25,10 +26,9 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.Timeline.Window;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.upstream.Allocator;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
 /**
@@ -87,7 +87,7 @@ public final class MaskingMediaSource extends WrappingMediaSource {
     if (hasRealTimeline) {
       timeline =
           timeline.cloneWithUpdatedTimeline(
-              new TimelineWithUpdatedMediaItem(timeline.timeline, mediaItem));
+              TimelineWithUpdatedMediaItem.create(timeline.timeline, mediaItem));
     } else {
       timeline = MaskingTimeline.createWithPlaceholderTimeline(mediaItem);
     }
@@ -100,13 +100,6 @@ public final class MaskingMediaSource extends WrappingMediaSource {
       hasStartedPreparing = true;
       prepareChildSource();
     }
-  }
-
-  @Override
-  @SuppressWarnings("MissingSuperCall")
-  public void maybeThrowSourceInfoRefreshError() {
-    // Do nothing. Source info refresh errors will be thrown when calling
-    // MaskingMediaPeriod.maybeThrowPrepareError.
   }
 
   @Override
@@ -210,8 +203,7 @@ public final class MaskingMediaSource extends WrappingMediaSource {
     isPrepared = true;
     refreshSourceInfo(this.timeline);
     if (idForMaskingPeriodPreparation != null) {
-      Assertions.checkNotNull(unpreparedMaskingMediaPeriod)
-          .createPeriod(idForMaskingPeriodPreparation);
+      checkNotNull(unpreparedMaskingMediaPeriod).createPeriod(idForMaskingPeriodPreparation);
     }
   }
 
@@ -317,7 +309,7 @@ public final class MaskingMediaSource extends WrappingMediaSource {
     @Override
     public Window getWindow(int windowIndex, Window window, long defaultPositionProjectionUs) {
       timeline.getWindow(windowIndex, window, defaultPositionProjectionUs);
-      if (Util.areEqual(window.uid, replacedInternalWindowUid)) {
+      if (Objects.equals(window.uid, replacedInternalWindowUid)) {
         window.uid = Window.SINGLE_WINDOW_UID;
       }
       return window;
@@ -326,7 +318,7 @@ public final class MaskingMediaSource extends WrappingMediaSource {
     @Override
     public Period getPeriod(int periodIndex, Period period, boolean setIds) {
       timeline.getPeriod(periodIndex, period, setIds);
-      if (Util.areEqual(period.uid, replacedInternalPeriodUid) && setIds) {
+      if (Objects.equals(period.uid, replacedInternalPeriodUid) && setIds) {
         period.uid = MASKING_EXTERNAL_PERIOD_UID;
       }
       return period;
@@ -343,7 +335,7 @@ public final class MaskingMediaSource extends WrappingMediaSource {
     @Override
     public Object getUidOfPeriod(int periodIndex) {
       Object uid = timeline.getUidOfPeriod(periodIndex);
-      return Util.areEqual(uid, replacedInternalPeriodUid) ? MASKING_EXTERNAL_PERIOD_UID : uid;
+      return Objects.equals(uid, replacedInternalPeriodUid) ? MASKING_EXTERNAL_PERIOD_UID : uid;
     }
   }
 

@@ -15,8 +15,8 @@
  */
 package androidx.media3.exoplayer;
 
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.exoplayer.MediaPeriodQueue.areDurationsCompatible;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 
 import androidx.annotation.Nullable;
@@ -124,7 +124,12 @@ import java.io.IOException;
     mayRetainStreamFlags = new boolean[rendererCapabilities.length];
     mediaPeriod =
         createMediaPeriod(
-            info.id, mediaSourceList, allocator, info.startPositionUs, info.endPositionUs);
+            info.id,
+            mediaSourceList,
+            allocator,
+            info.startPositionUs,
+            info.endPositionUs,
+            info.isPrecededByTransitionFromSameStream);
   }
 
   /**
@@ -488,12 +493,16 @@ import java.io.IOException;
       MediaSourceList mediaSourceList,
       Allocator allocator,
       long startPositionUs,
-      long endPositionUs) {
+      long endPositionUs,
+      boolean isPrecededByTransitionFromSameStream) {
     MediaPeriod mediaPeriod = mediaSourceList.createPeriod(id, allocator, startPositionUs);
     if (endPositionUs != C.TIME_UNSET) {
       mediaPeriod =
           new ClippingMediaPeriod(
-              mediaPeriod, /* enableInitialDiscontinuity= */ true, /* startUs= */ 0, endPositionUs);
+              mediaPeriod,
+              /* enableInitialDiscontinuity= */ !isPrecededByTransitionFromSameStream,
+              /* startUs= */ 0,
+              endPositionUs);
     }
     return mediaPeriod;
   }

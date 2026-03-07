@@ -15,10 +15,11 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.opengl.Matrix;
 import android.util.Pair;
+import androidx.media3.common.OverlaySettings;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Size;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -62,7 +63,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     reset();
 
     // Anchor point of overlay within output frame.
-    Pair<Float, Float> backgroundFrameAnchor = overlaySettings.backgroundFrameAnchor;
+    Pair<Float, Float> backgroundFrameAnchor = overlaySettings.getBackgroundFrameAnchor();
     Matrix.translateM(
         backgroundFrameAnchorMatrix,
         MATRIX_OFFSET,
@@ -70,7 +71,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         backgroundFrameAnchor.second,
         /* z= */ 0f);
 
-    checkStateNotNull(backgroundSize);
+    checkNotNull(backgroundSize);
     Matrix.scaleM(
         aspectRatioMatrix,
         MATRIX_OFFSET,
@@ -79,13 +80,13 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         /* z= */ 1f);
 
     // Scale the image.
-    Pair<Float, Float> scale = overlaySettings.scale;
+    Pair<Float, Float> scale = overlaySettings.getScale();
     Matrix.scaleM(scaleMatrix, MATRIX_OFFSET, scale.first, scale.second, /* z= */ 1f);
     Matrix.invertM(scaleMatrixInv, MATRIX_OFFSET, scaleMatrix, MATRIX_OFFSET);
 
     // Translate the overlay within its frame. To position the overlay frame's anchor at the correct
     // position, it must be translated the opposite direction by the same magnitude.
-    Pair<Float, Float> overlayFrameAnchor = overlaySettings.overlayFrameAnchor;
+    Pair<Float, Float> overlayFrameAnchor = overlaySettings.getOverlayFrameAnchor();
     Matrix.translateM(
         overlayFrameAnchorMatrix,
         MATRIX_OFFSET,
@@ -97,7 +98,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     Matrix.rotateM(
         rotateMatrix,
         MATRIX_OFFSET,
-        overlaySettings.rotationDegrees,
+        overlaySettings.getRotationDegrees(),
         /* x= */ 0f,
         /* y= */ 0f,
         /* z= */ 1f);

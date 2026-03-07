@@ -15,25 +15,27 @@
  */
 package androidx.media3.transformer;
 
-import android.content.Context;
-import android.media.MediaFormat;
-import androidx.media3.common.MimeTypes;
+import static androidx.media3.test.utils.TestUtil.extractAllSamplesFromFilePath;
+import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import androidx.media3.common.C;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.audio.ChannelMixingAudioProcessor;
 import androidx.media3.common.audio.ChannelMixingMatrix;
 import androidx.media3.common.audio.SonicAudioProcessor;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
-import androidx.media3.muxer.Muxer;
+import androidx.media3.extractor.mp4.Mp4Extractor;
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
 import androidx.media3.test.utils.FakeClock;
+import androidx.media3.test.utils.FakeExtractorOutput;
+import androidx.media3.test.utils.FakeTrackOutput;
 import androidx.test.core.app.ApplicationProvider;
 import com.google.common.collect.ImmutableList;
-import com.google.common.primitives.Ints;
+import com.google.common.collect.Iterables;
+import java.io.IOException;
 import java.util.List;
 import java.util.StringJoiner;
-import org.robolectric.shadows.MediaCodecInfoBuilder;
-import org.robolectric.shadows.ShadowMediaCodec;
-import org.robolectric.shadows.ShadowMediaCodecList;
 
 /** Utility class for {@link Transformer} unit tests */
 @UnstableApi
@@ -41,7 +43,7 @@ public final class TestUtil {
 
   public static final String ASSET_URI_PREFIX = "asset:///media/";
   public static final String FILE_VIDEO_ONLY = "mp4/sample_18byte_nclx_colr.mp4";
-  public static final String FILE_AUDIO_ONLY = "mp3/test-cbr-info-header.mp3";
+  public static final String FILE_AUDIO_ONLY = "mp4/sample_audio_only.mp4";
   public static final String FILE_AUDIO_VIDEO = "mp4/sample.mp4";
   public static final String FILE_AUDIO_VIDEO_STEREO = "mp4/testvid_1022ms.mp4";
   public static final String FILE_AUDIO_RAW_VIDEO = "mp4/sowt-with-video.mov";
@@ -59,21 +61,19 @@ public final class TestUtil {
   public static final String FILE_AUDIO_ELST_SKIP_500MS = "mp4/long_edit_list_audioonly.mp4";
   public static final String FILE_VIDEO_ELST_TRIM_IDR_DURATION =
       "mp4/iibbibb_editlist_videoonly.mp4";
-
+  public static final String FILE_MP4_POSITIVE_SHIFT_EDIT_LIST = "mp4/edit_list_positive_shift.mp4";
+  public static final String FILE_MP4_VISUAL_TIMESTAMPS =
+      "mp4/internal_emulator_transformer_output_visual_timestamps.mp4";
+  public static final String FILE_JPG_PIXEL_MOTION_PHOTO =
+      "jpeg/pixel-motion-photo-2-hevc-tracks.jpg";
+  public static final String FILE_MP4_TRIM_OPTIMIZATION_270 =
+      "mp4/internal_emulator_transformer_output_270_rotated.mp4";
+  public static final String FILE_MP4_TRIM_OPTIMIZATION_180 =
+      "mp4/internal_emulator_transformer_output_180_rotated.mp4";
   private static final String DUMP_FILE_OUTPUT_DIRECTORY = "transformerdumps";
   private static final String DUMP_FILE_EXTENSION = "dump";
 
   private TestUtil() {}
-
-  public static Transformer.Builder createTransformerBuilder(
-      Muxer.Factory muxerFactory, boolean enableFallback) {
-    Context context = ApplicationProvider.getApplicationContext();
-    return new Transformer.Builder(context)
-        .setClock(new FakeClock(/* isAutoAdvancing= */ true))
-        .setMuxerFactory(muxerFactory)
-        .setEncoderFactory(
-            new DefaultEncoderFactory.Builder(context).setEnableFallback(enableFallback).build());
-  }
 
   public static Effects createAudioEffects(AudioProcessor... audioProcessors) {
     return new Effects(
@@ -102,7 +102,7 @@ public final class TestUtil {
     ChannelMixingAudioProcessor audioProcessor = new ChannelMixingAudioProcessor();
     for (int channel = 1; channel <= 6; channel++) {
       audioProcessor.putChannelMixingMatrix(
-          ChannelMixingMatrix.create(
+          ChannelMixingMatrix.createForConstantGain(
                   /* inputChannelCount= */ channel, /* outputChannelCount= */ channel)
               .scaleBy(scale));
     }
@@ -114,7 +114,7 @@ public final class TestUtil {
     ChannelMixingAudioProcessor audioProcessor = new ChannelMixingAudioProcessor();
     for (int inputChannelCount = 1; inputChannelCount <= 2; inputChannelCount++) {
       audioProcessor.putChannelMixingMatrix(
-          ChannelMixingMatrix.create(inputChannelCount, outputChannelCount));
+          ChannelMixingMatrix.createForConstantGain(inputChannelCount, outputChannelCount));
     }
     return audioProcessor;
   }
@@ -159,97 +159,49 @@ public final class TestUtil {
   }
 
   /**
-   * Adds an audio decoder for each {@linkplain MimeTypes mime type}.
+   * Returns the video timestamps of the given file from the {@link FakeTrackOutput}.
    *
-   * <p>Input buffers are copied directly to the output.
-   *
-   * <p>When adding codecs, {@link #removeEncodersAndDecoders()} should be called in the test class
-   * {@link org.junit.After @After} method.
+   * @param filePath The {@link String filepath} to get video timestamps for.
+   * @return The {@link List} of video timestamps.
    */
-  public static void addAudioDecoders(String... mimeTypes) {
-    for (String mimeType : mimeTypes) {
-      addCodec(
-          mimeType,
-          new ShadowMediaCodec.CodecConfig(
-              /* inputBufferSize= */ 100_000,
-              /* outputBufferSize= */ 100_000,
-              /* codec= */ (in, out) -> out.put(in)),
-          /* colorFormats= */ ImmutableList.of(),
-          /* isDecoder= */ true);
-    }
+  public static List<Long> getVideoSampleTimesUs(String filePath) throws IOException {
+    Mp4Extractor mp4Extractor = new Mp4Extractor(new DefaultSubtitleParserFactory());
+    FakeExtractorOutput fakeExtractorOutput =
+        extractAllSamplesFromFilePath(mp4Extractor, checkNotNull(filePath));
+    return Iterables.getOnlyElement(fakeExtractorOutput.getTrackOutputsForType(C.TRACK_TYPE_VIDEO))
+        .getSampleTimesUs();
   }
 
   /**
-   * Adds an audio encoder for each {@linkplain MimeTypes mime type}.
+   * Returns the audio timestamps of the given file from the {@link FakeTrackOutput}.
    *
-   * <p>Input buffers are copied directly to the output.
-   *
-   * <p>When adding codecs, {@link #removeEncodersAndDecoders()} should be called in the test class
-   * {@link org.junit.After @After} method.
+   * @param filePath The {@link String filepath} to get audio timestamps for.
+   * @return The {@link List} of audio timestamps.
    */
-  public static void addAudioEncoders(String... mimeTypes) {
-    addAudioEncoders(
-        new ShadowMediaCodec.CodecConfig(
-            /* inputBufferSize= */ 100_000,
-            /* outputBufferSize= */ 100_000,
-            /* codec= */ (in, out) -> out.put(in)),
-        mimeTypes);
+  public static List<Long> getAudioSampleTimesUs(String filePath) throws IOException {
+    Mp4Extractor mp4Extractor = new Mp4Extractor(new DefaultSubtitleParserFactory());
+    FakeExtractorOutput fakeExtractorOutput =
+        extractAllSamplesFromFilePath(mp4Extractor, checkNotNull(filePath));
+    return Iterables.getOnlyElement(fakeExtractorOutput.getTrackOutputsForType(C.TRACK_TYPE_AUDIO))
+        .getSampleTimesUs();
   }
 
   /**
-   * Adds an audio encoder for each {@linkplain MimeTypes mime type}.
-   *
-   * <p>Input buffers are handled according to the {@link
-   * org.robolectric.shadows.ShadowMediaCodec.CodecConfig} provided.
-   *
-   * <p>When adding codecs, {@link #removeEncodersAndDecoders()} should be called in the test's
-   * {@link org.junit.After @After} method.
+   * Returns a new {@link CompositionPlayer} built using {@link
+   * #createTestCompositionPlayerBuilder()}.
    */
-  public static void addAudioEncoders(
-      ShadowMediaCodec.CodecConfig codecConfig, String... mimeTypes) {
-    for (String mimeType : mimeTypes) {
-      addCodec(
-          mimeType, codecConfig, /* colorFormats= */ ImmutableList.of(), /* isDecoder= */ false);
-    }
+  public static CompositionPlayer createTestCompositionPlayer() {
+    return createTestCompositionPlayerBuilder().build();
   }
 
-  /** Clears all cached codecs. */
-  public static void removeEncodersAndDecoders() {
-    ShadowMediaCodec.clearCodecs();
-    ShadowMediaCodecList.reset();
-    EncoderUtil.clearCachedEncoders();
-  }
-
-  private static void addCodec(
-      String mimeType,
-      ShadowMediaCodec.CodecConfig codecConfig,
-      List<Integer> colorFormats,
-      boolean isDecoder) {
-    String codecName =
-        Util.formatInvariant(
-            isDecoder ? "exo.%s.decoder" : "exo.%s.encoder", mimeType.replace('/', '-'));
-    if (isDecoder) {
-      ShadowMediaCodec.addDecoder(codecName, codecConfig);
-    } else {
-      ShadowMediaCodec.addEncoder(codecName, codecConfig);
-    }
-
-    MediaFormat mediaFormat = new MediaFormat();
-    mediaFormat.setString(MediaFormat.KEY_MIME, mimeType);
-    MediaCodecInfoBuilder.CodecCapabilitiesBuilder codecCapabilities =
-        MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
-            .setMediaFormat(mediaFormat)
-            .setIsEncoder(!isDecoder);
-
-    if (!colorFormats.isEmpty()) {
-      codecCapabilities.setColorFormats(Ints.toArray(colorFormats));
-    }
-
-    ShadowMediaCodecList.addCodec(
-        MediaCodecInfoBuilder.newBuilder()
-            .setName(codecName)
-            .setIsEncoder(!isDecoder)
-            .setCapabilities(codecCapabilities.build())
-            .build());
+  /**
+   * Returns a new {@link CompositionPlayer.Builder} configured for unit tests.
+   *
+   * <p>This method sets an auto advancing {@link FakeClock} and {@link
+   * ApplicationProvider#getApplicationContext()} as context.
+   */
+  public static CompositionPlayer.Builder createTestCompositionPlayerBuilder() {
+    return new CompositionPlayer.Builder(getApplicationContext())
+        .setClock(new FakeClock(/* isAutoAdvancing= */ true));
   }
 }

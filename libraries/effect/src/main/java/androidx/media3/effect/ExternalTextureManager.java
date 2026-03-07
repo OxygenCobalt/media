@@ -15,9 +15,6 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.isRunningOnEmulator;
 import static androidx.media3.effect.DebugTraceUtil.COMPONENT_EXTERNAL_TEXTURE_MANAGER;
 import static androidx.media3.effect.DebugTraceUtil.COMPONENT_VFP;
@@ -25,6 +22,8 @@ import static androidx.media3.effect.DebugTraceUtil.EVENT_QUEUE_FRAME;
 import static androidx.media3.effect.DebugTraceUtil.EVENT_SIGNAL_EOS;
 import static androidx.media3.effect.DebugTraceUtil.EVENT_SURFACE_TEXTURE_INPUT;
 import static androidx.media3.effect.DebugTraceUtil.EVENT_SURFACE_TEXTURE_TRANSFORM_FIX;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.abs;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
@@ -77,6 +76,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   // LINT.IfChange(SURFACE_TEXTURE_TIMEOUT_MS)
   private static final long SURFACE_TEXTURE_TIMEOUT_MS = isRunningOnEmulator() ? 20_000 : 500;
 
+  // LINT.ThenChange(
+  // ../../../../../../../transformer/src/main/java/androidx/media3/transformer/Transformer.java:DEFAULT_MAX_DELAY_BETWEEN_MUXER_SAMPLES_MS)
+
   private final GlObjectsProvider glObjectsProvider;
   private @MonotonicNonNull ExternalShaderProgram externalShaderProgram;
   private final int externalTexId;
@@ -95,7 +97,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   // The frame that is sent downstream and is not done processing yet.
   @Nullable private FrameInfo currentFrame;
   @Nullable private FrameInfo lastRegisteredFrame;
-  private boolean repeatLastRegisteredFrame;
+  private boolean automaticReregistration;
 
   @Nullable private Future<?> forceSignalEndOfStreamFuture;
   @Nullable private CountDownLatch releaseAllFramesLatch;
@@ -108,7 +110,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    *
    * @param glObjectsProvider The {@link GlObjectsProvider} for using EGL and GLES.
    * @param videoFrameProcessingTaskExecutor The {@link VideoFrameProcessingTaskExecutor}.
-   * @param repeatLastRegisteredFrame If {@code true}, the last {@linkplain
+   * @param automaticReregistration If {@code true}, the last {@linkplain
    *     #registerInputFrame(FrameInfo) registered frame} is repeated for subsequent input textures
    *     made available on the {@linkplain #getInputSurface() input Surface}. This means the user
    *     can call {@link #registerInputFrame(FrameInfo)} only once. Else, every input frame needs to
@@ -124,12 +126,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public ExternalTextureManager(
       GlObjectsProvider glObjectsProvider,
       VideoFrameProcessingTaskExecutor videoFrameProcessingTaskExecutor,
-      boolean repeatLastRegisteredFrame,
+      boolean automaticReregistration,
       boolean experimentalAdjustSurfaceTextureTransformationMatrix)
       throws VideoFrameProcessingException {
     super(videoFrameProcessingTaskExecutor);
     this.glObjectsProvider = glObjectsProvider;
-    this.repeatLastRegisteredFrame = repeatLastRegisteredFrame;
+    this.automaticReregistration = automaticReregistration;
     this.experimentalAdjustSurfaceTextureTransformationMatrix =
         experimentalAdjustSurfaceTextureTransformationMatrix;
     try {
@@ -146,16 +148,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
             videoFrameProcessingTaskExecutor.submit(
                 () -> {
                   DebugTraceUtil.logEvent(COMPONENT_VFP, EVENT_SURFACE_TEXTURE_INPUT, C.TIME_UNSET);
+                  if (ExternalTextureManager.this.automaticReregistration) {
+                    pendingFrames.add(checkNotNull(lastRegisteredFrame));
+                  }
                   if (shouldRejectIncomingFrames) {
                     surfaceTexture.updateTexImage();
                     pendingFrames.poll();
                     if (releaseAllFramesLatch != null && pendingFrames.isEmpty()) {
                       releaseAllFramesLatch.countDown();
                     }
-                    Log.w(
-                        TAG,
-                        "Dropping frame received on SurfaceTexture: "
-                            + surfaceTexture.getTimestamp() / 1000);
                     return;
                   }
 
@@ -179,11 +180,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Override
   public void setSamplingGlShaderProgram(GlShaderProgram samplingGlShaderProgram) {
     checkState(samplingGlShaderProgram instanceof ExternalShaderProgram);
-    videoFrameProcessingTaskExecutor.submit(
-        () -> {
-          externalShaderProgramInputCapacity = 0;
-          this.externalShaderProgram = (ExternalShaderProgram) samplingGlShaderProgram;
-        });
+    // This method is called on the GL thread. Run it immediately to make sure any EOS signled
+    // after setting the shader program is propagated through the pipeline.
+    externalShaderProgramInputCapacity = 0;
+    this.externalShaderProgram = (ExternalShaderProgram) samplingGlShaderProgram;
   }
 
   @Override
@@ -198,8 +198,16 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
   @Override
   public void onReadyToAcceptInputFrame() {
+    ExternalShaderProgram shaderProgramPendingCapacityIncrement = externalShaderProgram;
     videoFrameProcessingTaskExecutor.submit(
         () -> {
+          if (shaderProgramPendingCapacityIncrement != this.externalShaderProgram) {
+            // TODO: b/428173453 - Revise threading model.
+            // It could happen that this method is scheduled to run after the externalShaderProgram
+            // is switched in setSamplingGlShaderProgram. If we don't check this, the capacity
+            // increment from the old sampling shader will be counted towards the new one.
+            return;
+          }
           externalShaderProgramInputCapacity++;
           maybeQueueFrameToExternalShaderProgram();
         });
@@ -227,10 +235,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public void setInputFrameInfo(FrameInfo inputFrameInfo, boolean automaticReregistration) {
     // Ignore inputFrameInfo when not automatically re-registering frames because it's also passed
     // to registerInputFrame.
-    repeatLastRegisteredFrame = automaticReregistration;
-    if (repeatLastRegisteredFrame) {
+    this.automaticReregistration = automaticReregistration;
+    if (automaticReregistration) {
       lastRegisteredFrame = inputFrameInfo;
-      surfaceTexture.setDefaultBufferSize(inputFrameInfo.width, inputFrameInfo.height);
+      surfaceTexture.setDefaultBufferSize(
+          inputFrameInfo.format.width, inputFrameInfo.format.height);
     }
   }
 
@@ -244,7 +253,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Override
   public void registerInputFrame(FrameInfo frame) {
     lastRegisteredFrame = frame;
-    if (!repeatLastRegisteredFrame) {
+    if (!automaticReregistration) {
       pendingFrames.add(frame);
     }
     videoFrameProcessingTaskExecutor.submit(() -> shouldRejectIncomingFrames = false);
@@ -253,9 +262,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   /**
    * Returns the number of {@linkplain #registerInputFrame(FrameInfo) registered} frames that have
    * not been sent to the downstream {@link ExternalShaderProgram} yet.
-   *
-   * <p>This method always returns 0 if {@code ExternalTextureManager} is built with {@code
-   * repeatLastRegisteredFrame} equal to {@code true}.
    *
    * <p>Can be called on any thread.
    */
@@ -268,6 +274,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public void signalEndOfCurrentInputStream() {
     videoFrameProcessingTaskExecutor.submit(
         () -> {
+          if (automaticReregistration) {
+            // We don't know how many frames are still pending in automatic mode, so reject further
+            // input and signal end-of-stream once the current frame (if any) has been handled until
+            // the next explicit registration.
+            shouldRejectIncomingFrames = true;
+          }
           if (pendingFrames.isEmpty() && currentFrame == null) {
             checkNotNull(externalShaderProgram).signalEndOfCurrentInputStream();
             DebugTraceUtil.logEvent(
@@ -395,8 +407,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     surfaceTexture.updateTexImage();
     availableFrameCount--;
 
-    FrameInfo currentFrame =
-        repeatLastRegisteredFrame ? checkNotNull(lastRegisteredFrame) : pendingFrames.element();
+    FrameInfo currentFrame = pendingFrames.element();
     this.currentFrame = currentFrame;
 
     externalShaderProgramInputCapacity--;
@@ -407,7 +418,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     long presentationTimeUs = (frameTimeNs / 1000) + offsetToAddUs;
     if (experimentalAdjustSurfaceTextureTransformationMatrix) {
       removeSurfaceTextureScaleFromTransformMatrix(
-          textureTransformMatrix, presentationTimeUs, currentFrame.width, currentFrame.height);
+          textureTransformMatrix,
+          presentationTimeUs,
+          currentFrame.format.width,
+          currentFrame.format.height);
     }
 
     checkNotNull(externalShaderProgram).setTextureTransformMatrix(textureTransformMatrix);
@@ -418,12 +432,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
                 externalTexId,
                 /* fboId= */ C.INDEX_UNSET,
                 /* rboId= */ C.INDEX_UNSET,
-                currentFrame.width,
-                currentFrame.height),
+                currentFrame.format.width,
+                currentFrame.format.height),
             presentationTimeUs);
-    if (!repeatLastRegisteredFrame) {
-      checkStateNotNull(pendingFrames.remove());
-    }
+    checkNotNull(pendingFrames.remove());
     DebugTraceUtil.logEvent(COMPONENT_VFP, EVENT_QUEUE_FRAME, presentationTimeUs);
     // If the queued frame is the last frame, end of stream will be signaled onInputFrameProcessed.
   }
@@ -538,8 +550,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    *       visibleLength}, rounded up to a near multiple of 2.
    *       <p>Maybe it's rounded up to a multiple of 16 because of H.264 macroblock sizes. Maybe
    *       it's rounded up to 128 because of SIMD instructions.
-   *       <p>bufferSize cannot be read reliably via {@link GLES31#glGetTexLevelParameteriv(int,
-   *       int, int, int[], int)} across devices.
+   *       <p>bufferSize cannot be read reliably via {@link
+   *       android.opengl.GLES31#glGetTexLevelParameteriv(int, int, int, int[], int)} across
+   *       devices.
    *       <p>bufferSize cannot be read reliably from the decoder's {@link
    *       android.media.MediaFormat} across decoder implementations.
    *   <li>trim = number of pixels trimmed by {@link SurfaceTexture} in addition to the cropped

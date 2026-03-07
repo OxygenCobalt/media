@@ -15,13 +15,13 @@
  */
 package androidx.media3.test.utils;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.DataReader;
 import androidx.media3.common.Format;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -34,19 +34,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /** A fake {@link TrackOutput}. */
 @UnstableApi
 public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
 
   public static final Factory DEFAULT_FACTORY =
-      (id, type) -> new FakeTrackOutput(/* deduplicateConsecutiveFormats= */ false);
+      (id, type) -> new FakeTrackOutput(type, /* deduplicateConsecutiveFormats= */ false);
 
   /** Factory for {@link FakeTrackOutput} instances. */
   public interface Factory {
     FakeTrackOutput create(int id, int type);
   }
 
+  private final @C.TrackType int type;
   private final boolean deduplicateConsecutiveFormats;
   private final ArrayList<DumpableSampleInfo> sampleInfos;
   private final ArrayList<Dumpable> dumpables;
@@ -54,16 +56,19 @@ public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
   private byte[] sampleData;
   private int formatCount;
   private boolean receivedSampleInFormat;
+  private long durationUs;
 
   @Nullable public Format lastFormat;
 
-  public FakeTrackOutput(boolean deduplicateConsecutiveFormats) {
+  public FakeTrackOutput(@C.TrackType int type, boolean deduplicateConsecutiveFormats) {
+    this.type = type;
     this.deduplicateConsecutiveFormats = deduplicateConsecutiveFormats;
     sampleInfos = new ArrayList<>();
     dumpables = new ArrayList<>();
     sampleData = Util.EMPTY_BYTE_ARRAY;
     formatCount = 0;
     receivedSampleInFormat = true;
+    durationUs = C.TIME_UNSET;
   }
 
   public void clear() {
@@ -75,19 +80,25 @@ public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
   }
 
   @Override
+  public void durationUs(long durationUs) {
+    this.durationUs = durationUs;
+  }
+
+  @Override
   public void format(Format format) {
     if (!deduplicateConsecutiveFormats) {
-      Assertions.checkState(
+      checkState(
           receivedSampleInFormat,
           "deduplicateConsecutiveFormats=false so TrackOutput must receive at least one"
               + " sampleMetadata() call between format() calls.");
     } else if (!receivedSampleInFormat) {
       Dumpable dumpable = dumpables.remove(dumpables.size() - 1);
       formatCount--;
-      Assertions.checkState(
+      checkState(
           dumpable instanceof DumpableFormat,
-          "receivedSampleInFormat=false so expected last dumpable to be a DumpableFormat. Found: "
-              + dumpable.getClass().getCanonicalName());
+          "receivedSampleInFormat=false so expected last dumpable to be a DumpableFormat. Found:"
+              + " %s",
+          dumpable.getClass().getCanonicalName());
     }
     receivedSampleInFormat = false;
     addFormat(format);
@@ -136,6 +147,10 @@ public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
     }
     addSampleInfo(
         timeUs, flags, sampleData.length - offset - size, sampleData.length - offset, cryptoData);
+  }
+
+  public @C.TrackType int getType() {
+    return type;
   }
 
   public void assertSampleCount(int count) {
@@ -188,6 +203,7 @@ public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
   public void dump(Dumper dumper) {
     dumper.add("total output bytes", sampleData.length);
     dumper.add("sample count", sampleInfos.size());
+    dumper.addIfNonDefault("track duration", durationUs, C.TIME_UNSET);
     if (dumpables.isEmpty() && lastFormat != null) {
       new DumpableFormat(lastFormat, 0).dump(dumper);
     }
@@ -269,7 +285,7 @@ public final class FakeTrackOutput implements TrackOutput, Dumper.Dumpable {
           && startOffset == that.startOffset
           && endOffset == that.endOffset
           && index == that.index
-          && Util.areEqual(cryptoData, that.cryptoData);
+          && Objects.equals(cryptoData, that.cryptoData);
     }
 
     @Override

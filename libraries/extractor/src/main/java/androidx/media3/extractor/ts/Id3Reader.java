@@ -15,15 +15,15 @@
  */
 package androidx.media3.extractor.ts;
 
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.extractor.metadata.id3.Id3Decoder.ID3_HEADER_LENGTH;
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.min;
 
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
@@ -38,6 +38,7 @@ public final class Id3Reader implements ElementaryStreamReader {
 
   private static final String TAG = "Id3Reader";
 
+  private final String containerMimeType;
   private final ParsableByteArray id3Header;
 
   private @MonotonicNonNull TrackOutput output;
@@ -50,7 +51,8 @@ public final class Id3Reader implements ElementaryStreamReader {
   private int sampleSize;
   private int sampleBytesRead;
 
-  public Id3Reader() {
+  public Id3Reader(String containerMimeType) {
+    this.containerMimeType = containerMimeType;
     id3Header = new ParsableByteArray(ID3_HEADER_LENGTH);
     sampleTimeUs = C.TIME_UNSET;
   }
@@ -68,6 +70,7 @@ public final class Id3Reader implements ElementaryStreamReader {
     output.format(
         new Format.Builder()
             .setId(idGenerator.getFormatId())
+            .setContainerMimeType(containerMimeType)
             .setSampleMimeType(MimeTypes.APPLICATION_ID3)
             .build());
   }
@@ -85,7 +88,8 @@ public final class Id3Reader implements ElementaryStreamReader {
 
   @Override
   public void consume(ParsableByteArray data) {
-    Assertions.checkStateNotNull(output); // Asserts that createTracks has been called.
+    // Asserts that createTracks has been called.
+    checkNotNull(output);
     if (!writingSample) {
       return;
     }
@@ -121,7 +125,8 @@ public final class Id3Reader implements ElementaryStreamReader {
 
   @Override
   public void packetFinished(boolean isEndOfInput) {
-    Assertions.checkStateNotNull(output); // Asserts that createTracks has been called.
+    // Asserts that createTracks has been called.
+    checkNotNull(output);
     if (!writingSample || sampleSize == 0 || sampleBytesRead != sampleSize) {
       return;
     }

@@ -15,9 +15,8 @@
  */
 package androidx.media3.exoplayer.analytics;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.os.Looper;
 import android.util.SparseArray;
@@ -54,15 +53,16 @@ import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.drm.DrmSession;
+import androidx.media3.exoplayer.drm.KeyRequestInfo;
 import androidx.media3.exoplayer.source.LoadEventInfo;
 import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
@@ -90,7 +90,7 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
    */
   public DefaultAnalyticsCollector(Clock clock) {
     this.clock = checkNotNull(clock);
-    listeners = new ListenerSet<>(Util.getCurrentOrMainLooper(), clock, (listener, flags) -> {});
+    listeners = new ListenerSet<>(Util.getCurrentOrMainLooper());
     period = new Period();
     window = new Window();
     mediaPeriodQueueTracker = new MediaPeriodQueueTracker(period);
@@ -133,6 +133,7 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
     listeners =
         listeners.copy(
             looper,
+            clock,
             (listener, flags) ->
                 listener.onEvents(player, new AnalyticsListener.Events(flags, eventTimes)));
   }
@@ -142,7 +143,7 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
   public void release() {
     // Release lazily so that all events that got triggered as part of player.release()
     // are still delivered to all listeners and onPlayerReleased() is delivered last.
-    checkStateNotNull(handler).post(this::releaseInternal);
+    checkNotNull(handler).post(this::releaseInternal);
   }
 
   @Override
@@ -387,6 +388,15 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
   }
 
   @Override
+  public void onDroppedSeeksWhileScrubbing(int droppedSeekCount) {
+    EventTime eventTime = generateCurrentPlayerMediaPeriodEventTime();
+    sendEvent(
+        eventTime,
+        AnalyticsListener.EVENT_DROPPED_SEEKS_WHILE_SCRUBBING,
+        listener -> listener.onDroppedSeeksWhileScrubbing(eventTime, droppedSeekCount));
+  }
+
+  @Override
   public final void onSurfaceSizeChanged(int width, int height) {
     EventTime eventTime = generateReadingMediaPeriodEventTime();
     sendEvent(
@@ -397,17 +407,23 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
 
   // MediaSourceEventListener implementation.
 
+  // Deliberately calling deprecated listener method for backwards compatibility.
+  @SuppressWarnings("deprecation")
   @Override
   public final void onLoadStarted(
       int windowIndex,
       @Nullable MediaPeriodId mediaPeriodId,
       LoadEventInfo loadEventInfo,
-      MediaLoadData mediaLoadData) {
+      MediaLoadData mediaLoadData,
+      int retryCount) {
     EventTime eventTime = generateMediaPeriodEventTime(windowIndex, mediaPeriodId);
     sendEvent(
         eventTime,
         AnalyticsListener.EVENT_LOAD_STARTED,
-        listener -> listener.onLoadStarted(eventTime, loadEventInfo, mediaLoadData));
+        listener -> {
+          listener.onLoadStarted(eventTime, loadEventInfo, mediaLoadData);
+          listener.onLoadStarted(eventTime, loadEventInfo, mediaLoadData, retryCount);
+        });
   }
 
   @Override
@@ -838,12 +854,17 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
   }
 
   @Override
-  public final void onDrmKeysLoaded(int windowIndex, @Nullable MediaPeriodId mediaPeriodId) {
+  @SuppressWarnings("deprecation") // Calls deprecated listener method.
+  public void onDrmKeysLoaded(
+      int windowIndex, @Nullable MediaPeriodId mediaPeriodId, KeyRequestInfo keyRequestInfo) {
     EventTime eventTime = generateMediaPeriodEventTime(windowIndex, mediaPeriodId);
     sendEvent(
         eventTime,
         AnalyticsListener.EVENT_DRM_KEYS_LOADED,
-        listener -> listener.onDrmKeysLoaded(eventTime));
+        listener -> {
+          listener.onDrmKeysLoaded(eventTime);
+          listener.onDrmKeysLoaded(eventTime, keyRequestInfo);
+        });
   }
 
   @Override
@@ -1117,11 +1138,11 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
       ImmutableMap.Builder<MediaPeriodId, Timeline> builder = ImmutableMap.builder();
       if (mediaPeriodQueue.isEmpty()) {
         addTimelineForMediaPeriodId(builder, playingMediaPeriod, preferredTimeline);
-        if (!Objects.equal(readingMediaPeriod, playingMediaPeriod)) {
+        if (!Objects.equals(readingMediaPeriod, playingMediaPeriod)) {
           addTimelineForMediaPeriodId(builder, readingMediaPeriod, preferredTimeline);
         }
-        if (!Objects.equal(currentPlayerMediaPeriod, playingMediaPeriod)
-            && !Objects.equal(currentPlayerMediaPeriod, readingMediaPeriod)) {
+        if (!Objects.equals(currentPlayerMediaPeriod, playingMediaPeriod)
+            && !Objects.equals(currentPlayerMediaPeriod, readingMediaPeriod)) {
           addTimelineForMediaPeriodId(builder, currentPlayerMediaPeriod, preferredTimeline);
         }
       } else {

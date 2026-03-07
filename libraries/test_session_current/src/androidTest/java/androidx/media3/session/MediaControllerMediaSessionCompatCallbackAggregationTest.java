@@ -88,7 +88,7 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
   public void setUp() throws Exception {
     context = ApplicationProvider.getApplicationContext();
     session = new RemoteMediaSessionCompat(DEFAULT_TEST_NAME, context);
-    bitmapLoader = new CacheBitmapLoader(new DataSourceBitmapLoader(context));
+    bitmapLoader = new CacheBitmapLoader(new DataSourceBitmapLoader.Builder(context).build());
   }
 
   @After
@@ -111,8 +111,10 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
     @RatingCompat.Style int testRatingType = RatingCompat.RATING_HEART;
     MediaMetadata testMediaMetadata =
         new MediaMetadata.Builder()
-            .setArtist("artist")
             .setTitle("title")
+            .setDisplayTitle("title")
+            .setArtist("artist")
+            .setSubtitle("artist")
             .setUserRating(new HeartRating())
             .setMediaType(MEDIA_TYPE_PLAYLIST)
             .setIsBrowsable(false)
@@ -226,7 +228,8 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
   @Test
   public void getters_withValidQueueAndMetadataButWithInvalidQueueId() throws Exception {
     int testSize = 3;
-    List<MediaItem> testMediaItems = MediaTestUtils.createMediaItems(testSize);
+    List<MediaItem> testMediaItems =
+        MediaTestUtils.createMediaItems(testSize, /* buildWithUri= */ false);
     List<QueueItem> testQueue = MediaTestUtils.convertToQueueItemsWithoutBitmap(testMediaItems);
     MediaMetadataCompat testMediaMetadataCompat =
         new MediaMetadataCompat.Builder()
@@ -236,8 +239,10 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
     @RatingCompat.Style int testRatingType = RatingCompat.RATING_HEART;
     MediaMetadata testMediaMetadata =
         new MediaMetadata.Builder()
-            .setArtist("artist")
             .setTitle("title")
+            .setDisplayTitle("title")
+            .setArtist("artist")
+            .setSubtitle("artist")
             .setUserRating(new HeartRating())
             .setIsBrowsable(false)
             .setIsPlayable(true)
@@ -340,7 +345,8 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
   @Test
   public void getters_withValidQueueAndQueueIdWithoutMetadata() throws Exception {
     int testSize = 3;
-    List<MediaItem> testMediaItems = MediaTestUtils.createMediaItems(testSize);
+    List<MediaItem> testMediaItems =
+        MediaTestUtils.createMediaItems(testSize, /* buildWithUri= */ false);
     List<QueueItem> testQueue = MediaTestUtils.convertToQueueItemsWithoutBitmap(testMediaItems);
     @RatingCompat.Style int testRatingType = RatingCompat.RATING_HEART;
     Events testEvents =
@@ -439,8 +445,10 @@ public class MediaControllerMediaSessionCompatCallbackAggregationTest {
     @RatingCompat.Style int testRatingType = RatingCompat.RATING_HEART;
     MediaMetadata testMediaMetadata =
         new MediaMetadata.Builder()
-            .setArtist("artist")
             .setTitle("title")
+            .setDisplayTitle("title")
+            .setArtist("artist")
+            .setSubtitle("artist")
             .setUserRating(new HeartRating())
             .setIsBrowsable(false)
             .setIsPlayable(true)

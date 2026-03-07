@@ -15,13 +15,16 @@
  */
 package androidx.media3.transformer;
 
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.util.Util.isRunningOnEmulator;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_TRIM_OPTIMIZATION;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET;
+import static androidx.media3.test.utils.AssetInfo.MP4_TRIM_OPTIMIZATION;
+import static androidx.media3.test.utils.TestUtil.createExternalCacheFile;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_NOT_STARTED;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_UNAVAILABLE;
 import static androidx.media3.transformer.Transformer.PROGRESS_STATE_WAITING_FOR_AVAILABILITY;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
@@ -33,7 +36,6 @@ import androidx.media3.common.GlTextureInfo;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.NullableType;
-import androidx.media3.common.util.Util;
 import androidx.media3.effect.BaseGlShaderProgram;
 import androidx.media3.effect.Brightness;
 import androidx.media3.effect.DebugTraceUtil;
@@ -60,6 +62,7 @@ import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
 
 /** End-to-end instrumentation test for {@link Transformer#getProgress}. */
+// TODO: b/438552229 - Use BatchProgressReportingMuxer to remove Thread.sleep().
 @RunWith(AndroidJUnit4.class)
 public class TransformerProgressTest {
   private static final long DELAY_MS = 50;
@@ -113,20 +116,18 @@ public class TransformerProgressTest {
             // sleep on every received frame.
             Composition composition =
                 new Composition.Builder(
-                        new EditedMediaItemSequence.Builder(
-                                new EditedMediaItem.Builder(
-                                        MediaItem.fromUri(AndroidTestUtil.MP4_ASSET.uri))
+                        EditedMediaItemSequence.withAudioAndVideoFrom(
+                            ImmutableList.of(
+                                new EditedMediaItem.Builder(MediaItem.fromUri(MP4_ASSET.uri))
                                     .setEffects(
                                         new Effects(
                                             /* audioProcessors= */ ImmutableList.of(),
                                             /* videoEffects= */ ImmutableList.of(
                                                 new DelayEffect(/* delayMs= */ DELAY_MS))))
-                                    .build())
-                            .build())
+                                    .build())))
                     .build();
             File outputVideoFile =
-                AndroidTestUtil.createExternalCacheFile(
-                    context, /* fileName= */ testId + "-output.mp4");
+                createExternalCacheFile(context, /* fileName= */ testId + "-output.mp4");
             Transformer transformer = new Transformer.Builder(context).build();
             transformer.addListener(listener);
             transformer.start(composition, outputVideoFile.getPath());
@@ -142,7 +143,7 @@ public class TransformerProgressTest {
     while (!completed.get()) {
       instrumentation.runOnMainSync(
           () -> {
-            Transformer transformer = checkStateNotNull(transformerRef.get());
+            Transformer transformer = checkNotNull(transformerRef.get());
             ProgressHolder progressHolder = new ProgressHolder();
             if (transformer.getProgress(progressHolder) == PROGRESS_STATE_AVAILABLE
                 && (progresses.isEmpty()
@@ -169,7 +170,7 @@ public class TransformerProgressTest {
     // The trim optimization is only guaranteed to work on emulator for this file.
     assumeTrue(isRunningOnEmulator());
     // MediaCodec returns a segmentation fault fails at this SDK level on emulators.
-    assumeFalse(Util.SDK_INT == 26);
+    assumeFalse(SDK_INT == 26);
     Transformer transformer =
         new Transformer.Builder(context).experimentalSetTrimOptimizationEnabled(true).build();
     MediaItem mediaItem =
@@ -205,8 +206,7 @@ public class TransformerProgressTest {
                   }
                 })
             .build();
-    File outputVideoFile =
-        AndroidTestUtil.createExternalCacheFile(context, /* fileName= */ testId + "-output.mp4");
+    File outputVideoFile = createExternalCacheFile(context, /* fileName= */ testId + "-output.mp4");
 
     InstrumentationRegistry.getInstrumentation()
         .runOnMainSync(
@@ -235,7 +235,7 @@ public class TransformerProgressTest {
 
     assertThat(transformerExceptionFuture.get()).isNull();
     assertThat(progresses).isInOrder();
-    // TODO - b/322145448 Make tests more deterministic and produce at least one progress output.
+    // TODO: b/322145448 - Make tests more deterministic and produce at least one progress output.
     if (!progresses.isEmpty()) {
       // The progress list could be empty if the export ends before any progress can be retrieved.
       assertThat(Iterables.getFirst(progresses, /* defaultValue= */ -1)).isAtLeast(0);
@@ -249,7 +249,7 @@ public class TransformerProgressTest {
     // The trim optimization is only guaranteed to work on emulator for this file.
     assumeTrue(isRunningOnEmulator());
     // MediaCodec returns a segmentation fault fails at this SDK level on emulators.
-    assumeFalse(Util.SDK_INT == 26);
+    assumeFalse(SDK_INT == 26);
     Transformer transformer =
         new Transformer.Builder(context).experimentalSetTrimOptimizationEnabled(true).build();
     MediaItem mediaItem =
@@ -286,8 +286,7 @@ public class TransformerProgressTest {
                   }
                 })
             .build();
-    File outputVideoFile =
-        AndroidTestUtil.createExternalCacheFile(context, /* fileName= */ testId + "-output.mp4");
+    File outputVideoFile = createExternalCacheFile(context, /* fileName= */ testId + "-output.mp4");
 
     InstrumentationRegistry.getInstrumentation()
         .runOnMainSync(

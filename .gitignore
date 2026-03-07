@@ -4,6 +4,7 @@ gen
 libs
 obj
 lint.xml
+.kotlin
 
 # IntelliJ IDEA
 .idea
@@ -52,6 +53,7 @@ tmp
 
 # External native builds
 .externalNativeBuild
+.cxx
 
 # VP9 decoder extension
 libraries/decoder_vp9/src/main/jni/libvpx
@@ -67,6 +69,7 @@ libraries/decoder_opus/src/main/jni/libopus
 
 # FLAC decoder extension
 libraries/decoder_flac/src/main/jni/flac
+libraries/decoder_flac/src/main/jni/libflac
 
 # Cronet datasource extension
 libraries/datasource_cronet/jniLibs/*
@@ -76,3 +79,9 @@ libraries/datasource_cronet/libs/*
 
 # MIDI decoder extension
 libraries/decoder_midi/lib
+
+# IAMF decoder extension
+libraries/decoder_iamf/src/main/jni/libiamf
+
+# MPEG-H decoder extension
+libraries/decoder_mpegh/src/main/jni/libmpegh

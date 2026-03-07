@@ -15,8 +15,8 @@
  */
 package androidx.media3.exoplayer.upstream;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
@@ -127,8 +127,9 @@ public final class CmcdConfiguration {
      * Creates a {@link CmcdConfiguration} based on the provided {@link MediaItem}.
      *
      * @param mediaItem The {@link MediaItem} from which to create the CMCD configuration.
-     * @return A {@link CmcdConfiguration} instance.
+     * @return A {@link CmcdConfiguration} instance, or {@code null} to disable CMCD logging.
      */
+    @Nullable
     CmcdConfiguration createCmcdConfiguration(MediaItem mediaItem);
 
     /**

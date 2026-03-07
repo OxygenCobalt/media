@@ -15,12 +15,12 @@
  */
 package androidx.media3.transformer.mh;
 
-import static androidx.media3.common.util.Util.SDK_INT;
+import static android.os.Build.VERSION.SDK_INT;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_1080P_5_SECOND_HLG10;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_720P_4_SECOND_HDR10;
+import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
+import static androidx.media3.test.utils.TestSummaryLogger.recordTestSkipped;
 import static androidx.media3.test.utils.TestUtil.retrieveTrackFormat;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_1080P_5_SECOND_HLG10;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_720P_4_SECOND_HDR10;
-import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
-import static androidx.media3.transformer.AndroidTestUtil.recordTestSkipped;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
@@ -37,6 +37,7 @@ import androidx.media3.transformer.Transformer;
 import androidx.media3.transformer.TransformerAndroidTestRunner;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.common.collect.ImmutableList;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -64,7 +65,7 @@ public class ForceInterpretHdrVideoAsSdrTest {
     Context context = ApplicationProvider.getApplicationContext();
 
     if (SDK_INT < 29) {
-      // TODO(b/269759013): Fix failures under API 29 to expand confidence on all API versions.
+      // TODO: b/269759013 - Fix failures under API 29 to expand confidence on all API versions.
       recordTestSkipped(
           context, testId, /* reason= */ "Under API 29, this API is considered best-effort.");
       return;
@@ -84,7 +85,8 @@ public class ForceInterpretHdrVideoAsSdrTest {
         new EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(MP4_ASSET_720P_4_SECOND_HDR10.uri)))
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR)
             .build();
     ExportTestResult exportTestResult =
@@ -105,7 +107,7 @@ public class ForceInterpretHdrVideoAsSdrTest {
     Context context = ApplicationProvider.getApplicationContext();
 
     if (SDK_INT < 29) {
-      // TODO(b/269759013): Fix failures under API 29 to expand confidence on all API versions.
+      // TODO: b/269759013 - Fix failures under API 29 to expand confidence on all API versions.
       recordTestSkipped(
           context, testId, /* reason= */ "Under API 29, this API is considered best-effort.");
       return;
@@ -126,7 +128,8 @@ public class ForceInterpretHdrVideoAsSdrTest {
                 MediaItem.fromUri(Uri.parse(MP4_ASSET_1080P_5_SECOND_HLG10.uri)))
             .build();
     Composition composition =
-        new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItem).build())
+        new Composition.Builder(
+                EditedMediaItemSequence.withAudioAndVideoFrom(ImmutableList.of(editedMediaItem)))
             .setHdrMode(Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR)
             .build();
     ExportTestResult exportTestResult =

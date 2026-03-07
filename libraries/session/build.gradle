@@ -33,11 +33,6 @@ android {
     buildFeatures {
         aidl true
     }
-    lintOptions {
-        // TODO: b/353490583 - Move this to common_library_config.gradle once it's enabled for all
-        //  libraries.
-        checkTestSources true
-    }
 }
 dependencies {
     api project(modulePrefix + 'lib-common')
@@ -53,6 +48,7 @@ dependencies {
     testImplementation project(modulePrefix + 'test-utils-robolectric')
     testImplementation project(modulePrefix + 'lib-exoplayer')
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
+    testImplementation 'com.google.testparameterinjector:test-parameter-injector:' + testParameterInjectorVersion
 }
 
 ext {

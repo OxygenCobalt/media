@@ -15,7 +15,7 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -63,7 +63,7 @@ public class MultiplePeriodsPerWindowTimeline extends PlaylistTimeline {
         /* durationUs= */ Util.msToUs(defaultPeriodDurationMs * periodSizesPerWindow[windowIndex]),
         firstPeriodIndex,
         firstPeriodIndex + periodSizesPerWindow[windowIndex] - 1,
-        /* positionInFirstPeriodUs= */ 0);
+        /* positionInFirstPeriodUs= */ WINDOW_POSITION_IN_PERIOD_US);
     return window;
   }
 
@@ -80,13 +80,15 @@ public class MultiplePeriodsPerWindowTimeline extends PlaylistTimeline {
   public Period getPeriod(int periodIndex, Period period, boolean setIds) {
     checkArgument(periodIndex < getPeriodCount());
     int windowIndex = getWindowIndex(periodIndex);
+    int periodIndexInWindow = periodIndex - getFirstPeriodIndex(windowIndex);
     period.set(
         /* id= */ null,
         /* uid= */ null,
         windowIndex,
         /* durationUs= */ Util.msToUs(defaultPeriodDurationMs),
-        /* positionInWindowUs= */ (periodIndex - getFirstPeriodIndex(windowIndex))
-            * Util.msToUs(defaultPeriodDurationMs));
+        /* positionInWindowUs= */ periodIndexInWindow == 0
+            ? -WINDOW_POSITION_IN_PERIOD_US
+            : periodIndexInWindow * Util.msToUs(defaultPeriodDurationMs));
     return period;
   }
 

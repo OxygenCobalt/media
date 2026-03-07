@@ -21,10 +21,9 @@ import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_BITMAP;
 import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_SURFACE;
 import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_SURFACE_AUTOMATIC_FRAME_REGISTRATION;
 import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_TEXTURE_ID;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.contains;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.content.Context;
 import android.util.SparseArray;
@@ -151,8 +150,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public void switchToInput(
       @VideoFrameProcessor.InputType int newInputType, FrameInfo newInputFrameInfo)
       throws VideoFrameProcessingException {
-    checkStateNotNull(downstreamShaderProgram);
-    checkState(contains(inputs, newInputType), "Input type not registered: " + newInputType);
+    checkNotNull(downstreamShaderProgram);
+    checkState(contains(inputs, newInputType), "Input type not registered: %s", newInputType);
 
     for (int i = 0; i < inputs.size(); i++) {
       inputs.get(inputs.keyAt(i)).setActive(false);
@@ -160,12 +159,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
     // Activate the relevant input for the new input type.
     Input input = inputs.get(newInputType);
-    if (input.getInputColorInfo() == null
-        || !newInputFrameInfo.colorInfo.equals(input.getInputColorInfo())) {
-      input.setSamplingGlShaderProgram(
-          createSamplingShaderProgram(newInputFrameInfo.colorInfo, newInputType));
-      input.setInputColorInfo(newInputFrameInfo.colorInfo);
-    }
+    ColorInfo newInputColorInfo = checkNotNull(newInputFrameInfo.format.colorInfo);
+    // TODO: b/417680219 - reuse the old sampling shader program. The texture manager  may not
+    // receive onReadyToAcceptInputFrame from the previous sampling shader program as the order of
+    // calls to release() and releaseOutputFrame() on GlShaderProgram is non-deterministic.
+    input.setSamplingGlShaderProgram(createSamplingShaderProgram(newInputColorInfo, newInputType));
     input.setChainingListener(
         new GatedChainingListenerWrapper(
             glObjectsProvider,
@@ -191,14 +189,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    *     #hasActiveInput() input}.
    */
   public TextureManager activeTextureManager() {
-    return checkStateNotNull(activeTextureManager);
+    return checkNotNull(activeTextureManager);
   }
 
   /**
    * Invokes {@link TextureManager#signalEndOfCurrentInputStream} on the active {@link
    * TextureManager}.
    */
-  public void signalEndOfInputStream() {
+  public void signalEndOfCurrentInputStream() {
     checkNotNull(activeTextureManager).signalEndOfCurrentInputStream();
   }
 
@@ -242,7 +240,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     public final TextureManager textureManager;
 
     private @MonotonicNonNull ExternalShaderProgram samplingGlShaderProgram;
-    private @MonotonicNonNull ColorInfo inputColorInfo;
     private @MonotonicNonNull GatedChainingListenerWrapper gatedChainingListenerWrapper;
     private boolean released;
 
@@ -260,10 +257,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       samplingGlShaderProgram.setInputListener(textureManager);
     }
 
-    public void setInputColorInfo(ColorInfo inputColorInfo) {
-      this.inputColorInfo = inputColorInfo;
-    }
-
     public void setChainingListener(GatedChainingListenerWrapper gatedChainingListenerWrapper) {
       this.gatedChainingListenerWrapper = gatedChainingListenerWrapper;
       checkNotNull(samplingGlShaderProgram).setOutputListener(gatedChainingListenerWrapper);
@@ -272,11 +265,6 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     @Nullable
     public ExternalShaderProgram getSamplingGlShaderProgram() {
       return samplingGlShaderProgram;
-    }
-
-    @Nullable
-    public ColorInfo getInputColorInfo() {
-      return inputColorInfo;
     }
 
     public void setActive(boolean active) {

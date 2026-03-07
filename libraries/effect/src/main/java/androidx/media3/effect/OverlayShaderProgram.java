@@ -15,11 +15,12 @@
  */
 package androidx.media3.effect;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.util.Util.formatInvariant;
 import static androidx.media3.common.util.Util.loadAsset;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -31,11 +32,11 @@ import android.util.SparseArray;
 import android.util.SparseIntArray;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.OverlaySettings;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.util.GlProgram;
 import androidx.media3.common.util.GlUtil;
 import androidx.media3.common.util.Size;
-import androidx.media3.common.util.Util;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 
@@ -142,14 +143,14 @@ import java.io.IOException;
               glProgram.setSamplerTexIdUniform(
                   "uGainmapTexSampler" + texUnitIndex,
                   gainmapTexIds.get(texUnitIndex),
-                  texUnitIndex);
+                  /* texUnitIndex= */ overlays.size() + texUnitIndex);
               GainmapUtil.setGainmapUniforms(
                   glProgram, lastGainmaps.get(texUnitIndex), texUnitIndex);
             }
           } else if (hdrTypes[texUnitIndex - 1] == HDR_TYPE_TEXT) {
             float[] luminanceMatrix = GlUtil.create4x4IdentityMatrix();
             float multiplier =
-                overlay.getOverlaySettings(presentationTimeUs).hdrLuminanceMultiplier;
+                overlay.getOverlaySettings(presentationTimeUs).getHdrLuminanceMultiplier();
             Matrix.scaleM(luminanceMatrix, /* mOffset= */ 0, multiplier, multiplier, multiplier);
             glProgram.setFloatsUniform(
                 formatInvariant("uLuminanceMatrix%d", texUnitIndex), luminanceMatrix);
@@ -169,7 +170,7 @@ import java.io.IOException;
             formatInvariant("uTransformationMatrix%d", texUnitIndex),
             samplerOverlayMatrixProvider.getTransformationMatrix(overlaySize, overlaySettings));
         glProgram.setFloatUniform(
-            formatInvariant("uOverlayAlphaScale%d", texUnitIndex), overlaySettings.alphaScale);
+            formatInvariant("uOverlayAlphaScale%d", texUnitIndex), overlaySettings.getAlphaScale());
       }
 
       glProgram.setSamplerTexIdUniform("uVideoTexSampler0", inputTexId, /* texUnitIndex= */ 0);
@@ -211,7 +212,7 @@ import java.io.IOException;
         hdrTypes[i] = HDR_TYPE_TEXT;
         overlaySamplersAvailable -= 1;
       } else if (overlay instanceof BitmapOverlay) {
-        checkState(Util.SDK_INT >= 34);
+        checkState(SDK_INT >= 34);
         hdrTypes[i] = HDR_TYPE_ULTRA_HDR;
         // Each UltraHDR overlay uses an extra texture to apply the gainmap to the base in the
         // shader.

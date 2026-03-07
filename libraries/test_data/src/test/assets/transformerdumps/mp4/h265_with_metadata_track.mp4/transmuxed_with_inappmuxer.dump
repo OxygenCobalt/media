@@ -9,23 +9,29 @@ numberOfTracks = 2
 track 0:
   total output bytes = 678996
   sample count = 3
+  track duration = 100100
   format 0:
+    averageBitrate = 54283853
     id = 1
+    containerMimeType = video/mp4
     sampleMimeType = video/hevc
     codecs = hvc1.1.6.L153.B0
     maxInputSize = 420494
     maxNumReorderSamples = 0
     width = 1920
     height = 1080
+    decodedWidth = 1920
+    decodedHeight = 1088
     frameRate = 29.98
     rotationDegrees = 90
+    maxSubLayers = 1
     colorInfo:
       colorSpace = 2
       colorRange = 1
       colorTransfer = 3
       lumaBitdepth = 8
       chromaBitdepth = 8
-    metadata = entries=[mdta: key=com.android.capture.fps, value=30.0, xyz: latitude=51.5932, longitude=-0.2431, Mp4Timestamp: creation time=3000000000, modification time=4000000000, timescale=10000]
+    metadata = entries=[mdta: key=com.android.capture.fps, value=30.0, xyz: latitude=51.5932, longitude=-0.2431, Mp4Timestamp: creation time=3000000000, modification time=4000000000, timescale=10000, ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 85, hash 6F3CAA16
   sample 0:
@@ -43,16 +49,17 @@ track 0:
 track 1:
   total output bytes = 1726
   sample count = 3
+  track duration = 80700
   format 0:
-    averageBitrate = 192000
+    averageBitrate = 171041
     peakBitrate = 192000
     id = 2
+    containerMimeType = video/mp4
     sampleMimeType = audio/mp4a-latm
     codecs = mp4a.40.2
     maxInputSize = 627
     channelCount = 2
     sampleRate = 48000
-    language = ```
     metadata = entries=[xyz: latitude=51.5932, longitude=-0.2431, Mp4Timestamp: creation time=3000000000, modification time=4000000000, timescale=10000]
     initializationData:
       data = length 2, hash 560

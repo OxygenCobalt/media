@@ -15,18 +15,20 @@
  */
 package androidx.media3.transformer;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.errorprone.annotations.InlineMe;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -40,7 +42,7 @@ public final class ExportResult {
   /** A builder for {@link ExportResult} instances. */
   public static final class Builder {
     private ImmutableList.Builder<ProcessedInput> processedInputsBuilder;
-    private long durationMs;
+    private long approximateDurationMs;
     private long fileSizeBytes;
     private int averageAudioBitrate;
     private int channelCount;
@@ -71,14 +73,24 @@ public final class ExportResult {
     }
 
     /**
-     * Sets the duration of the output in milliseconds.
+     * @deprecated Use {@link #setApproximateDurationMs(long)} instead.
+     */
+    @InlineMe(replacement = "this.setApproximateDurationMs(durationMs)")
+    @CanIgnoreReturnValue
+    @Deprecated
+    public Builder setDurationMs(long durationMs) {
+      return setApproximateDurationMs(durationMs);
+    }
+
+    /**
+     * Sets the approximate duration of the output in milliseconds.
      *
      * <p>Must be positive or {@link C#TIME_UNSET}.
      */
     @CanIgnoreReturnValue
-    public Builder setDurationMs(long durationMs) {
-      checkArgument(durationMs >= 0 || durationMs == C.TIME_UNSET);
-      this.durationMs = durationMs;
+    public Builder setApproximateDurationMs(long approximateDurationMs) {
+      checkArgument(approximateDurationMs >= 0 || approximateDurationMs == C.TIME_UNSET);
+      this.approximateDurationMs = approximateDurationMs;
       return this;
     }
 
@@ -91,7 +103,8 @@ public final class ExportResult {
     public Builder setFileSizeBytes(long fileSizeBytes) {
       checkArgument(
           fileSizeBytes > 0 || fileSizeBytes == C.LENGTH_UNSET,
-          "Invalid file size = " + fileSizeBytes);
+          "Invalid file size = %s",
+          fileSizeBytes);
       this.fileSizeBytes = fileSizeBytes;
       return this;
     }
@@ -241,7 +254,7 @@ public final class ExportResult {
     public ExportResult build() {
       return new ExportResult(
           processedInputsBuilder.build(),
-          durationMs,
+          approximateDurationMs,
           fileSizeBytes,
           averageAudioBitrate,
           channelCount,
@@ -262,7 +275,7 @@ public final class ExportResult {
     /** Resets all the fields to their default values. */
     public void reset() {
       processedInputsBuilder = new ImmutableList.Builder<>();
-      durationMs = C.TIME_UNSET;
+      approximateDurationMs = C.TIME_UNSET;
       fileSizeBytes = C.LENGTH_UNSET;
       averageAudioBitrate = C.RATE_UNSET_INT;
       channelCount = C.LENGTH_UNSET;
@@ -284,6 +297,15 @@ public final class ExportResult {
     /** The processed {@link MediaItem}. */
     public final MediaItem mediaItem;
 
+    /** The duration of the {@link MediaItem}, in microseconds. */
+    public final long durationUs;
+
+    /** The audio {@link Format} of the {@link MediaItem}. */
+    @Nullable public final Format audioFormat;
+
+    /** The video {@link Format} of the {@link MediaItem}. */
+    @Nullable public final Format videoFormat;
+
     /**
      * The name of the audio decoder used to process {@code mediaItem}. This field is {@code null}
      * if no audio decoder was used.
@@ -298,8 +320,16 @@ public final class ExportResult {
 
     /** Creates an instance. */
     public ProcessedInput(
-        MediaItem mediaItem, @Nullable String audioDecoderName, @Nullable String videoDecoderName) {
+        MediaItem mediaItem,
+        long durationUs,
+        @Nullable Format audioFormat,
+        @Nullable Format videoFormat,
+        @Nullable String audioDecoderName,
+        @Nullable String videoDecoderName) {
       this.mediaItem = mediaItem;
+      this.durationUs = durationUs;
+      this.audioFormat = audioFormat;
+      this.videoFormat = videoFormat;
       this.audioDecoderName = audioDecoderName;
       this.videoDecoderName = videoDecoderName;
     }
@@ -410,8 +440,19 @@ public final class ExportResult {
   /** The track was both transcoded and transmuxed. */
   public static final int CONVERSION_PROCESS_TRANSMUXED_AND_TRANSCODED = 3;
 
-  /** The duration of the file in milliseconds, or {@link C#TIME_UNSET} if unset or unknown. */
-  public final long durationMs;
+  /**
+   * @deprecated Use {@link #approximateDurationMs} instead.
+   */
+  @Deprecated public final long durationMs;
+
+  /**
+   * The approximate duration of the file in milliseconds, or {@link C#TIME_UNSET} if unset or
+   * unknown.
+   *
+   * <p>To get the actual duration use {@code
+   * androidx.media3.inspector.MetadataRetriever#retrieveDurationUs}.
+   */
+  public final long approximateDurationMs;
 
   /** The size of the file in bytes, or {@link C#LENGTH_UNSET} if unset or unknown. */
   public final long fileSizeBytes;
@@ -480,7 +521,7 @@ public final class ExportResult {
 
   private ExportResult(
       ImmutableList<ProcessedInput> processedInputs,
-      long durationMs,
+      long approximateDurationMs,
       long fileSizeBytes,
       int averageAudioBitrate,
       int channelCount,
@@ -497,7 +538,8 @@ public final class ExportResult {
       @OptimizationResult int optimizationResult,
       @Nullable ExportException exportException) {
     this.processedInputs = processedInputs;
-    this.durationMs = durationMs;
+    this.durationMs = approximateDurationMs;
+    this.approximateDurationMs = approximateDurationMs;
     this.fileSizeBytes = fileSizeBytes;
     this.averageAudioBitrate = averageAudioBitrate;
     this.channelCount = channelCount;
@@ -524,7 +566,7 @@ public final class ExportResult {
   public Builder buildUpon() {
     return new Builder()
         .addProcessedInputs(processedInputs)
-        .setDurationMs(durationMs)
+        .setApproximateDurationMs(approximateDurationMs)
         .setFileSizeBytes(fileSizeBytes)
         .setAverageAudioBitrate(averageAudioBitrate)
         .setChannelCount(channelCount)
@@ -552,7 +594,7 @@ public final class ExportResult {
     }
     ExportResult result = (ExportResult) o;
     return Objects.equals(processedInputs, result.processedInputs)
-        && durationMs == result.durationMs
+        && approximateDurationMs == result.approximateDurationMs
         && fileSizeBytes == result.fileSizeBytes
         && averageAudioBitrate == result.averageAudioBitrate
         && channelCount == result.channelCount
@@ -573,7 +615,7 @@ public final class ExportResult {
   @Override
   public int hashCode() {
     int result = Objects.hashCode(processedInputs);
-    result = 31 * result + (int) durationMs;
+    result = 31 * result + (int) approximateDurationMs;
     result = 31 * result + (int) fileSizeBytes;
     result = 31 * result + averageAudioBitrate;
     result = 31 * result + channelCount;

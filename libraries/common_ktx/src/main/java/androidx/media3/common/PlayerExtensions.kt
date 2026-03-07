@@ -23,8 +23,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.android.asCoroutineDispatcher
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
@@ -46,11 +44,50 @@ import kotlinx.coroutines.withContext
 @UnstableApi
 suspend fun Player.listen(onEvents: Player.(Player.Events) -> Unit): Nothing {
   if (Looper.myLooper() == applicationLooper) {
-    listenImpl(onEvents)
-  } else
+    listenImpl(null, onEvents)
+  } else {
     withContext(HandlerCompat.createAsync(applicationLooper).asCoroutineDispatcher()) {
-      listenImpl(onEvents)
+      listenImpl(null, onEvents)
     }
+  }
+}
+
+/**
+ * Continuously listens to the [Player.Listener.onEvents] callback, passing the received
+ * [Player.Events] to the provided [onEvents] function. A non-zero number of events has to be
+ * specified (hence [firstEvent] and [otherEvents]). The order is not important.
+ *
+ * This function can be called from any thread. The [onEvents] function will be invoked on the
+ * thread associated with [Player.getApplicationLooper].
+ *
+ * If, during the execution of [onEvents], an exception is thrown, the coroutine corresponding to
+ * listening to the Player will be terminated. Any used resources will be cleaned up (e.g. removing
+ * of the listeners) and exception will be re-thrown right after the last suspension point.
+ *
+ * @param firstEvent One of the [events][Player.Event] to listen to. Does not have to actually be
+ *   the first one, since the order is not taken into account. This parameter is separated from
+ *   [otherEvents] to avoid creating an array when only one event is needed or avoid accidentally
+ *   not passing any events.
+ * @param otherEvents The set of other [events][Player.Event] to listen for.
+ * @param onEvents The function to handle player events.
+ * @return Nothing This function never returns normally. It will either continue indefinitely or
+ *   terminate due to an exception or cancellation.
+ */
+@UnstableApi
+@SuppressWarnings("WrongConstant") // Lint complains about unpacking/spreading events
+suspend fun Player.listenTo(
+  firstEvent: @Player.Event Int,
+  vararg otherEvents: @Player.Event Int,
+  onEvents: Player.(Player.Events) -> Unit,
+): Nothing {
+  val playerEvents = Player.Events(FlagSet.Builder().add(firstEvent).addAll(*otherEvents).build())
+  if (Looper.myLooper() == applicationLooper) {
+    listenImpl(playerEvents, onEvents)
+  } else {
+    withContext(HandlerCompat.createAsync(applicationLooper).asCoroutineDispatcher()) {
+      listenImpl(playerEvents, onEvents)
+    }
+  }
 }
 
 /**
@@ -67,22 +104,26 @@ suspend fun Player.listen(onEvents: Player.(Player.Events) -> Unit): Nothing {
  * * marking the listener as cancelled using `AtomicBoolean` to ensure that this value will be
  *   visible immediately on any non-calling thread due to a memory barrier.
  *
- * A note on [callbackFlow] vs [suspendCancellableCoroutine]:
+ * A note on [kotlinx.coroutines.flow.callbackFlow] vs [suspendCancellableCoroutine]:
  *
- * Despite [callbackFlow] being recommended for a multi-shot API (like [Player]'s), a
- * [suspendCancellableCoroutine] is a lower-level construct that allows us to overcome the
- * limitations of [Flow]'s buffered dispatch. In our case, we will not be waiting for a particular
- * callback to resume the continuation (i.e. the common single-shot use of
- * [suspendCancellableCoroutine]), but rather handle incoming Events indefinitely. This approach
- * controls the timing of dispatching events to the caller more tightly than [Flow]s. Such timing
- * guarantees are critical for responding to events with frame-perfect timing and become more
- * relevant in the context of front-end UI development (e.g. using Compose).
+ * Despite [kotlinx.coroutines.flow.callbackFlow] being recommended for a multi-shot API (like
+ * [Player]'s), a [suspendCancellableCoroutine] is a lower-level construct that allows us to
+ * overcome the limitations of [kotlinx.coroutines.flow.Flow]'s buffered dispatch. In our case, we
+ * will not be waiting for a particular callback to resume the continuation (i.e. the common
+ * single-shot use of [suspendCancellableCoroutine]), but rather handle incoming Events
+ * indefinitely. This approach controls the timing of dispatching events to the caller more tightly
+ * than [kotlinx.coroutines.flow.Flow]s. Such timing guarantees are critical for responding to
+ * events with frame-perfect timing and become more relevant in the context of front-end UI
+ * development (e.g. using Compose).
  */
-private suspend fun Player.listenImpl(onEvents: Player.(Player.Events) -> Unit): Nothing {
+private suspend fun Player.listenImpl(
+  events: Player.Events?,
+  onEvents: Player.(Player.Events) -> Unit,
+): Nothing {
   lateinit var listener: PlayerListener
   try {
-    suspendCancellableCoroutine<Nothing> { continuation ->
-      listener = PlayerListener(onEvents, continuation)
+    suspendCancellableCoroutine { continuation ->
+      listener = PlayerListener(events, onEvents, continuation)
       continuation.invokeOnCancellation { listener.isCancelled.set(true) }
       addListener(listener)
     }
@@ -92,6 +133,7 @@ private suspend fun Player.listenImpl(onEvents: Player.(Player.Events) -> Unit):
 }
 
 private class PlayerListener(
+  private val events: Player.Events?,
   private val onEvents: Player.(Player.Events) -> Unit,
   private val continuation: CancellableContinuation<Nothing>,
 ) : Player.Listener {
@@ -101,7 +143,9 @@ private class PlayerListener(
   override fun onEvents(player: Player, events: Player.Events) {
     try {
       if (!isCancelled.get()) {
-        player.onEvents(events)
+        if (this.events == null || events.containsAny(this.events)) {
+          player.onEvents(events)
+        }
       }
     } catch (t: Throwable) {
       isCancelled.set(true)

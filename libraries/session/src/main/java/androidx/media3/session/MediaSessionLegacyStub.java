@@ -15,6 +15,7 @@
  */
 package androidx.media3.session;
 
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.common.Player.COMMAND_CHANGE_MEDIA_ITEMS;
 import static androidx.media3.common.Player.COMMAND_PLAY_PAUSE;
 import static androidx.media3.common.Player.COMMAND_PREPARE;
@@ -31,15 +32,22 @@ import static androidx.media3.common.Player.COMMAND_SET_REPEAT_MODE;
 import static androidx.media3.common.Player.COMMAND_SET_SHUFFLE_MODE;
 import static androidx.media3.common.Player.COMMAND_SET_SPEED_AND_PITCH;
 import static androidx.media3.common.Player.COMMAND_STOP;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
 import static androidx.media3.common.util.Util.postOrRun;
+import static androidx.media3.session.MediaConstants.EXTRAS_KEY_ERROR_RESOLUTION_ACTION_INTENT_COMPAT;
+import static androidx.media3.session.MediaConstants.EXTRAS_KEY_MEDIA_ID_COMPAT;
+import static androidx.media3.session.MediaConstants.EXTRAS_KEY_PLAYBACK_SPEED_COMPAT;
+import static androidx.media3.session.MediaUtils.intersect;
 import static androidx.media3.session.SessionCommand.COMMAND_CODE_CUSTOM;
+import static androidx.media3.session.SessionCommand.COMMAND_CODE_SESSION_SET_RATING;
 import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static androidx.media3.session.SessionResult.RESULT_INFO_SKIPPED;
 import static androidx.media3.session.SessionResult.RESULT_SUCCESS;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
+import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -49,6 +57,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -57,6 +66,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import androidx.annotation.Nullable;
@@ -111,7 +121,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   private static final String TAG = "MediaSessionLegacyStub";
 
   private static final int PENDING_INTENT_FLAG_MUTABLE =
-      Util.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
+      SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
   private static final String DEFAULT_MEDIA_SESSION_TAG_PREFIX = "androidx.media3.session.id";
   private static final String DEFAULT_MEDIA_SESSION_TAG_DELIM = ".";
 
@@ -128,15 +138,42 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   @Nullable private final MediaButtonReceiver runtimeBroadcastReceiver;
   @Nullable private final ComponentName broadcastReceiverComponentName;
   @Nullable private VolumeProviderCompat volumeProviderCompat;
+  private final boolean playIfSuppressed;
 
   private volatile long connectionTimeoutMs;
   @Nullable private FutureCallback<Bitmap> pendingBitmapLoadCallback;
   private int sessionFlags;
+  @Nullable private LegacyError legacyError;
+  private Bundle legacyExtras;
+  private ImmutableList<CommandButton> customLayout;
+  private ImmutableList<CommandButton> mediaButtonPreferences;
+  private SessionCommands availableSessionCommands;
+  private Player.Commands availablePlayerCommands;
+  @Nullable private PlaybackException customPlaybackException;
+  @Nullable private Player.Commands playerCommandsForErrorState;
 
-  @SuppressWarnings("PendingIntentMutability") // We can't use SaferPendingIntent
+  @SuppressWarnings({
+    "PendingIntentMutability", // We can't use SaferPendingIntent
+    "nullness:method.invocation.invalid" // Method calls on non-final constructor
+  })
   public MediaSessionLegacyStub(
-      MediaSessionImpl session, Uri sessionUri, Handler handler, Bundle tokenExtras) {
-    sessionImpl = session;
+      MediaSessionImpl session,
+      Uri sessionUri,
+      Handler handler,
+      Bundle tokenExtras,
+      boolean playIfSuppressed,
+      ImmutableList<CommandButton> customLayout,
+      ImmutableList<CommandButton> mediaButtonPreferences,
+      SessionCommands availableSessionCommands,
+      Player.Commands availablePlayerCommands,
+      Bundle legacyExtras) {
+    this.sessionImpl = session;
+    this.playIfSuppressed = playIfSuppressed;
+    this.customLayout = customLayout;
+    this.mediaButtonPreferences = mediaButtonPreferences;
+    this.availableSessionCommands = availableSessionCommands;
+    this.availablePlayerCommands = availablePlayerCommands;
+    this.legacyExtras = new Bundle(legacyExtras);
     Context context = sessionImpl.getContext();
     sessionManager = MediaSessionManager.getSessionManager(context);
     controllerLegacyCbForBroadcast = new ControllerLegacyCbForBroadcast();
@@ -146,12 +183,16 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         new ConnectionTimeoutHandler(
             session.getApplicationHandler().getLooper(), connectedControllersManager);
 
+    if (!mediaButtonPreferences.isEmpty()) {
+      updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences();
+    }
+
     // Assume an app that intentionally puts a `MediaButtonReceiver` into the manifest has
     // implemented some kind of resumption of the last recently played media item.
     broadcastReceiverComponentName = queryPackageManagerForMediaButtonReceiver(context);
     @Nullable ComponentName receiverComponentName = broadcastReceiverComponentName;
     boolean isReceiverComponentAService = false;
-    if (receiverComponentName == null || Util.SDK_INT < 31) {
+    if (receiverComponentName == null || SDK_INT < 31) {
       // Below API 26, media button events are sent to the receiver at runtime also. We always want
       // these to arrive at the service at runtime. release() then set the receiver for restart if
       // available.
@@ -185,7 +226,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       intent.setComponent(receiverComponentName);
       mediaButtonIntent =
           isReceiverComponentAService
-              ? (Util.SDK_INT >= 26
+              ? (SDK_INT >= 26
                   ? PendingIntent.getForegroundService(
                       context, /* requestCode= */ 0, intent, PENDING_INTENT_FLAG_MUTABLE)
                   : PendingIntent.getService(
@@ -203,10 +244,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         new MediaSessionCompat(
             context,
             sessionCompatId,
-            Util.SDK_INT < 31 ? receiverComponentName : null,
-            Util.SDK_INT < 31 ? mediaButtonIntent : null,
+            SDK_INT < 31 ? receiverComponentName : null,
+            SDK_INT < 31 ? mediaButtonIntent : null,
             /* sessionInfo= */ tokenExtras);
-    if (Util.SDK_INT >= 31 && broadcastReceiverComponentName != null) {
+    if (SDK_INT >= 31 && broadcastReceiverComponentName != null) {
       Api31.setMediaButtonBroadcastReceiver(sessionCompat, broadcastReceiverComponentName);
     }
 
@@ -219,6 +260,181 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     @Initialized
     MediaSessionLegacyStub thisRef = this;
     sessionCompat.setCallback(thisRef, handler);
+  }
+
+  /**
+   * Sets the available commands for the platform session.
+   *
+   * @param sessionCommands The available {@link SessionCommands}.
+   * @param playerCommands The available {@link Player.Commands}.
+   */
+  public void setAvailableCommands(
+      SessionCommands sessionCommands, Player.Commands playerCommands) {
+    if (customPlaybackException != null) {
+      return;
+    }
+    boolean commandGetTimelineChanged =
+        availablePlayerCommands.contains(Player.COMMAND_GET_TIMELINE)
+            != playerCommands.contains(Player.COMMAND_GET_TIMELINE);
+
+    this.availableSessionCommands = sessionCommands;
+    this.availablePlayerCommands = playerCommands;
+
+    if (!mediaButtonPreferences.isEmpty()) {
+      boolean hadPrevReservation =
+          legacyExtras.getBoolean(
+              MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, /* defaultValue= */ false);
+      boolean hadNextReservation =
+          legacyExtras.getBoolean(
+              MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, /* defaultValue= */ false);
+      updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences();
+      boolean extrasChanged =
+          (legacyExtras.getBoolean(
+                      MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV,
+                      /* defaultValue= */ false)
+                  != hadPrevReservation)
+              || (legacyExtras.getBoolean(
+                      MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT,
+                      /* defaultValue= */ false)
+                  != hadNextReservation);
+      if (extrasChanged) {
+        getSessionCompat().setExtras(legacyExtras);
+      }
+    }
+
+    if (commandGetTimelineChanged) {
+      updateLegacySessionPlaybackStateAndQueue(sessionImpl.getPlayerWrapper());
+    } else {
+      updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+    }
+  }
+
+  /**
+   * Returns the {@link MediaSession.ConnectionResult} using the available commands and settings of
+   * the platform session.
+   */
+  public MediaSession.ConnectionResult getPlatformConnectionResult(MediaSession mediaSession) {
+    MediaSession.ConnectionResult.AcceptedResultBuilder result =
+        new MediaSession.ConnectionResult.AcceptedResultBuilder(mediaSession)
+            .setAvailableSessionCommands(availableSessionCommands)
+            .setAvailablePlayerCommands(availablePlayerCommands);
+    if (!mediaButtonPreferences.isEmpty()) {
+      result.setMediaButtonPreferences(mediaButtonPreferences);
+    } else {
+      result.setCustomLayout(customLayout);
+    }
+    return result.build();
+  }
+
+  /**
+   * Sets the custom layout for the platform session.
+   *
+   * @param customLayout The list of {@link CommandButton} for defining the custom layout.
+   */
+  public void setPlatformCustomLayout(ImmutableList<CommandButton> customLayout) {
+    this.customLayout = customLayout;
+  }
+
+  /**
+   * Sets new media button preferences for the platform session.
+   *
+   * @param mediaButtonPreferences The list of {@link CommandButton} defining the media button
+   *     preferences.
+   */
+  public void setPlatformMediaButtonPreferences(
+      ImmutableList<CommandButton> mediaButtonPreferences) {
+    this.mediaButtonPreferences = mediaButtonPreferences;
+    boolean hadPrevReservation =
+        legacyExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, /* defaultValue= */ false);
+    boolean hadNextReservation =
+        legacyExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, /* defaultValue= */ false);
+    updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences();
+    boolean extrasChanged =
+        (legacyExtras.getBoolean(
+                    MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV,
+                    /* defaultValue= */ false)
+                != hadPrevReservation)
+            || (legacyExtras.getBoolean(
+                    MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT,
+                    /* defaultValue= */ false)
+                != hadNextReservation);
+    if (extrasChanged) {
+      getSessionCompat().setExtras(legacyExtras);
+    }
+  }
+
+  /**
+   * Sets or clears a playback exception override for the platform session.
+   *
+   * @param playbackException The {@link PlaybackException} or null.
+   * @param playerCommandsForErrorState The available {@link Player.Commands} while the exception
+   *     override is set.
+   */
+  public void setPlaybackException(
+      @Nullable PlaybackException playbackException,
+      @Nullable Player.Commands playerCommandsForErrorState) {
+    checkArgument(
+        (playbackException == null && playerCommandsForErrorState == null)
+            || (playbackException != null && playerCommandsForErrorState != null));
+    customPlaybackException = playbackException;
+    this.playerCommandsForErrorState = playerCommandsForErrorState;
+    if (playbackException != null) {
+      updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+      maybeUpdateFlags(sessionImpl.getPlayerWrapper());
+    }
+  }
+
+  /**
+   * Sets the legacy error that will be used when the next {@link PlaybackStateCompat} legacy
+   * playback state is created}.
+   *
+   * <p>This sets the legacy {@link PlaybackStateCompat} to {@link PlaybackStateCompat#STATE_ERROR}
+   * if the error is fatal, calls {@link PlaybackStateCompat.Builder#setErrorMessage(int,
+   * CharSequence)} and includes the entries of the extras in the {@link Bundle} set with {@link
+   * PlaybackStateCompat.Builder#setExtras(Bundle)}.
+   *
+   * <p>Use {@link #clearLegacyErrorStatus()} to clear the error.
+   *
+   * @param result The {@link LibraryResult} to convert to a legacy error.
+   * @param isFatal Whether the legacy error is fatal.
+   */
+  public void setLegacyError(LibraryResult<?> result, boolean isFatal) {
+    @SuppressLint("WrongConstant")
+    @PlaybackStateCompat.ErrorCode
+    int legacyErrorCode = LegacyConversions.convertToLegacyErrorCode(result.resultCode);
+    if (legacyError != null && legacyError.code == legacyErrorCode) {
+      return;
+    }
+    // Mapping this error to the legacy error state provides backwards compatibility for the
+    // documented AAOS error flow:
+    // https://developer.android.com/training/cars/media/automotive-os#-error-handling
+    String errorMessage =
+        result.sessionError != null
+            ? result.sessionError.message
+            : SessionError.DEFAULT_ERROR_MESSAGE;
+    Bundle bundle = Bundle.EMPTY;
+    if (result.params != null
+        && result.params.extras.containsKey(EXTRAS_KEY_ERROR_RESOLUTION_ACTION_INTENT_COMPAT)) {
+      // Backwards compatibility for Callbacks before SessionError was introduced.
+      bundle = result.params.extras;
+    } else if (result.sessionError != null) {
+      bundle = result.sessionError.extras;
+    }
+    legacyError = new LegacyError(isFatal, legacyErrorCode, errorMessage, bundle);
+    updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+  }
+
+  /**
+   * Clears the legacy error to resolve the error when creating the next {@link
+   * PlaybackStateCompat}.
+   */
+  public void clearLegacyErrorStatus() {
+    if (legacyError != null) {
+      legacyError = null;
+      updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+    }
   }
 
   @Nullable
@@ -249,7 +465,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   @SuppressWarnings("PendingIntentMutability") // We can't use SaferPendingIntent.
   public void release() {
-    if (Util.SDK_INT < 31) {
+    if (SDK_INT < 31) {
       if (broadcastReceiverComponentName == null) {
         // No broadcast receiver available. Playback resumption not supported.
         setMediaButtonReceiver(sessionCompat, /* mediaButtonReceiverIntent= */ null);
@@ -279,9 +495,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   @Override
   public void onCommand(String commandName, @Nullable Bundle args, @Nullable ResultReceiver cb) {
-    checkStateNotNull(commandName);
-    if (commandName.equals(MediaConstants.SESSION_COMMAND_MEDIA3_PLAY_REQUEST)) {
-      // Ignore, no need to handle this command here.
+    checkNotNull(commandName);
+    if (commandName.equals(MediaConstants.SESSION_COMMAND_MEDIA3_CHANGE_REQUEST)) {
+      // Only applicable to controllers on Media3 1.5, where this command was sent via sendCommand
+      // instead of sendCustomAction. No need to handle this command here.
       return;
     }
     if (commandName.equals(MediaConstants.SESSION_COMMAND_REQUEST_SESSION3_TOKEN) && cb != null) {
@@ -294,7 +511,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         controller -> {
           ListenableFuture<SessionResult> future =
               sessionImpl.onCustomCommandOnHandler(
-                  controller, command, args == null ? Bundle.EMPTY : args);
+                  controller,
+                  /* progressReporter= */ null,
+                  command,
+                  args == null ? Bundle.EMPTY : args);
           if (cb != null) {
             sendCustomCommandResultWhenReady(cb, future);
           } else {
@@ -305,13 +525,22 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   @Override
   public void onCustomAction(String action, @Nullable Bundle args) {
-    SessionCommand command = new SessionCommand(action, /* extras= */ Bundle.EMPTY);
+    if (action.equals(MediaConstants.SESSION_COMMAND_MEDIA3_CHANGE_REQUEST)) {
+      // Ignore, no need to handle the custom action.
+      return;
+    }
+    Bundle nonNullArgs = args != null ? args : Bundle.EMPTY;
+    SessionCommand command = new SessionCommand(action, nonNullArgs);
+    if (CommandButton.isPredefinedCustomCommandButtonCode(command.customAction)) {
+      dispatchCustomCommandAsPredefinedCommand(command);
+      return;
+    }
     dispatchSessionTaskWithSessionCommand(
         command,
         controller ->
             ignoreFuture(
                 sessionImpl.onCustomCommandOnHandler(
-                    controller, command, args != null ? args : Bundle.EMPTY)));
+                    controller, /* progressReporter= */ null, command, nonNullArgs)));
   }
 
   @Override
@@ -324,11 +553,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             /* trusted= */ false,
             /* cb= */ null,
             /* connectionHints= */ Bundle.EMPTY,
-            /* maxCommandsForMediaItems= */ 0),
+            /* maxCommandsForMediaItems= */ 0,
+            /* isPackageNameVerified= */ SDK_INT >= 33),
         intent);
   }
 
-  private void maybeUpdateFlags(PlayerWrapper playerWrapper) {
+  /* package */ void maybeUpdateFlags(PlayerWrapper playerWrapper) {
     int newFlags =
         playerWrapper.isCommandAvailable(COMMAND_CHANGE_MEDIA_ITEMS)
             ? MediaSessionCompat.FLAG_HANDLES_QUEUE_COMMANDS
@@ -383,13 +613,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   @Override
   public void onPlay() {
-    dispatchSessionTaskWithPlayerCommand(
-        COMMAND_PLAY_PAUSE,
-        controller ->
-            sessionImpl.handleMediaControllerPlayRequest(
-                controller, /* callOnPlayerInteractionFinished= */ true),
-        sessionCompat.getCurrentControllerInfo(),
-        /* callOnPlayerInteractionFinished= */ false);
+    dispatchSessionTaskWithPlayRequest();
   }
 
   @Override
@@ -535,18 +759,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       Log.w(TAG, "Ignoring invalid RatingCompat " + ratingCompat);
       return;
     }
-    dispatchSessionTaskWithSessionCommand(
-        SessionCommand.COMMAND_CODE_SESSION_SET_RATING,
-        controller -> {
-          @Nullable
-          MediaItem currentItem =
-              sessionImpl.getPlayerWrapper().getCurrentMediaItemWithCommandCheck();
-          if (currentItem == null) {
-            return;
-          }
-          // MediaControllerCompat#setRating doesn't return a value.
-          ignoreFuture(sessionImpl.onSetRatingOnHandler(controller, currentItem.mediaId, rating));
-        });
+    dispatchSessionTaskWithSetRatingSessionCommand(rating);
   }
 
   @Override
@@ -633,6 +846,16 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     return broadcastReceiverComponentName != null;
   }
 
+  private void dispatchSessionTaskWithPlayRequest() {
+    dispatchSessionTaskWithPlayerCommand(
+        COMMAND_PLAY_PAUSE,
+        controller ->
+            sessionImpl.handleMediaControllerPlayRequest(
+                controller, /* callOnPlayerInteractionFinished= */ true),
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ false);
+  }
+
   private void dispatchSessionTaskWithPlayerCommand(
       @Player.Command int command,
       SessionTask task,
@@ -706,10 +929,21 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         });
   }
 
-  private void dispatchSessionTaskWithSessionCommand(
-      @CommandCode int commandCode, SessionTask task) {
+  private void dispatchSessionTaskWithSetRatingSessionCommand(Rating rating) {
     dispatchSessionTaskWithSessionCommandInternal(
-        null, commandCode, task, sessionCompat.getCurrentControllerInfo());
+        /* sessionCommand= */ null,
+        COMMAND_CODE_SESSION_SET_RATING,
+        controller -> {
+          @Nullable
+          MediaItem currentItem =
+              sessionImpl.getPlayerWrapper().getCurrentMediaItemWithCommandCheck();
+          if (currentItem == null) {
+            return;
+          }
+          // MediaControllerCompat#setRating doesn't return a value.
+          ignoreFuture(sessionImpl.onSetRatingOnHandler(controller, currentItem.mediaId, rating));
+        },
+        sessionCompat.getCurrentControllerInfo());
   }
 
   private void dispatchSessionTaskWithSessionCommand(
@@ -773,6 +1007,41 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         });
   }
 
+  private void dispatchCustomCommandAsPredefinedCommand(SessionCommand command) {
+    CommandButton actualCommand;
+    try {
+      actualCommand = CommandButton.convertFromPredefinedCustomCommand(command);
+    } catch (RuntimeException e) {
+      // Catch exception caused by malformed data from a controller.
+      Log.w(TAG, "Failed to convert predefined custom command: " + command.customAction, e);
+      return;
+    }
+    if (!actualCommand.canExecuteAction()) {
+      Log.w(TAG, "Can't execute predefined custom command: " + command.customAction);
+      return;
+    }
+    if (actualCommand.sessionCommand != null) {
+      checkState(actualCommand.sessionCommand.commandCode == COMMAND_CODE_SESSION_SET_RATING);
+      dispatchSessionTaskWithSetRatingSessionCommand(
+          (Rating) checkNotNull(actualCommand.parameter));
+    } else {
+      if (actualCommand.isPlayRequestPlayerAction(sessionImpl.getPlayerWrapper())) {
+        dispatchSessionTaskWithPlayRequest();
+      } else if (actualCommand.playerCommand == COMMAND_SET_MEDIA_ITEM) {
+        handleMediaRequest(
+            (MediaItem) checkNotNull(actualCommand.parameter),
+            /* prepare= */ false,
+            /* play= */ false);
+      } else {
+        dispatchSessionTaskWithPlayerCommand(
+            actualCommand.playerCommand,
+            controller -> actualCommand.executePlayerAction(sessionImpl.getPlayerWrapper()),
+            sessionCompat.getCurrentControllerInfo(),
+            /* callOnPlayerInteractionFinished= */ true);
+      }
+    }
+  }
+
   @Nullable
   private ControllerInfo tryGetController(RemoteUserInfo remoteUserInfo) {
     @Nullable ControllerInfo controller = connectedControllersManager.getController(remoteUserInfo);
@@ -787,14 +1056,11 @@ import org.checkerframework.checker.initialization.qual.Initialized;
               sessionManager.isTrustedForMediaControl(remoteUserInfo),
               controllerCb,
               /* connectionHints= */ Bundle.EMPTY,
-              /* maxCommandsForMediaItems= */ 0);
+              /* maxCommandsForMediaItems= */ 0,
+              /* isPackageNameVerified= */ SDK_INT >= 33);
       MediaSession.ConnectionResult connectionResult = sessionImpl.onConnectOnHandler(controller);
       if (!connectionResult.isAccepted) {
-        try {
-          controllerCb.onDisconnected(/* seq= */ 0);
-        } catch (RemoteException e) {
-          // Controller may have died prematurely.
-        }
+        controllerCb.onDisconnected(/* seq= */ 0);
         return null;
       }
       connectedControllersManager.addController(
@@ -802,6 +1068,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
           controller,
           connectionResult.availableSessionCommands,
           connectionResult.availablePlayerCommands);
+      sessionImpl.onPostConnectOnHandler(controller);
     }
     // Reset disconnect timeout.
     connectionTimeoutHandler.disconnectControllerAfterTimeout(controller, connectionTimeoutMs);
@@ -816,14 +1083,14 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   public void updateLegacySessionPlaybackState(PlayerWrapper playerWrapper) {
     postOrRun(
         sessionImpl.getApplicationHandler(),
-        () -> sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat()));
+        () -> sessionCompat.setPlaybackState(createPlaybackStateCompat(playerWrapper)));
   }
 
   public void updateLegacySessionPlaybackStateAndQueue(PlayerWrapper playerWrapper) {
     postOrRun(
         sessionImpl.getApplicationHandler(),
         () -> {
-          sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat());
+          sessionCompat.setPlaybackState(createPlaybackStateCompat(playerWrapper));
           controllerLegacyCbForBroadcast.updateQueue(
               playerWrapper.getAvailableCommands().contains(Player.COMMAND_GET_TIMELINE)
                   ? playerWrapper.getCurrentTimeline()
@@ -832,6 +1099,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   private void handleMediaRequest(MediaItem mediaItem, boolean play) {
+    handleMediaRequest(mediaItem, /* prepare= */ true, play);
+  }
+
+  private void handleMediaRequest(MediaItem mediaItem, boolean prepare, boolean play) {
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SET_MEDIA_ITEM,
         controller -> {
@@ -852,10 +1123,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                             MediaUtils.setMediaItemsWithStartIndexAndPosition(
                                 player, mediaItemsWithStartPosition);
                             @Player.State int playbackState = player.getPlaybackState();
-                            if (playbackState == Player.STATE_IDLE) {
-                              player.prepareIfCommandAvailable();
-                            } else if (playbackState == Player.STATE_ENDED) {
-                              player.seekToDefaultPositionIfCommandAvailable();
+                            if (prepare) {
+                              if (playbackState == Player.STATE_IDLE) {
+                                player.prepareIfCommandAvailable();
+                              } else if (playbackState == Player.STATE_ENDED) {
+                                player.seekToDefaultPositionIfCommandAvailable();
+                              }
                             }
                             if (play) {
                               player.playIfCommandAvailable();
@@ -976,8 +1249,33 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
   private boolean isQueueEnabled() {
     PlayerWrapper playerWrapper = sessionImpl.getPlayerWrapper();
-    return playerWrapper.getAvailablePlayerCommands().contains(Player.COMMAND_GET_TIMELINE)
+    return availablePlayerCommands.contains(Player.COMMAND_GET_TIMELINE)
         && playerWrapper.getAvailableCommands().contains(Player.COMMAND_GET_TIMELINE);
+  }
+
+  private void updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences() {
+    ImmutableList<CommandButton> mediaButtonPreferencesWithUnavailableButtonsDisabled =
+        CommandButton.copyWithUnavailableButtonsDisabled(
+            mediaButtonPreferences,
+            availableSessionCommands,
+            playerCommandsForErrorState != null
+                ? playerCommandsForErrorState
+                : availablePlayerCommands);
+    customLayout =
+        CommandButton.getCustomLayoutFromMediaButtonPreferences(
+            mediaButtonPreferencesWithUnavailableButtonsDisabled,
+            /* backSlotAllowed= */ true,
+            /* forwardSlotAllowed= */ true);
+    // If no custom back slot button is defined and other custom forward or overflow buttons exist,
+    // we need to reserve the back slot to prevent the other buttons from moving into this slot. The
+    // forward slot should never be reserved to avoid gaps in the output. We explicitly clear the
+    // value to avoid any manually defined extras to interfere with our logic.
+    boolean reserveBackSpaceSlot =
+        !customLayout.isEmpty()
+            && !CommandButton.containsButtonForSlot(customLayout, CommandButton.SLOT_BACK);
+    legacyExtras.putBoolean(
+        MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, reserveBackSpaceSlot);
+    legacyExtras.putBoolean(MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, false);
   }
 
   private static MediaItem createMediaItemForMediaRequest(
@@ -1024,7 +1322,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         return false;
       }
       ControllerLegacyCb other = (ControllerLegacyCb) obj;
-      return Util.areEqual(remoteUserInfo, other.remoteUserInfo);
+      return Objects.equals(remoteUserInfo, other.remoteUserInfo);
     }
   }
 
@@ -1041,15 +1339,28 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       lastDurationMs = C.TIME_UNSET;
     }
 
+    /**
+     * Returns whether to skip updates of the {@linkplain android.media.session.PlaybackState
+     * playback state} of the platform session to leave the playback state unchanged.
+     *
+     * @return True if updates should be skipped.
+     */
+    public boolean skipLegacySessionPlaybackStateUpdates() {
+      return customPlaybackException != null;
+    }
+
     @Override
     public void onAvailableCommandsChangedFromPlayer(int seq, Player.Commands availableCommands) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       PlayerWrapper playerWrapper = sessionImpl.getPlayerWrapper();
       maybeUpdateFlags(playerWrapper);
       updateLegacySessionPlaybackState(playerWrapper);
     }
 
     @Override
-    public void onDisconnected(int seq) throws RemoteException {
+    public void onDisconnected(int seq) {
       // Calling MediaSessionCompat#release() is already done in release().
     }
 
@@ -1061,18 +1372,18 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       // can point to the valid current media item in the playlist.
       Timeline newTimeline = newPlayerWrapper.getCurrentTimelineWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(oldPlayerWrapper.getCurrentTimelineWithCommandCheck(), newTimeline)) {
+          || !Objects.equals(oldPlayerWrapper.getCurrentTimelineWithCommandCheck(), newTimeline)) {
         onTimelineChanged(seq, newTimeline, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED);
       }
       MediaMetadata newPlaylistMetadata = newPlayerWrapper.getPlaylistMetadataWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(
+          || !Objects.equals(
               oldPlayerWrapper.getPlaylistMetadataWithCommandCheck(), newPlaylistMetadata)) {
         onPlaylistMetadataChanged(seq, newPlaylistMetadata);
       }
       MediaMetadata newMediaMetadata = newPlayerWrapper.getMediaMetadataWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(
+          || !Objects.equals(
               oldPlayerWrapper.getMediaMetadataWithCommandCheck(), newMediaMetadata)) {
         onMediaMetadataChanged(seq, newMediaMetadata);
       }
@@ -1085,19 +1396,19 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         onRepeatModeChanged(seq, newPlayerWrapper.getRepeatMode());
       }
 
-      // Forcefully update playback info to update VolumeProviderCompat attached to the
-      // old player.
+      // Forcefully update device info to update VolumeProviderCompat attached to the old player.
       onDeviceInfoChanged(seq, newPlayerWrapper.getDeviceInfo());
 
       // Rest of changes are all notified via PlaybackStateCompat.
       maybeUpdateFlags(newPlayerWrapper);
       @Nullable MediaItem newMediaItem = newPlayerWrapper.getCurrentMediaItemWithCommandCheck();
       if (oldPlayerWrapper == null
-          || !Util.areEqual(oldPlayerWrapper.getCurrentMediaItemWithCommandCheck(), newMediaItem)) {
+          || !Objects.equals(
+              oldPlayerWrapper.getCurrentMediaItemWithCommandCheck(), newMediaItem)) {
         // Note: This will update both PlaybackStateCompat and metadata.
         onMediaItemTransition(
             seq, newMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED);
-      } else {
+      } else if (!skipLegacySessionPlaybackStateUpdates()) {
         // If PlaybackStateCompat isn't updated by above if-statement, forcefully update
         // PlaybackStateCompat to tell the latest position and its event
         // time. This would also update playback speed, buffering state, player state, and error.
@@ -1107,6 +1418,9 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
     @Override
     public void onPlayerError(int seq, @Nullable PlaybackException playerError) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
@@ -1122,58 +1436,86 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
     @Override
     public void onSessionExtrasChanged(int seq, Bundle sessionExtras) {
-      sessionCompat.setExtras(sessionExtras);
-      sessionImpl.getPlayerWrapper().setLegacyExtras(sessionExtras);
-      sessionCompat.setPlaybackState(sessionImpl.getPlayerWrapper().createPlaybackStateCompat());
+      checkArgument(!sessionExtras.containsKey(EXTRAS_KEY_PLAYBACK_SPEED_COMPAT));
+      checkArgument(!sessionExtras.containsKey(EXTRAS_KEY_MEDIA_ID_COMPAT));
+      legacyExtras = new Bundle(sessionExtras);
+      if (!mediaButtonPreferences.isEmpty()) {
+        // Re-calculate custom layout in case we have to set any additional extras.
+        updateCustomLayoutAndLegacyExtrasForMediaButtonPreferences();
+      }
+      sessionCompat.setExtras(legacyExtras);
+      updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
-    public void onSessionActivityChanged(int seq, PendingIntent sessionActivity) {
+    public void onSessionActivityChanged(int seq, @Nullable PendingIntent sessionActivity) {
       sessionCompat.setSessionActivity(sessionActivity);
     }
 
     @Override
     public void onError(int seq, SessionError sessionError) {
       PlayerWrapper playerWrapper = sessionImpl.getPlayerWrapper();
-      playerWrapper.setLegacyError(
-          /* isFatal= */ false,
-          LegacyConversions.convertToLegacyErrorCode(sessionError.code),
-          sessionError.message,
-          sessionError.extras);
-      sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat());
-      playerWrapper.clearLegacyErrorStatus();
-      sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat());
+      legacyError =
+          new LegacyError(
+              /* isFatal= */ false,
+              LegacyConversions.convertToLegacyErrorCode(sessionError.code),
+              sessionError.message,
+              sessionError.extras);
+      if (!skipLegacySessionPlaybackStateUpdates()) {
+        sessionCompat.setPlaybackState(createPlaybackStateCompat(playerWrapper));
+        legacyError = null;
+        sessionCompat.setPlaybackState(createPlaybackStateCompat(playerWrapper));
+      }
     }
 
     @Override
     public void sendCustomCommand(int seq, SessionCommand command, Bundle args) {
-      sessionCompat.sendSessionEvent(command.customAction, args);
+      Bundle extras;
+      if (args.isEmpty()) {
+        extras = command.customExtras;
+      } else if (command.customExtras.isEmpty()) {
+        extras = args;
+      } else {
+        extras = new Bundle(command.customExtras);
+        extras.putAll(args);
+      }
+      sessionCompat.sendSessionEvent(command.customAction, extras);
     }
 
     @Override
     public void onPlayWhenReadyChanged(
-        int seq, boolean playWhenReady, @Player.PlaybackSuppressionReason int reason)
-        throws RemoteException {
+        int seq, boolean playWhenReady, @Player.PlaybackSuppressionReason int reason) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       // Note: This method does not use any of the given arguments.
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
     public void onPlaybackSuppressionReasonChanged(
-        int seq, @Player.PlaybackSuppressionReason int reason) throws RemoteException {
+        int seq, @Player.PlaybackSuppressionReason int reason) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
     public void onPlaybackStateChanged(
-        int seq, @Player.State int state, @Nullable PlaybackException playerError)
-        throws RemoteException {
+        int seq, @Player.State int state, @Nullable PlaybackException playerError) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       // Note: This method does not use any of the given arguments.
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
-    public void onIsPlayingChanged(int seq, boolean isPlaying) throws RemoteException {
+    public void onIsPlayingChanged(int seq, boolean isPlaying) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
@@ -1182,23 +1524,29 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         int seq,
         PositionInfo oldPosition,
         PositionInfo newPosition,
-        @DiscontinuityReason int reason)
-        throws RemoteException {
+        @DiscontinuityReason int reason) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       // Note: This method does not use any of the given arguments.
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
-    public void onPlaybackParametersChanged(int seq, PlaybackParameters playbackParameters)
-        throws RemoteException {
+    public void onPlaybackParametersChanged(int seq, PlaybackParameters playbackParameters) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       // Note: This method does not use any of the given arguments.
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
 
     @Override
     public void onMediaItemTransition(
-        int seq, @Nullable MediaItem mediaItem, @Player.MediaItemTransitionReason int reason)
-        throws RemoteException {
+        int seq, @Nullable MediaItem mediaItem, @Player.MediaItemTransitionReason int reason) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       // MediaMetadataCompat needs to be updated when the media ID or URI of the media item changes.
       updateMetadataIfChanged();
       if (mediaItem == null) {
@@ -1212,13 +1560,18 @@ import org.checkerframework.checker.initialization.qual.Initialized;
 
     @Override
     public void onMediaMetadataChanged(int seq, MediaMetadata mediaMetadata) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       updateMetadataIfChanged();
     }
 
     @Override
     public void onTimelineChanged(
-        int seq, Timeline timeline, @Player.TimelineChangeReason int reason)
-        throws RemoteException {
+        int seq, Timeline timeline, @Player.TimelineChangeReason int reason) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        return;
+      }
       updateQueue(timeline);
       // Duration might be unknown at onMediaItemTransition and become available afterward.
       updateMetadataIfChanged();
@@ -1278,8 +1631,11 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
 
     @Override
-    public void onPlaylistMetadataChanged(int seq, MediaMetadata playlistMetadata)
-        throws RemoteException {
+    public void onPlaylistMetadataChanged(int seq, MediaMetadata playlistMetadata) {
+      if (skipLegacySessionPlaybackStateUpdates()) {
+        // Don't update when player is in custom error state for the framework session.
+        return;
+      }
       // Since there is no 'queue metadata', only set title of the queue.
       @Nullable CharSequence queueTitle = sessionCompat.getController().getQueueTitle();
       @Nullable CharSequence newTitle = playlistMetadata.title;
@@ -1289,8 +1645,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
 
     @Override
-    public void onShuffleModeEnabledChanged(int seq, boolean shuffleModeEnabled)
-        throws RemoteException {
+    public void onShuffleModeEnabledChanged(int seq, boolean shuffleModeEnabled) {
       sessionCompat.setShuffleMode(
           LegacyConversions.convertToPlaybackStateCompatShuffleMode(shuffleModeEnabled));
     }
@@ -1306,19 +1661,16 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       @DeviceInfo.PlaybackType
       int playbackType = sessionImpl.getPlayerWrapper().getDeviceInfo().playbackType;
       if (playbackType == DeviceInfo.PLAYBACK_TYPE_LOCAL) {
-        int legacyStreamType = LegacyConversions.getLegacyStreamType(audioAttributes);
-        sessionCompat.setPlaybackToLocal(legacyStreamType);
+        sessionCompat.setPlaybackToLocal(audioAttributes);
       }
     }
 
     @Override
     public void onDeviceInfoChanged(int seq, DeviceInfo deviceInfo) {
       PlayerWrapper player = sessionImpl.getPlayerWrapper();
-      volumeProviderCompat = player.createVolumeProviderCompat();
+      volumeProviderCompat = createVolumeProviderCompat(player);
       if (volumeProviderCompat == null) {
-        int streamType =
-            LegacyConversions.getLegacyStreamType(player.getAudioAttributesWithCommandCheck());
-        sessionCompat.setPlaybackToLocal(streamType);
+        sessionCompat.setPlaybackToLocal(player.getAudioAttributesWithCommandCheck());
       } else {
         sessionCompat.setPlaybackToRemote(volumeProviderCompat);
       }
@@ -1337,9 +1689,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         SessionPositionInfo unusedSessionPositionInfo,
         boolean unusedCanAccessCurrentMediaItem,
         boolean unusedCanAccessTimeline,
-        int controllerInterfaceVersion)
-        throws RemoteException {
-      updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+        int controllerInterfaceVersion) {
+      if (!skipLegacySessionPlaybackStateUpdates()) {
+        updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
+      }
     }
 
     private void updateMetadataIfChanged() {
@@ -1354,8 +1707,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
           currentMediaItem != null ? currentMediaItem.mediaId : MediaItem.DEFAULT_MEDIA_ID;
       @Nullable
       Uri newMediaUri =
-          currentMediaItem != null && currentMediaItem.localConfiguration != null
-              ? currentMediaItem.localConfiguration.uri
+          currentMediaItem != null && currentMediaItem.requestMetadata.mediaUri != null
+              ? currentMediaItem.requestMetadata.mediaUri
               : null;
 
       if (Objects.equals(lastMediaMetadata, newMediaMetadata)
@@ -1437,11 +1790,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     public void handleMessage(Message msg) {
       ControllerInfo controller = (ControllerInfo) msg.obj;
       if (connectedControllersManager.isConnected(controller)) {
-        try {
-          checkStateNotNull(controller.getControllerCb()).onDisconnected(/* seq= */ 0);
-        } catch (RemoteException e) {
-          // Controller may have died prematurely.
-        }
+        checkNotNull(controller.getControllerCb()).onDisconnected(/* seq= */ 0);
         connectedControllersManager.removeController(controller);
       }
     }
@@ -1472,15 +1821,322 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     return new ComponentName(resolveInfo.serviceInfo.packageName, resolveInfo.serviceInfo.name);
   }
 
+  private PlaybackStateCompat createPlaybackStateCompat(PlayerWrapper player) {
+    LegacyError legacyError = this.legacyError;
+    if (customPlaybackException == null && legacyError != null && legacyError.isFatal) {
+      // A fatal legacy error automatically set by Media3 upon a calling
+      // MediaLibrarySession.Callback according to the configured LibraryErrorReplicationMode.
+      Bundle extras = new Bundle(legacyError.extras);
+      extras.putAll(legacyExtras);
+      return new PlaybackStateCompat.Builder()
+          .setState(
+              PlaybackStateCompat.STATE_ERROR,
+              /* position= */ PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
+              /* playbackSpeed= */ .0f,
+              /* updateTime= */ SystemClock.elapsedRealtime())
+          .setActions(0)
+          .setBufferedPosition(0)
+          .setExtras(extras)
+          .setErrorMessage(legacyError.code, checkNotNull(legacyError.message))
+          .setExtras(legacyError.extras)
+          .build();
+    }
+    // The custom error from the session if present, or the actual error from the player, if any.
+    @Nullable
+    PlaybackException publicPlaybackException =
+        customPlaybackException != null ? customPlaybackException : player.getPlayerError();
+    boolean canReadPositions =
+        player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+            && !player.isCurrentMediaItemLive();
+    boolean shouldShowPlayButton =
+        publicPlaybackException != null || Util.shouldShowPlayButton(player, playIfSuppressed);
+    int state =
+        publicPlaybackException != null
+            ? PlaybackStateCompat.STATE_ERROR
+            : LegacyConversions.convertToPlaybackStateCompatState(player, shouldShowPlayButton);
+    // Always advertise ACTION_SET_RATING.
+    long actions = PlaybackStateCompat.ACTION_SET_RATING;
+    Player.Commands availableCommandsFromPlayer = player.getAvailableCommands();
+    Player.Commands availableCommands =
+        playerCommandsForErrorState != null
+            ? intersect(playerCommandsForErrorState, availableCommandsFromPlayer)
+            : intersect(availablePlayerCommands, availableCommandsFromPlayer);
+    for (int i = 0; i < availableCommands.size(); i++) {
+      actions |=
+          convertCommandToPlaybackStateActions(availableCommands.get(i), shouldShowPlayButton);
+    }
+    if (!mediaButtonPreferences.isEmpty()
+        && CommandButton.containsButtonForSlot(customLayout, CommandButton.SLOT_BACK)) {
+      actions &= ~PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+    }
+    if (!mediaButtonPreferences.isEmpty()
+        && CommandButton.containsButtonForSlot(customLayout, CommandButton.SLOT_FORWARD)) {
+      actions &= ~PlaybackStateCompat.ACTION_SKIP_TO_NEXT;
+    }
+    if (!canReadPositions) {
+      actions &= ~PlaybackStateCompat.ACTION_SEEK_TO;
+    }
+    long queueItemId =
+        player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)
+            ? LegacyConversions.convertToQueueItemId(player.getCurrentMediaItemIndex())
+            : MediaSessionCompat.QueueItem.UNKNOWN_ID;
+    float playbackSpeed = player.getPlaybackParameters().speed;
+    float sessionPlaybackSpeed = player.isPlaying() && canReadPositions ? playbackSpeed : 0f;
+    Bundle extras =
+        publicPlaybackException != null ? new Bundle(publicPlaybackException.extras) : new Bundle();
+    if (publicPlaybackException == null && legacyError != null) {
+      extras.putAll(legacyError.extras);
+    }
+    extras.putAll(legacyExtras);
+    extras.putFloat(EXTRAS_KEY_PLAYBACK_SPEED_COMPAT, playbackSpeed);
+    @Nullable MediaItem currentMediaItem = player.getCurrentMediaItemWithCommandCheck();
+    if (currentMediaItem != null && !MediaItem.DEFAULT_MEDIA_ID.equals(currentMediaItem.mediaId)) {
+      extras.putString(EXTRAS_KEY_MEDIA_ID_COMPAT, currentMediaItem.mediaId);
+    }
+    long compatPosition =
+        canReadPositions
+            ? player.getCurrentPosition()
+            : PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+    long compatBufferedPosition =
+        canReadPositions
+            ? player.getBufferedPosition()
+            : PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+    PlaybackStateCompat.Builder builder =
+        new PlaybackStateCompat.Builder()
+            .setState(state, compatPosition, sessionPlaybackSpeed, SystemClock.elapsedRealtime())
+            .setActions(actions)
+            .setActiveQueueItemId(queueItemId)
+            .setBufferedPosition(compatBufferedPosition)
+            .setExtras(extras);
+    for (int i = 0; i < customLayout.size(); i++) {
+      CommandButton commandButton = customLayout.get(i);
+      SessionCommand sessionCommand = commandButton.sessionCommand;
+      if (sessionCommand != null
+          && commandButton.isEnabled
+          && sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
+          && (CommandButton.isButtonCommandAvailable(
+                  commandButton, availableSessionCommands, availableCommands)
+              || CommandButton.isPredefinedCustomCommandButtonCode(sessionCommand.customAction))) {
+        boolean hasIcon = commandButton.icon != CommandButton.ICON_UNDEFINED;
+        boolean hasIconUri = commandButton.iconUri != null;
+        Bundle actionExtras =
+            hasIcon || hasIconUri || !commandButton.extras.isEmpty()
+                ? new Bundle(sessionCommand.customExtras)
+                : sessionCommand.customExtras;
+        if (!commandButton.extras.isEmpty()) {
+          actionExtras.putAll(commandButton.extras);
+        }
+        if (hasIcon) {
+          actionExtras.putInt(
+              MediaConstants.EXTRAS_KEY_COMMAND_BUTTON_ICON_COMPAT, commandButton.icon);
+        }
+        if (hasIconUri) {
+          actionExtras.putString(
+              MediaConstants.EXTRAS_KEY_COMMAND_BUTTON_ICON_URI_COMPAT,
+              checkNotNull(commandButton.iconUri).toString());
+        }
+        builder.addCustomAction(
+            new PlaybackStateCompat.CustomAction.Builder(
+                    sessionCommand.customAction, commandButton.displayName, commandButton.iconResId)
+                .setExtras(actionExtras)
+                .build());
+      }
+    }
+    if (publicPlaybackException != null) {
+      builder.setErrorMessage(
+          LegacyConversions.convertToLegacyErrorCode(publicPlaybackException),
+          publicPlaybackException.getMessage());
+    } else if (legacyError != null) {
+      builder.setErrorMessage(legacyError.code, legacyError.message);
+    }
+    return builder.build();
+  }
+
+  @SuppressWarnings("deprecation") // Uses deprecated PlaybackStateCompat actions.
+  private static long convertCommandToPlaybackStateActions(
+      @Player.Command int command, boolean shouldShowPlayButton) {
+    switch (command) {
+      case Player.COMMAND_PLAY_PAUSE:
+        return shouldShowPlayButton
+            ? PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PLAY_PAUSE
+            : PlaybackStateCompat.ACTION_PAUSE | PlaybackStateCompat.ACTION_PLAY_PAUSE;
+      case Player.COMMAND_PREPARE:
+        return PlaybackStateCompat.ACTION_PREPARE;
+      case Player.COMMAND_SEEK_BACK:
+        return PlaybackStateCompat.ACTION_REWIND;
+      case Player.COMMAND_SEEK_FORWARD:
+        return PlaybackStateCompat.ACTION_FAST_FORWARD;
+      case Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM:
+        return PlaybackStateCompat.ACTION_SEEK_TO;
+      case Player.COMMAND_SEEK_TO_MEDIA_ITEM:
+        return PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM;
+      case Player.COMMAND_SEEK_TO_NEXT:
+      case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
+        return PlaybackStateCompat.ACTION_SKIP_TO_NEXT;
+      case Player.COMMAND_SEEK_TO_PREVIOUS:
+      case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
+        return PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+      case Player.COMMAND_SET_MEDIA_ITEM:
+        return PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID
+            | PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH
+            | PlaybackStateCompat.ACTION_PLAY_FROM_URI
+            | PlaybackStateCompat.ACTION_PREPARE_FROM_MEDIA_ID
+            | PlaybackStateCompat.ACTION_PREPARE_FROM_SEARCH
+            | PlaybackStateCompat.ACTION_PREPARE_FROM_URI;
+      case Player.COMMAND_SET_REPEAT_MODE:
+        return PlaybackStateCompat.ACTION_SET_REPEAT_MODE;
+      case Player.COMMAND_SET_SPEED_AND_PITCH:
+        return PlaybackStateCompat.ACTION_SET_PLAYBACK_SPEED;
+      case Player.COMMAND_SET_SHUFFLE_MODE:
+        return PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE
+            | PlaybackStateCompat.ACTION_SET_SHUFFLE_MODE_ENABLED;
+      case Player.COMMAND_STOP:
+        return PlaybackStateCompat.ACTION_STOP;
+      case Player.COMMAND_ADJUST_DEVICE_VOLUME:
+      case Player.COMMAND_CHANGE_MEDIA_ITEMS:
+      // TODO(b/227346735): Handle this through
+      // MediaSessionCompat.setFlags(FLAG_HANDLES_QUEUE_COMMANDS)
+      case Player.COMMAND_GET_AUDIO_ATTRIBUTES:
+      case Player.COMMAND_GET_CURRENT_MEDIA_ITEM:
+      case Player.COMMAND_GET_DEVICE_VOLUME:
+      case Player.COMMAND_GET_METADATA:
+      case Player.COMMAND_GET_TEXT:
+      case Player.COMMAND_GET_TIMELINE:
+      case Player.COMMAND_GET_TRACKS:
+      case Player.COMMAND_GET_VOLUME:
+      case Player.COMMAND_INVALID:
+      case Player.COMMAND_SEEK_TO_DEFAULT_POSITION:
+      case Player.COMMAND_SET_DEVICE_VOLUME:
+      case Player.COMMAND_SET_PLAYLIST_METADATA:
+      case Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS:
+      case Player.COMMAND_SET_VIDEO_SURFACE:
+      case Player.COMMAND_SET_VOLUME:
+      default:
+        return 0;
+    }
+  }
+
+  @Nullable
+  @SuppressWarnings("deprecation") // Backwards compatibility with old volume commands
+  private static VolumeProviderCompat createVolumeProviderCompat(PlayerWrapper player) {
+    if (player.getDeviceInfo().playbackType == DeviceInfo.PLAYBACK_TYPE_LOCAL) {
+      return null;
+    }
+    Player.Commands availableCommands = player.getAvailableCommands();
+    int volumeControlType = VolumeProviderCompat.VOLUME_CONTROL_FIXED;
+    if (availableCommands.containsAny(
+        Player.COMMAND_ADJUST_DEVICE_VOLUME, Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+      volumeControlType = VolumeProviderCompat.VOLUME_CONTROL_RELATIVE;
+      if (availableCommands.containsAny(
+          Player.COMMAND_SET_DEVICE_VOLUME, Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)) {
+        volumeControlType = VolumeProviderCompat.VOLUME_CONTROL_ABSOLUTE;
+      }
+    }
+    Handler handler = new Handler(player.getApplicationLooper());
+    int currentVolume = player.getDeviceVolumeWithCommandCheck();
+    int legacyVolumeFlag = C.VOLUME_FLAG_SHOW_UI;
+    DeviceInfo deviceInfo = player.getDeviceInfo();
+    return new VolumeProviderCompat(
+        volumeControlType, deviceInfo.maxVolume, currentVolume, deviceInfo.routingControllerId) {
+      @Override
+      public void onSetVolumeTo(int volume) {
+        postOrRun(
+            handler,
+            () -> {
+              if (!player.isCommandAvailable(Player.COMMAND_SET_DEVICE_VOLUME)
+                  && !player.isCommandAvailable(Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)) {
+                return;
+              }
+              if (player.isCommandAvailable(Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)) {
+                player.setDeviceVolume(volume, legacyVolumeFlag);
+              } else {
+                player.setDeviceVolume(volume);
+              }
+            });
+      }
+
+      @Override
+      public void onAdjustVolume(int direction) {
+        postOrRun(
+            handler,
+            () -> {
+              if (!player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME)
+                  && !player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                return;
+              }
+              switch (direction) {
+                case AudioManager.ADJUST_RAISE:
+                  if (player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                    player.increaseDeviceVolume(legacyVolumeFlag);
+                  } else {
+                    player.increaseDeviceVolume();
+                  }
+                  break;
+                case AudioManager.ADJUST_LOWER:
+                  if (player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                    player.decreaseDeviceVolume(legacyVolumeFlag);
+                  } else {
+                    player.decreaseDeviceVolume();
+                  }
+                  break;
+                case AudioManager.ADJUST_MUTE:
+                  if (player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                    player.setDeviceMuted(true, legacyVolumeFlag);
+                  } else {
+                    player.setDeviceMuted(true);
+                  }
+                  break;
+                case AudioManager.ADJUST_UNMUTE:
+                  if (player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                    player.setDeviceMuted(false, legacyVolumeFlag);
+                  } else {
+                    player.setDeviceMuted(false);
+                  }
+                  break;
+                case AudioManager.ADJUST_TOGGLE_MUTE:
+                  if (player.isCommandAvailable(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)) {
+                    player.setDeviceMuted(
+                        !player.isDeviceMutedWithCommandCheck(), legacyVolumeFlag);
+                  } else {
+                    player.setDeviceMuted(!player.isDeviceMutedWithCommandCheck());
+                  }
+                  break;
+                default:
+                  Log.w(
+                      "VolumeProviderCompat",
+                      "onAdjustVolume: Ignoring unknown direction: " + direction);
+                  break;
+              }
+            });
+      }
+    };
+  }
+
+  /** Describes a legacy error. */
+  private static final class LegacyError {
+    public final boolean isFatal;
+    @PlaybackStateCompat.ErrorCode public final int code;
+    @Nullable public final String message;
+    public final Bundle extras;
+
+    /** Creates an instance. */
+    private LegacyError(
+        boolean isFatal,
+        @PlaybackStateCompat.ErrorCode int code,
+        @Nullable String message,
+        @Nullable Bundle extras) {
+      this.isFatal = isFatal;
+      this.code = code;
+      this.message = message;
+      this.extras = extras != null ? extras : Bundle.EMPTY;
+    }
+  }
+
   private final class MediaButtonReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-      if (!Util.areEqual(intent.getAction(), Intent.ACTION_MEDIA_BUTTON)) {
-        return;
-      }
-      Uri sessionUri = intent.getData();
-      if (!Util.areEqual(sessionUri, sessionUri)) {
+      if (!Objects.equals(intent.getAction(), Intent.ACTION_MEDIA_BUTTON)) {
         return;
       }
       KeyEvent keyEvent = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);

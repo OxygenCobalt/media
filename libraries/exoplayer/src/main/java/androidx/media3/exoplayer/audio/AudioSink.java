@@ -17,6 +17,7 @@ package androidx.media3.exoplayer.audio;
 
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.companion.virtual.VirtualDevice;
 import android.media.AudioDeviceInfo;
 import android.media.AudioTrack;
 import androidx.annotation.IntDef;
@@ -155,12 +156,22 @@ public interface AudioSink {
 
     /** Called when a period of silence has been skipped. */
     default void onSilenceSkipped() {}
+
+    /**
+     * Called when the audio session ID changed internally.
+     *
+     * <p>The audio sink will ignore new externally set audio session IDs until this ID has been
+     * acknowledged with {@link #setAudioSessionId(int)}.
+     *
+     * @param audioSessionId The new audio session ID.
+     */
+    default void onAudioSessionIdChanged(int audioSessionId) {}
   }
 
   /** Configuration parameters used for an {@link AudioTrack}. */
   final class AudioTrackConfig {
 
-    /* The {@link C.Encoding} of the audio data. */
+    /** The {@link C.Encoding} of the audio data. */
     public final @C.Encoding int encoding;
 
     /** The sample rate of the audio data. */
@@ -184,7 +195,8 @@ public interface AudioSink {
      * @param encoding The {@link C.Encoding} of the audio data
      * @param sampleRate The sample rate of the audio data.
      * @param channelConfig The channel configuration of the track. See {@code
-     *     AudioTrack.CHANNEL_OUT_XXX} constants.
+     *     AudioFormat.CHANNEL_OUT_XXX} constants like {@link
+     *     android.media.AudioFormat#CHANNEL_OUT_5POINT1}.
      * @param tunneling Whether tunneling is enabled for this track.
      * @param offload Whether offload is enabled for this track.
      * @param bufferSize The buffer size of the track in bytes.
@@ -263,6 +275,7 @@ public interface AudioSink {
      * @param audioTrackState The underlying {@link AudioTrack}'s state.
      * @param sampleRate The requested sample rate in Hz.
      * @param channelConfig The requested channel configuration.
+     * @param encoding The requested encoding.
      * @param bufferSize The requested buffer size in bytes.
      * @param format The input format of the sink when the error occurs.
      * @param isRecoverable Whether the exception can be recovered by recreating the sink.
@@ -272,6 +285,7 @@ public interface AudioSink {
         int audioTrackState,
         int sampleRate,
         int channelConfig,
+        int encoding,
         int bufferSize,
         Format format,
         boolean isRecoverable,
@@ -280,7 +294,15 @@ public interface AudioSink {
           "AudioTrack init failed "
               + audioTrackState
               + " "
-              + ("Config(" + sampleRate + ", " + channelConfig + ", " + bufferSize + ")")
+              + ("Config("
+                  + sampleRate
+                  + ", "
+                  + channelConfig
+                  + ", "
+                  + encoding
+                  + ", "
+                  + bufferSize
+                  + ")")
               + " "
               + format
               + (isRecoverable ? " (recoverable)" : ""),
@@ -366,16 +388,17 @@ public interface AudioSink {
   @interface SinkFormatSupport {}
 
   /** The sink supports the format directly, without the need for internal transcoding. */
-  int SINK_FORMAT_SUPPORTED_DIRECTLY = 2;
+  int SINK_FORMAT_SUPPORTED_DIRECTLY = AudioOutputProvider.FORMAT_SUPPORTED_DIRECTLY;
 
   /**
    * The sink supports the format, but needs to transcode it internally to do so. Internal
    * transcoding may result in lower quality and higher CPU load in some cases.
    */
-  int SINK_FORMAT_SUPPORTED_WITH_TRANSCODING = 1;
+  int SINK_FORMAT_SUPPORTED_WITH_TRANSCODING =
+      AudioOutputProvider.FORMAT_SUPPORTED_WITH_TRANSCODING;
 
   /** The sink does not support the format. */
-  int SINK_FORMAT_UNSUPPORTED = 0;
+  int SINK_FORMAT_UNSUPPORTED = AudioOutputProvider.FORMAT_UNSUPPORTED;
 
   /** Returned by {@link #getCurrentPositionUs(boolean)} when the position is not set. */
   long CURRENT_POSITION_NOT_SET = Long.MIN_VALUE;
@@ -580,8 +603,15 @@ public interface AudioSink {
    * @param audioDeviceInfo The preferred {@linkplain AudioDeviceInfo audio device}, or null to
    *     restore the default.
    */
-  @RequiresApi(23)
   default void setPreferredDevice(@Nullable AudioDeviceInfo audioDeviceInfo) {}
+
+  /**
+   * Sets the virtual device id.
+   *
+   * @param virtualDeviceId The {@linkplain VirtualDevice#getDeviceId() virtual device id}, or
+   *     {@link C#INDEX_UNSET} if unspecified.
+   */
+  default void setVirtualDeviceId(int virtualDeviceId) {}
 
   /**
    * Sets the offset that is added to the media timestamp before it is passed as {@code
@@ -590,6 +620,15 @@ public interface AudioSink {
    * @param outputStreamOffsetUs The output stream offset in microseconds.
    */
   default void setOutputStreamOffsetUs(long outputStreamOffsetUs) {}
+
+  /**
+   * Returns the size of the underlying {@link AudioTrack} buffer in microseconds. If unsupported or
+   * the {@link AudioTrack} is not initialized then return {@link C#TIME_UNSET}.
+   *
+   * <p>If the {@link AudioTrack} is configured with a compressed encoding, then the returned
+   * duration is an estimated minimum based on the encoding's maximum encoded byte rate.
+   */
+  long getAudioTrackBufferSizeUs();
 
   /**
    * Enables tunneling, if possible. The sink is reset if tunneling was previously disabled.
@@ -620,6 +659,11 @@ public interface AudioSink {
    */
   @RequiresApi(29)
   default void setOffloadDelayPadding(int delayInFrames, int paddingInFrames) {}
+
+  /** Sets the {@link AudioOutputProvider} to use as the output path. */
+  default void setAudioOutputProvider(AudioOutputProvider audioOutputProvider) {
+    throw new UnsupportedOperationException("AudioSink doesn't support setAudioOutputProvider");
+  }
 
   /**
    * Sets the playback volume.

@@ -16,7 +16,9 @@
 package androidx.media3.common;
 
 import static androidx.media3.common.AdPlaybackState.AD_STATE_UNAVAILABLE;
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkElementIndex;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -26,7 +28,7 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import android.util.Pair;
 import androidx.annotation.Nullable;
-import androidx.media3.common.util.Assertions;
+import androidx.media3.common.MediaItem.LocalConfiguration;
 import androidx.media3.common.util.BundleCollectionUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -36,6 +38,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.InlineMe;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
@@ -174,14 +177,22 @@ public abstract class Timeline {
     public Object uid;
 
     /**
-     * @deprecated Use {@link #mediaItem} instead.
+     * @deprecated Use {@link LocalConfiguration#tag} of {@link #mediaItem} instead.
      */
     @UnstableApi @Deprecated @Nullable public Object tag;
 
     /** The {@link MediaItem} associated to the window. Not necessarily unique. */
     public MediaItem mediaItem;
 
-    /** The manifest of the window. May be {@code null}. */
+    /**
+     * The manifest of the window. May be {@code null}.
+     *
+     * <p>The concrete type depends on the media sources producing the timeline window. Examples
+     * provided by Media3 media source modules are {@code
+     * androidx.media3.exoplayer.dash.manifest.DashManifest}, {@code
+     * androidx.media3.exoplayer.hls.HlsManifest} and {@code
+     * androidx.media3.exoplayer.smoothstreaming.SSManifest}.
+     */
     @Nullable public Object manifest;
 
     /**
@@ -262,7 +273,7 @@ public abstract class Timeline {
     /** Sets the data held by this window. */
     @CanIgnoreReturnValue
     @UnstableApi
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("deprecation") // Using Window.tag for backwards compatibility
     public Window set(
         Object uid,
         @Nullable MediaItem mediaItem,
@@ -371,10 +382,10 @@ public abstract class Timeline {
         return false;
       }
       Window that = (Window) obj;
-      return Util.areEqual(uid, that.uid)
-          && Util.areEqual(mediaItem, that.mediaItem)
-          && Util.areEqual(manifest, that.manifest)
-          && Util.areEqual(liveConfiguration, that.liveConfiguration)
+      return Objects.equals(uid, that.uid)
+          && Objects.equals(mediaItem, that.mediaItem)
+          && Objects.equals(manifest, that.manifest)
+          && Objects.equals(liveConfiguration, that.liveConfiguration)
           && presentationStartTimeMs == that.presentationStartTimeMs
           && windowStartTimeMs == that.windowStartTimeMs
           && elapsedRealtimeEpochOffsetMs == that.elapsedRealtimeEpochOffsetMs
@@ -871,13 +882,13 @@ public abstract class Timeline {
         return false;
       }
       Period that = (Period) obj;
-      return Util.areEqual(id, that.id)
-          && Util.areEqual(uid, that.uid)
+      return Objects.equals(id, that.id)
+          && Objects.equals(uid, that.uid)
           && windowIndex == that.windowIndex
           && durationUs == that.durationUs
           && positionInWindowUs == that.positionInWindowUs
           && isPlaceholder == that.isPlaceholder
-          && Util.areEqual(adPlaybackState, that.adPlaybackState);
+          && Objects.equals(adPlaybackState, that.adPlaybackState);
     }
 
     @Override
@@ -1188,7 +1199,7 @@ public abstract class Timeline {
    */
   public final Pair<Object, Long> getPeriodPositionUs(
       Window window, Period period, int windowIndex, long windowPositionUs) {
-    return Assertions.checkNotNull(
+    return checkNotNull(
         getPeriodPositionUs(
             window, period, windowIndex, windowPositionUs, /* defaultPositionProjectionUs= */ 0));
   }
@@ -1216,7 +1227,7 @@ public abstract class Timeline {
       int windowIndex,
       long windowPositionUs,
       long defaultPositionProjectionUs) {
-    Assertions.checkIndex(windowIndex, 0, getWindowCount());
+    checkElementIndex(windowIndex, getWindowCount());
     getWindow(windowIndex, window, defaultPositionProjectionUs);
     if (windowPositionUs == C.TIME_UNSET) {
       windowPositionUs = window.getDefaultPositionUs();
@@ -1239,7 +1250,7 @@ public abstract class Timeline {
     }
     // Period positions cannot be negative.
     periodPositionUs = max(0, periodPositionUs);
-    return Pair.create(Assertions.checkNotNull(period.uid), periodPositionUs);
+    return Pair.create(checkNotNull(period.uid), periodPositionUs);
   }
 
   /**

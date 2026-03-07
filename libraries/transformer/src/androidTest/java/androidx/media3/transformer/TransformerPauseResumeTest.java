@@ -15,36 +15,38 @@
  */
 package androidx.media3.transformer;
 
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S;
-import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
+import static android.os.Build.VERSION.SDK_INT;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S;
+import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
+import static androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE;
+import static androidx.media3.transformer.Transformer.PROGRESS_STATE_WAITING_FOR_AVAILABILITY;
 import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
 import static com.google.common.truth.Truth.assertThat;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assume.assumeFalse;
 
 import android.content.Context;
-import android.media.MediaCodec.BufferInfo;
-import androidx.annotation.Nullable;
+import android.os.Build;
 import androidx.media3.common.C;
 import androidx.media3.common.Effect;
-import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.Metadata;
-import androidx.media3.common.MimeTypes;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.audio.SonicAudioProcessor;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.Util;
 import androidx.media3.effect.RgbFilter;
-import androidx.media3.muxer.Muxer;
-import androidx.media3.muxer.Muxer.MuxerException;
+import androidx.media3.transformer.AndroidTestUtil.BatchProgressReportingMuxer;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.common.util.concurrent.SettableFuture;
 import java.io.File;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeoutException;
 import org.junit.Before;
@@ -59,9 +61,10 @@ import org.junit.runner.RunWith;
 public class TransformerPauseResumeTest {
   @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-  private static final long DEFAULT_PRESENTATION_TIME_US_TO_BLOCK_FRAME = 5_000_000L;
+  private static final long PRESENTATION_TIME_US_TO_BLOCK_FRAME = 1_500_000L;
   private static final int DEFAULT_TIMEOUT_SECONDS = 120;
-  private static final int MP4_ASSET_FRAME_COUNT = 932;
+  private static final int MP4_ASSET_FRAME_COUNT =
+      MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFrameCount;
 
   private final Context context = getApplicationContext();
   @Rule public final TestName testName = new TestName();
@@ -79,8 +82,8 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
             /* clippingStartPositionMs= */ 0,
@@ -106,7 +109,10 @@ public class TransformerPauseResumeTest {
 
     ExportResult exportResult = result.exportResult;
     assertThat(exportResult.processedInputs).hasSize(4);
-    assertThat(exportResult.videoFrameCount).isEqualTo(MP4_ASSET_FRAME_COUNT);
+    // Rarely, MediaCodec decoders output frames in the wrong order.
+    // When the MediaCodec encoder sees frames in the wrong order, fewer output frames are produced.
+    // Use a tolerance when comparing frame counts. See b/343476417#comment5.
+    assertThat(exportResult.videoFrameCount).isWithin(2).of(MP4_ASSET_FRAME_COUNT);
     // The first processed media item corresponds to remuxing previous output video.
     assertThat(exportResult.processedInputs.get(0).audioDecoderName).isNull();
     assertThat(exportResult.processedInputs.get(0).videoDecoderName).isNull();
@@ -131,8 +137,8 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
             /* clippingStartPositionMs= */ 0,
@@ -166,8 +172,8 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
             /* clippingStartPositionMs= */ 0,
@@ -204,12 +210,19 @@ public class TransformerPauseResumeTest {
         .isEqualTo(exportResultWithoutResume.audioEncoderName);
     assertThat(exportResultWithResume.videoEncoderName)
         .isEqualTo(exportResultWithoutResume.videoEncoderName);
+    // Rarely, MediaCodec decoders output frames in the wrong order.
+    // When the MediaCodec encoder sees frames in the wrong order, fewer output frames are produced.
+    // Use a tolerance when comparing frame counts. See b/343476417#comment5.
     assertThat(exportResultWithResume.videoFrameCount)
-        .isEqualTo(exportResultWithoutResume.videoFrameCount);
+        .isWithin(2)
+        .of(exportResultWithoutResume.videoFrameCount);
     // TODO: b/306595508 - Remove this expected difference once inconsistent behaviour of audio
     //  encoder is fixed.
     int maxDiffExpectedInDurationMs = 2;
-    assertThat(exportResultWithResume.durationMs - exportResultWithoutResume.durationMs)
+    // TODO: b/443998866 - Use MetadataRetriever to get exact duration.
+    assertThat(
+            exportResultWithResume.approximateDurationMs
+                - exportResultWithoutResume.approximateDurationMs)
         .isLessThan(maxDiffExpectedInDurationMs);
     assertThat(new File(resultWithResume.filePath).length()).isGreaterThan(0);
   }
@@ -221,12 +234,12 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
-            /* clippingStartPositionMs= */ 2_000L,
-            /* clippingEndPositionMs= */ 13_000L,
+            /* clippingStartPositionMs= */ 1_000L,
+            /* clippingEndPositionMs= */ 4_000L,
             /* mediaItemsInSequence= */ 1);
     // Export without resume.
     ExportResult exportResultWithoutResume =
@@ -259,10 +272,17 @@ public class TransformerPauseResumeTest {
         .isEqualTo(exportResultWithoutResume.audioEncoderName);
     assertThat(exportResultWithResume.videoEncoderName)
         .isEqualTo(exportResultWithoutResume.videoEncoderName);
+    // Rarely, MediaCodec decoders output frames in the wrong order.
+    // When the MediaCodec encoder sees frames in the wrong order, fewer output frames are produced.
+    // Use a tolerance when comparing frame counts. See b/343476417#comment5.
     assertThat(exportResultWithResume.videoFrameCount)
-        .isEqualTo(exportResultWithoutResume.videoFrameCount);
+        .isWithin(2)
+        .of(exportResultWithoutResume.videoFrameCount);
     int maxDiffExpectedInDurationMs = 2;
-    assertThat(exportResultWithResume.durationMs - exportResultWithoutResume.durationMs)
+    // TODO: b/443998866 - Use MetadataRetriever to get exact duration.
+    assertThat(
+            exportResultWithResume.approximateDurationMs
+                - exportResultWithoutResume.approximateDurationMs)
         .isLessThan(maxDiffExpectedInDurationMs);
     assertThat(new File(resultWithResume.filePath).length()).isGreaterThan(0);
   }
@@ -273,8 +293,8 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
             /* clippingStartPositionMs= */ 0,
@@ -300,7 +320,10 @@ public class TransformerPauseResumeTest {
     ExportResult exportResult = result.exportResult;
     assertThat(exportResult.processedInputs).hasSize(6);
     int expectedVideoFrameCount = 2 * MP4_ASSET_FRAME_COUNT;
-    assertThat(exportResult.videoFrameCount).isEqualTo(expectedVideoFrameCount);
+    // Rarely, MediaCodec decoders output frames in the wrong order.
+    // When the MediaCodec encoder sees frames in the wrong order, fewer output frames are produced.
+    // Use a tolerance when comparing frame counts. See b/343476417#comment5.
+    assertThat(exportResult.videoFrameCount).isWithin(2).of(expectedVideoFrameCount);
     // The first processed media item corresponds to remuxing previous output video.
     assertThat(exportResult.processedInputs.get(0).audioDecoderName).isNull();
     assertThat(exportResult.processedInputs.get(0).videoDecoderName).isNull();
@@ -328,8 +351,8 @@ public class TransformerPauseResumeTest {
     assumeFormatsSupported(
         getApplicationContext(),
         testId,
-        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat,
-        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.videoFormat);
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
     Composition composition =
         buildSingleSequenceComposition(
             /* clippingStartPositionMs= */ 0,
@@ -365,12 +388,170 @@ public class TransformerPauseResumeTest {
         .isEqualTo(exportResultWithoutResume.audioEncoderName);
     assertThat(exportResultWithResume.videoEncoderName)
         .isEqualTo(exportResultWithoutResume.videoEncoderName);
+    // Rarely, MediaCodec decoders output frames in the wrong order.
+    // When the MediaCodec encoder sees frames in the wrong order, fewer output frames are produced.
+    // Use a tolerance when comparing frame counts. See b/343476417#comment5.
     assertThat(exportResultWithResume.videoFrameCount)
-        .isEqualTo(exportResultWithoutResume.videoFrameCount);
+        .isWithin(2)
+        .of(exportResultWithoutResume.videoFrameCount);
     int maxDiffExpectedInDurationMs = 2;
-    assertThat(exportResultWithResume.durationMs - exportResultWithoutResume.durationMs)
+    // TODO: b/443998866 - Use MetadataRetriever to get exact duration.
+    assertThat(
+            exportResultWithResume.approximateDurationMs
+                - exportResultWithoutResume.approximateDurationMs)
         .isLessThan(maxDiffExpectedInDurationMs);
     assertThat(new File(resultWithResume.filePath).length()).isGreaterThan(0);
+  }
+
+  @Test
+  public void resumeAndGetProgress_returnsIncreasingPercentages() throws Exception {
+    assumeFalse(shouldSkipDevice());
+    assumeFormatsSupported(
+        getApplicationContext(),
+        testId,
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
+    Composition composition =
+        buildSingleSequenceComposition(
+            /* clippingStartPositionMs= */ 0,
+            /* clippingEndPositionMs= */ C.TIME_END_OF_SOURCE,
+            /* mediaItemsInSequence= */ 1);
+    CountDownLatch countDownLatch = new CountDownLatch(1);
+    Transformer blockingTransformer = buildBlockingTransformer(countDownLatch::countDown);
+    String firstOutputPath = temporaryFolder.newFile("FirstOutput.mp4").getAbsolutePath();
+    InstrumentationRegistry.getInstrumentation()
+        .runOnMainSync(() -> blockingTransformer.start(composition, firstOutputPath));
+    // Block here until timeout reached or latch is counted down.
+    if (!countDownLatch.await(DEFAULT_TIMEOUT_SECONDS, SECONDS)) {
+      throw new TimeoutException(
+          "Transformer timed out after " + DEFAULT_TIMEOUT_SECONDS + " seconds.");
+    }
+    InstrumentationRegistry.getInstrumentation().runOnMainSync(blockingTransformer::cancel);
+    // Prepare transformer to resume and to get progress.
+    SettableFuture<@NullableType Exception> transformerExceptionFuture = SettableFuture.create();
+    Transformer.Listener transformerListener =
+        new Transformer.Listener() {
+          @Override
+          public void onCompleted(Composition composition, ExportResult exportResult) {
+            transformerExceptionFuture.set(null);
+          }
+
+          @Override
+          public void onError(
+              Composition composition, ExportResult exportResult, ExportException exportException) {
+            transformerExceptionFuture.set(exportException);
+          }
+        };
+    Queue<Integer> progresses = new ConcurrentLinkedDeque<>();
+    TransformerHolder transformerHolder = new TransformerHolder();
+    Runnable getProgressRunnable =
+        () ->
+            InstrumentationRegistry.getInstrumentation()
+                .runOnMainSync(
+                    () -> {
+                      Transformer transformer = transformerHolder.getTransformer();
+                      ProgressHolder progressHolder = new ProgressHolder();
+                      if (transformer.getProgress(progressHolder) == PROGRESS_STATE_AVAILABLE
+                          && (progresses.isEmpty()
+                              || Iterables.getLast(progresses) != progressHolder.progress)) {
+                        progresses.add(progressHolder.progress);
+                      }
+                    });
+    // Get progress after every sample batch is written.
+    BatchProgressReportingMuxer.Factory muxerFactory =
+        new BatchProgressReportingMuxer.Factory(
+            /* sampleBatchSize= */ 100, () -> getProgressRunnable.run());
+    Transformer transformer =
+        new Transformer.Builder(context)
+            .setMuxerFactory(muxerFactory)
+            .addListener(transformerListener)
+            .build();
+    transformerHolder.setTransformer(transformer);
+    String secondOutputPath = temporaryFolder.newFile("SecondOutput.mp4").getAbsolutePath();
+    InstrumentationRegistry.getInstrumentation()
+        .runOnMainSync(() -> transformer.resume(composition, secondOutputPath, firstOutputPath));
+
+    assertThat(transformerExceptionFuture.get()).isNull();
+    assertThat(progresses).isNotEmpty();
+    assertThat(progresses).isInOrder();
+    assertThat(Iterables.getFirst(progresses, /* defaultValue= */ -1)).isAtLeast(0);
+    // After progress 85, export will directly complete.
+    assertThat(Iterables.getLast(progresses)).isAtMost(85);
+  }
+
+  @Test
+  public void resumeAndGetProgress_returnsExpectedProgressStates() throws Exception {
+    assumeFalse(shouldSkipDevice());
+    assumeFormatsSupported(
+        getApplicationContext(),
+        testId,
+        /* inputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat,
+        /* outputFormat= */ MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.videoFormat);
+    Composition composition =
+        buildSingleSequenceComposition(
+            /* clippingStartPositionMs= */ 0,
+            /* clippingEndPositionMs= */ C.TIME_END_OF_SOURCE,
+            /* mediaItemsInSequence= */ 1);
+    CountDownLatch countDownLatch = new CountDownLatch(1);
+    Transformer blockingTransformer = buildBlockingTransformer(countDownLatch::countDown);
+    String firstOutputPath = temporaryFolder.newFile("FirstOutput.mp4").getAbsolutePath();
+    InstrumentationRegistry.getInstrumentation()
+        .runOnMainSync(() -> blockingTransformer.start(composition, firstOutputPath));
+    // Block here until timeout reached or latch is counted down.
+    if (!countDownLatch.await(DEFAULT_TIMEOUT_SECONDS, SECONDS)) {
+      throw new TimeoutException(
+          "Transformer timed out after " + DEFAULT_TIMEOUT_SECONDS + " seconds.");
+    }
+    InstrumentationRegistry.getInstrumentation().runOnMainSync(blockingTransformer::cancel);
+    // Prepare transformer to resume and to get progress.
+    SettableFuture<@NullableType Exception> transformerExceptionFuture = SettableFuture.create();
+    Transformer.Listener transformerListener =
+        new Transformer.Listener() {
+          @Override
+          public void onCompleted(Composition composition, ExportResult exportResult) {
+            transformerExceptionFuture.set(null);
+          }
+
+          @Override
+          public void onError(
+              Composition composition, ExportResult exportResult, ExportException exportException) {
+            transformerExceptionFuture.set(exportException);
+          }
+        };
+    Queue<Integer> progressStates = new ConcurrentLinkedDeque<>();
+    // Start with PROGRESS_STATE_WAITING_FOR_AVAILABILITY as the first progress might directly be
+    // PROGRESS_STATE_AVAILABLE.
+    progressStates.add(PROGRESS_STATE_WAITING_FOR_AVAILABILITY);
+    TransformerHolder transformerHolder = new TransformerHolder();
+    Runnable getProgressRunnable =
+        () ->
+            InstrumentationRegistry.getInstrumentation()
+                .runOnMainSync(
+                    () -> {
+                      Transformer transformer = transformerHolder.getTransformer();
+                      int currentProgressState = transformer.getProgress(new ProgressHolder());
+                      if (progressStates.isEmpty()
+                          || Iterables.getLast(progressStates) != currentProgressState) {
+                        progressStates.add(currentProgressState);
+                      }
+                    });
+    // Get progress after every sample batch is written.
+    BatchProgressReportingMuxer.Factory muxerFactory =
+        new BatchProgressReportingMuxer.Factory(
+            /* sampleBatchSize= */ 100, () -> getProgressRunnable.run());
+    Transformer transformer =
+        new Transformer.Builder(context)
+            .setMuxerFactory(muxerFactory)
+            .addListener(transformerListener)
+            .build();
+    transformerHolder.setTransformer(transformer);
+    String secondOutputPath = temporaryFolder.newFile("SecondOutput.mp4").getAbsolutePath();
+    InstrumentationRegistry.getInstrumentation()
+        .runOnMainSync(() -> transformer.resume(composition, secondOutputPath, firstOutputPath));
+
+    assertThat(transformerExceptionFuture.get()).isNull();
+    assertThat(progressStates)
+        .containsExactly(PROGRESS_STATE_WAITING_FOR_AVAILABILITY, PROGRESS_STATE_AVAILABLE);
   }
 
   private static Composition buildSingleSequenceComposition(
@@ -384,7 +565,7 @@ public class TransformerPauseResumeTest {
     EditedMediaItem editedMediaItem =
         new EditedMediaItem.Builder(
                 new MediaItem.Builder()
-                    .setUri(MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_15S.uri)
+                    .setUri(MP4_ASSET_WITH_INCREASING_TIMESTAMPS_320W_240H_5S.uri)
                     .setClippingConfiguration(
                         new MediaItem.ClippingConfiguration.Builder()
                             .setStartPositionMs(clippingStartPositionMs)
@@ -399,13 +580,17 @@ public class TransformerPauseResumeTest {
       editedMediaItemList.add(editedMediaItem);
     }
 
-    return new Composition.Builder(new EditedMediaItemSequence.Builder(editedMediaItemList).build())
+    return new Composition.Builder(
+            EditedMediaItemSequence.withAudioAndVideoFrom(editedMediaItemList))
         .build();
   }
 
-  private static Transformer buildBlockingTransformer(FrameBlockingMuxer.Listener listener) {
+  private static Transformer buildBlockingTransformer(
+      AndroidTestUtil.FrameBlockingMuxer.Listener listener) {
     return new Transformer.Builder(getApplicationContext())
-        .setMuxerFactory(new FrameBlockingMuxerFactory(listener))
+        .setMuxerFactory(
+            new AndroidTestUtil.FrameBlockingMuxerFactory(
+                PRESENTATION_TIME_US_TO_BLOCK_FRAME, listener))
         .build();
   }
 
@@ -413,79 +598,21 @@ public class TransformerPauseResumeTest {
     // v26 emulators are not producing I-frames, due to which resuming export does not work as
     // expected.
     // On vivo 1820 and vivo 1906, the process crashes unexpectedly (see b/310566201).
-    return (Util.SDK_INT == 26 && Util.isRunningOnEmulator())
-        || (Util.SDK_INT == 27 && Ascii.equalsIgnoreCase(Util.MODEL, "vivo 1820"))
-        || (Util.SDK_INT == 28 && Ascii.equalsIgnoreCase(Util.MODEL, "vivo 1901"))
-        || (Util.SDK_INT == 28 && Ascii.equalsIgnoreCase(Util.MODEL, "vivo 1906"));
+    return (SDK_INT == 26 && Util.isRunningOnEmulator())
+        || (SDK_INT == 27 && Ascii.equalsIgnoreCase(Build.MODEL, "vivo 1820"))
+        || (SDK_INT == 28 && Ascii.equalsIgnoreCase(Build.MODEL, "vivo 1901"))
+        || (SDK_INT == 28 && Ascii.equalsIgnoreCase(Build.MODEL, "vivo 1906"));
   }
 
-  private static final class FrameBlockingMuxerFactory implements Muxer.Factory {
-    private final Muxer.Factory wrappedMuxerFactory;
-    private final FrameBlockingMuxer.Listener listener;
+  private static class TransformerHolder {
+    private Transformer transformer;
 
-    public FrameBlockingMuxerFactory(FrameBlockingMuxer.Listener listener) {
-      this.wrappedMuxerFactory = new DefaultMuxer.Factory();
-      this.listener = listener;
+    public void setTransformer(Transformer transformer) {
+      this.transformer = transformer;
     }
 
-    @Override
-    public Muxer create(String path) throws MuxerException {
-      return new FrameBlockingMuxer(wrappedMuxerFactory.create(path), listener);
-    }
-
-    @Override
-    public ImmutableList<String> getSupportedSampleMimeTypes(@C.TrackType int trackType) {
-      return wrappedMuxerFactory.getSupportedSampleMimeTypes(trackType);
-    }
-  }
-
-  private static final class FrameBlockingMuxer implements Muxer {
-    interface Listener {
-      void onFrameBlocked();
-    }
-
-    private final Muxer wrappedMuxer;
-    private final FrameBlockingMuxer.Listener listener;
-
-    private boolean notifiedListener;
-    @Nullable private TrackToken videoTrackToken;
-
-    private FrameBlockingMuxer(Muxer wrappedMuxer, FrameBlockingMuxer.Listener listener) {
-      this.wrappedMuxer = wrappedMuxer;
-      this.listener = listener;
-    }
-
-    @Override
-    public TrackToken addTrack(Format format) throws MuxerException {
-      TrackToken trackToken = wrappedMuxer.addTrack(format);
-      if (MimeTypes.isVideo(format.sampleMimeType)) {
-        videoTrackToken = trackToken;
-      }
-      return trackToken;
-    }
-
-    @Override
-    public void writeSampleData(TrackToken trackToken, ByteBuffer data, BufferInfo bufferInfo)
-        throws MuxerException {
-      if (trackToken == videoTrackToken
-          && bufferInfo.presentationTimeUs >= DEFAULT_PRESENTATION_TIME_US_TO_BLOCK_FRAME) {
-        if (!notifiedListener) {
-          listener.onFrameBlocked();
-          notifiedListener = true;
-        }
-        return;
-      }
-      wrappedMuxer.writeSampleData(trackToken, data, bufferInfo);
-    }
-
-    @Override
-    public void addMetadataEntry(Metadata.Entry metadataEntry) {
-      wrappedMuxer.addMetadataEntry(metadataEntry);
-    }
-
-    @Override
-    public void close() throws MuxerException {
-      wrappedMuxer.close();
+    public Transformer getTransformer() {
+      return transformer;
     }
   }
 }

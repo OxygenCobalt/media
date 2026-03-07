@@ -15,7 +15,8 @@
  */
 package androidx.media3.test.utils;
 
-import androidx.media3.common.util.Assertions;
+import static com.google.common.base.Preconditions.checkState;
+
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import com.google.common.collect.ImmutableSet;
@@ -26,7 +27,7 @@ import java.nio.ByteBuffer;
 public final class DumpableMp4Box implements Dumper.Dumpable {
   private static final ImmutableSet<String> CONTAINER_BOXES =
       ImmutableSet.of(
-          "moov", "trak", "mdia", "minf", "stbl", "edts", "meta", "mvex", "moof", "traf", "edvd");
+          "moov", "trak", "mdia", "minf", "stbl", "edts", "meta", "mvex", "moof", "traf", "axte");
   private final ParsableByteArray box;
 
   /***
@@ -55,7 +56,7 @@ public final class DumpableMp4Box implements Dumper.Dumpable {
       if (size == 1) {
         size = box.readUnsignedLongToLong();
         // Parsing is not supported for box having size > Integer.MAX_VALUE.
-        Assertions.checkState(size <= Integer.MAX_VALUE);
+        checkState(size <= Integer.MAX_VALUE);
         // Subtract 4 bytes (32-bit box size) + 4 bytes (box name) + 8 bytes (64-bit box size).
         payloadSize = size - 16;
       }

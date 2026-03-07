@@ -15,7 +15,7 @@
  */
 package androidx.media3.common.util;
 
-import static androidx.media3.common.util.Util.SDK_INT;
+import static android.os.Build.VERSION.SDK_INT;
 
 import android.annotation.SuppressLint;
 import android.media.AudioFormat;
@@ -81,7 +81,9 @@ public final class MediaFormatUtil {
                 getInteger(
                     mediaFormat, MediaFormat.KEY_BIT_RATE, /* defaultValue= */ Format.NO_VALUE))
             .setCodecs(getCodecString(mediaFormat))
-            .setFrameRate(getFrameRate(mediaFormat, /* defaultValue= */ Format.NO_VALUE))
+            .setFrameRate(
+                getFloatFromIntOrFloat(
+                    mediaFormat, MediaFormat.KEY_FRAME_RATE, /* defaultValue= */ Format.NO_VALUE))
             .setWidth(
                 getInteger(mediaFormat, MediaFormat.KEY_WIDTH, /* defaultValue= */ Format.NO_VALUE))
             .setHeight(
@@ -96,8 +98,7 @@ public final class MediaFormatUtil {
                     /* defaultValue= */ Format.NO_VALUE))
             .setRotationDegrees(
                 getInteger(mediaFormat, MediaFormat.KEY_ROTATION, /* defaultValue= */ 0))
-            // TODO(b/278101856): Disallow invalid values after confirming.
-            .setColorInfo(getColorInfo(mediaFormat, /* allowInvalidValues= */ true))
+            .setColorInfo(getColorInfo(mediaFormat))
             .setSampleRate(
                 getInteger(
                     mediaFormat, MediaFormat.KEY_SAMPLE_RATE, /* defaultValue= */ Format.NO_VALUE))
@@ -129,6 +130,10 @@ public final class MediaFormatUtil {
 
     formatBuilder.setInitializationData(csdBuffers.build());
 
+    if (mediaFormat.containsKey(MediaFormat.KEY_TRACK_ID)) {
+      formatBuilder.setId(mediaFormat.getInteger(MediaFormat.KEY_TRACK_ID));
+    }
+
     return formatBuilder.build();
   }
 
@@ -148,6 +153,10 @@ public final class MediaFormatUtil {
     maybeSetInteger(result, MediaFormat.KEY_BIT_RATE, format.bitrate);
     maybeSetInteger(result, KEY_MAX_BIT_RATE, format.peakBitrate);
     maybeSetInteger(result, MediaFormat.KEY_CHANNEL_COUNT, format.channelCount);
+    int channelMask = Util.getAudioTrackChannelConfig(format.channelCount);
+    if (channelMask != AudioFormat.CHANNEL_INVALID) {
+      result.setInteger(MediaFormat.KEY_CHANNEL_MASK, channelMask);
+    }
 
     maybeSetColorInfo(result, format.colorInfo);
 
@@ -176,6 +185,14 @@ public final class MediaFormatUtil {
     result.setInteger(MediaFormat.KEY_ENCODER_PADDING, format.encoderPadding);
 
     maybeSetPixelAspectRatio(result, format.pixelWidthHeightRatio);
+
+    if (format.id != null) {
+      try {
+        result.setInteger(MediaFormat.KEY_TRACK_ID, Integer.parseInt(format.id));
+      } catch (NumberFormatException e) {
+        // Ignore, format.id is not always an integer, but KEY_TRACK_ID expects an int.
+      }
+    }
     return result;
   }
 
@@ -270,13 +287,6 @@ public final class MediaFormatUtil {
    */
   @Nullable
   public static ColorInfo getColorInfo(MediaFormat mediaFormat) {
-    return getColorInfo(mediaFormat, /* allowInvalidValues= */ false);
-  }
-
-  // Internal methods.
-
-  @Nullable
-  private static ColorInfo getColorInfo(MediaFormat mediaFormat, boolean allowInvalidValues) {
     if (SDK_INT < 24) {
       // MediaFormat KEY_COLOR_TRANSFER and other KEY_COLOR values available from API 24.
       return null;
@@ -294,21 +304,17 @@ public final class MediaFormatUtil {
     @Nullable
     byte[] hdrStaticInfo =
         hdrStaticInfoByteBuffer != null ? getArray(hdrStaticInfoByteBuffer) : null;
-
-    if (!allowInvalidValues) {
-      // Some devices may produce invalid values from MediaFormat#getInteger.
-      // See b/239435670 for more information.
-      if (!isValidColorSpace(colorSpace)) {
-        colorSpace = Format.NO_VALUE;
-      }
-      if (!isValidColorRange(colorRange)) {
-        colorRange = Format.NO_VALUE;
-      }
-      if (!isValidColorTransfer(colorTransfer)) {
-        colorTransfer = Format.NO_VALUE;
-      }
+    // Some devices may produce invalid values from MediaFormat#getInteger.
+    // See b/239435670 for more information.
+    if (!isValidColorSpace(colorSpace)) {
+      colorSpace = Format.NO_VALUE;
     }
-
+    if (!isValidColorRange(colorRange)) {
+      colorRange = Format.NO_VALUE;
+    }
+    if (!isValidColorTransfer(colorTransfer)) {
+      colorTransfer = Format.NO_VALUE;
+    }
     if (colorSpace != Format.NO_VALUE
         || colorRange != Format.NO_VALUE
         || colorTransfer != Format.NO_VALUE
@@ -341,8 +347,40 @@ public final class MediaFormatUtil {
   }
 
   /**
-   * Returns a {@code Codecs string} of {@link MediaFormat}. In case of an H263 codec string, builds
-   * and returns an RFC 6381 H263 codec string using profile and level.
+   * Returns the value of a key whose value can be set as int or float.
+   *
+   * <p>The {@code defaultValue} is returned if the key is not present in the {@link MediaFormat}.
+   *
+   * @throws ClassCastException If the stored value for the key is other than int or float.
+   */
+  public static float getFloatFromIntOrFloat(
+      MediaFormat mediaFormat, String keyName, float defaultValue) {
+    if (!mediaFormat.containsKey(keyName)) {
+      return defaultValue;
+    }
+    float value;
+    if (SDK_INT >= 29) {
+      int valueType = mediaFormat.getValueTypeForKey(keyName);
+      if (valueType == MediaFormat.TYPE_FLOAT) {
+        value = mediaFormat.getFloat(keyName);
+      } else {
+        // It should be int.
+        value = mediaFormat.getInteger(keyName);
+      }
+    } else {
+      try {
+        value = mediaFormat.getFloat(keyName);
+      } catch (ClassCastException ex) {
+        value = mediaFormat.getInteger(keyName);
+      }
+    }
+    return value;
+  }
+
+  /**
+   * Returns a {@code Codecs string} of {@link MediaFormat}.
+   *
+   * <p>For H263 and Dolby Vision formats, builds a codec string using profile and level.
    */
   @Nullable
   @SuppressLint("InlinedApi") // Inlined MediaFormat keys.
@@ -354,27 +392,19 @@ public final class MediaFormatUtil {
       return CodecSpecificDataUtil.buildH263CodecString(
           mediaFormat.getInteger(MediaFormat.KEY_PROFILE),
           mediaFormat.getInteger(MediaFormat.KEY_LEVEL));
+    } else if (Objects.equals(
+            mediaFormat.getString(MediaFormat.KEY_MIME), MimeTypes.VIDEO_DOLBY_VISION)
+        && mediaFormat.containsKey(MediaFormat.KEY_PROFILE)
+        && mediaFormat.containsKey(MediaFormat.KEY_LEVEL)) {
+      // Add Dolby Vision profile and level to codec string as per Dolby Vision ISO media format.
+      return CodecSpecificDataUtil.buildDolbyVisionCodecString(
+          CodecSpecificDataUtil.dolbyVisionConstantToProfileNumber(
+              mediaFormat.getInteger(MediaFormat.KEY_PROFILE)),
+          CodecSpecificDataUtil.dolbyVisionConstantToLevelNumber(
+              mediaFormat.getInteger(MediaFormat.KEY_LEVEL)));
     } else {
       return getString(mediaFormat, MediaFormat.KEY_CODECS_STRING, /* defaultValue= */ null);
     }
-  }
-
-  /**
-   * Returns the frame rate from a {@link MediaFormat}.
-   *
-   * <p>The {@link MediaFormat#KEY_FRAME_RATE} can have both integer and float value so it returns
-   * which ever value is set.
-   */
-  private static float getFrameRate(MediaFormat mediaFormat, float defaultValue) {
-    float frameRate = defaultValue;
-    if (mediaFormat.containsKey(MediaFormat.KEY_FRAME_RATE)) {
-      try {
-        frameRate = mediaFormat.getFloat(MediaFormat.KEY_FRAME_RATE);
-      } catch (ClassCastException ex) {
-        frameRate = mediaFormat.getInteger(MediaFormat.KEY_FRAME_RATE);
-      }
-    }
-    return frameRate;
   }
 
   /** Returns the ratio between a pixel's width and height for a {@link MediaFormat}. */
@@ -489,6 +519,7 @@ public final class MediaFormatUtil {
         || colorSpace == C.COLOR_SPACE_BT709
         || colorSpace == C.COLOR_SPACE_BT2020
         || colorSpace == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_space)
   }
 
   /** Whether this is a valid {@link C.ColorRange} instance. */
@@ -497,18 +528,21 @@ public final class MediaFormatUtil {
     return colorRange == C.COLOR_RANGE_LIMITED
         || colorRange == C.COLOR_RANGE_FULL
         || colorRange == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_range)
   }
 
   /** Whether this is a valid {@link C.ColorTransfer} instance. */
   private static boolean isValidColorTransfer(int colorTransfer) {
     // LINT.IfChange(color_transfer)
-    // C.COLOR_TRANSFER_GAMMA_2_2 & C.COLOR_TRANSFER_SRGB aren't valid because MediaCodec, and
-    // hence MediaFormat, do not support them.
+    // C.COLOR_TRANSFER_GAMMA_2_2 is not valid because MediaCodec, and hence MediaFormat, do not
+    // support them.
     return colorTransfer == C.COLOR_TRANSFER_LINEAR
         || colorTransfer == C.COLOR_TRANSFER_SDR
+        || colorTransfer == C.COLOR_TRANSFER_SRGB
         || colorTransfer == C.COLOR_TRANSFER_ST2084
         || colorTransfer == C.COLOR_TRANSFER_HLG
         || colorTransfer == Format.NO_VALUE;
+    // LINT.ThenChange(../C.java:color_transfer)
   }
 
   private MediaFormatUtil() {}

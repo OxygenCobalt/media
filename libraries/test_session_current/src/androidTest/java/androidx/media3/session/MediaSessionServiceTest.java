@@ -22,21 +22,24 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.Assert.assertThrows;
 
+import android.app.Notification;
+import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.service.notification.StatusBarNotification;
 import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
+import androidx.annotation.Nullable;
 import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession.ControllerInfo;
-import androidx.media3.test.session.R;
 import androidx.media3.test.session.common.HandlerThreadTestRule;
 import androidx.media3.test.session.common.MainLooperTestRule;
 import androidx.media3.test.session.common.TestHandler;
@@ -66,6 +69,8 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 @MediumTest
 public class MediaSessionServiceTest {
+
+  private static final int WAIT_FOR_NOTIFICATION_UPDATE_MS = 100;
 
   @ClassRule public static MainLooperTestRule mainLooperTestRule = new MainLooperTestRule();
 
@@ -101,6 +106,7 @@ public class MediaSessionServiceTest {
     List<ControllerInfo> playbackCommandControllerInfos = new ArrayList<>();
     List<ControllerInfo> onDisconnectedCommandControllerInfos = new ArrayList<>();
     AtomicReference<MediaSession> session = new AtomicReference<>();
+    ConditionVariable disconnected = new ConditionVariable();
     testServiceRegistry.setOnGetSessionHandler(
         controllerInfo -> {
           // The controllerInfo passed to the onGetSession of the service.
@@ -136,8 +142,8 @@ public class MediaSessionServiceTest {
                           if (!session.isMediaNotificationController(controller)) {
                             // The controllerInfo when disconnecting.
                             onDisconnectedCommandControllerInfos.add(controller);
+                            disconnected.open();
                           }
-                          MediaSession.Callback.super.onDisconnected(session, controller);
                         }
                       })
                   .build());
@@ -150,6 +156,8 @@ public class MediaSessionServiceTest {
     // Get the started service instance after creation.
     MockMediaSessionService service =
         (MockMediaSessionService) testServiceRegistry.getServiceInstance();
+    // TestServiceRegistry is taken care of and cleaned up @After the test.
+    service.setCleanupServiceRegistryOnDestroy(false);
     controller.setRepeatMode(Player.REPEAT_MODE_ONE);
     List<ControllerInfo> connectedControllerManagerControllerInfos = new ArrayList<>();
     for (ControllerInfo controllerInfo : session.get().getConnectedControllers()) {
@@ -159,9 +167,12 @@ public class MediaSessionServiceTest {
       }
     }
 
+    // The controller that was bound to the service unbinds when released. Because the service was
+    // never started (as in `onStartCommand()` was never called), the service is immediately
+    // terminated by the system when the last bound client unbinds.
     controller.release();
 
-    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
+    assertThat(disconnected.block(TIMEOUT_MS)).isTrue();
     assertThat(onGetSessionControllerInfos).hasSize(1);
     assertThat(onGetSessionControllerInfos).isEqualTo(onConnectControllerInfos);
     assertThat(onGetSessionControllerInfos).isEqualTo(playbackCommandControllerInfos);
@@ -244,19 +255,19 @@ public class MediaSessionServiceTest {
     CommandButton button1 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button1")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command1)
             .build();
     CommandButton button2 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button2")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command2)
             .build();
     CommandButton button3 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button3")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command3)
             .build();
     Bundle testHints = new Bundle();
@@ -298,7 +309,8 @@ public class MediaSessionServiceTest {
     TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
     MediaControllerCompat mediaControllerCompat =
         new MediaControllerCompat(
-            ApplicationProvider.getApplicationContext(), mediaSession.getSessionCompatToken());
+            ApplicationProvider.getApplicationContext(),
+            MediaSessionCompat.Token.fromToken(mediaSession.getPlatformToken()));
     CountDownLatch controllerReady = new CountDownLatch(1);
     mediaControllerCompat.registerCallback(
         new MediaControllerCompat.Callback() {
@@ -316,6 +328,8 @@ public class MediaSessionServiceTest {
     RemoteMediaController remoteController =
         controllerTestRule.createRemoteController(token, /* waitForConnection= */ true, testHints);
 
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
     assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(
             controllerInfoList
@@ -345,8 +359,7 @@ public class MediaSessionServiceTest {
     assertThat(customAction2.getName().toString()).isEqualTo("button3");
     assertThat(customAction2.getIcon()).isEqualTo(R.drawable.media3_notification_small_icon);
     mediaSession.release();
-    ((MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance())
-        .blockUntilAllControllersUnbind(TIMEOUT_MS);
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
   }
 
   @Test
@@ -358,19 +371,19 @@ public class MediaSessionServiceTest {
     CommandButton button1 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button1")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command1)
             .build();
     CommandButton button2 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button2")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command2)
             .build();
     CommandButton button3 =
         new CommandButton.Builder(CommandButton.ICON_UNDEFINED)
             .setDisplayName("button3")
-            .setIconResId(R.drawable.media3_notification_small_icon)
+            .setCustomIconResId(R.drawable.media3_notification_small_icon)
             .setSessionCommand(command3)
             .build();
     Bundle testHints = new Bundle();
@@ -431,6 +444,8 @@ public class MediaSessionServiceTest {
     RemoteMediaController remoteController =
         controllerTestRule.createRemoteController(token, /* waitForConnection= */ true, testHints);
 
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
     assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(
             controllerInfoList
@@ -460,8 +475,7 @@ public class MediaSessionServiceTest {
     assertThat(customAction2.getName().toString()).isEqualTo("button3");
     assertThat(customAction2.getIcon()).isEqualTo(R.drawable.media3_notification_small_icon);
     mediaSession.release();
-    ((MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance())
-        .blockUntilAllControllersUnbind(TIMEOUT_MS);
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
   }
 
   /**
@@ -692,14 +706,154 @@ public class MediaSessionServiceTest {
     MediaSession session = createMediaSession("testAddSessions_removedWhenReleased");
     service.addSession(session);
     // Wait until connection of session is propagated.
-    MainLooperTestRule.runOnMainSync(() -> {});
+    runPendingMainThreadMessages();
     List<MediaSession> sessions = service.getSessions();
     assertThat(sessions.contains(session)).isTrue();
     assertThat(sessions.size()).isEqualTo(2);
     threadTestRule.getHandler().postAndSync(session::release);
     // Wait until release of session is propagated.
-    MainLooperTestRule.runOnMainSync(() -> {});
+    runPendingMainThreadMessages();
     assertThat(service.getSessions()).doesNotContain(session);
+  }
+
+  @Test
+  public void createPlaybackWithoutPlay_doesNotStartForegroundService() throws Exception {
+    TestHandler handler = new TestHandler(Looper.getMainLooper());
+    ExoPlayer player =
+        handler.postAndSync(
+            () -> {
+              ExoPlayer exoPlayer = new TestExoPlayerBuilder(context).build();
+              exoPlayer.setMediaItem(MediaItem.fromUri("asset:///media/mp4/sample.mp4"));
+              exoPlayer.setRepeatMode(Player.REPEAT_MODE_ALL);
+              exoPlayer.prepare();
+              return exoPlayer;
+            });
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player).build();
+    TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
+    // Start the service by creating a remote controller.
+    controllerTestRule.createRemoteController(
+        token, /* waitForConnection= */ true, /* connectionHints= */ Bundle.EMPTY);
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
+    runPendingMainThreadMessages();
+
+    int notificationFlags =
+        getNotification(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID).flags;
+    mediaSession.release();
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
+
+    assertThat(notificationFlags & Notification.FLAG_FOREGROUND_SERVICE).isEqualTo(0);
+  }
+
+  @Test
+  public void startPlayback_startsForegroundService() throws Exception {
+    TestHandler handler = new TestHandler(Looper.getMainLooper());
+    ExoPlayer player =
+        handler.postAndSync(
+            () -> {
+              ExoPlayer exoPlayer = new TestExoPlayerBuilder(context).build();
+              exoPlayer.setMediaItem(MediaItem.fromUri("asset:///media/mp4/sample.mp4"));
+              exoPlayer.setRepeatMode(Player.REPEAT_MODE_ALL);
+              exoPlayer.prepare();
+              return exoPlayer;
+            });
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player).build();
+    TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
+    // Start the service by creating a remote controller.
+    controllerTestRule.createRemoteController(
+        token, /* waitForConnection= */ true, /* connectionHints= */ Bundle.EMPTY);
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
+    runPendingMainThreadMessages();
+
+    MainLooperTestRule.runOnMainSync(player::play);
+    Thread.sleep(WAIT_FOR_NOTIFICATION_UPDATE_MS);
+    int notificationFlags =
+        getNotification(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID).flags;
+    mediaSession.release();
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
+
+    assertThat(notificationFlags & Notification.FLAG_FOREGROUND_SERVICE).isNotEqualTo(0);
+  }
+
+  @Test
+  public void pausePlayback_keepsForegroundServiceStartedUntilForegroundServiceTimeout()
+      throws Exception {
+    int foregroundServiceTimeoutMs = 200;
+    TestHandler handler = new TestHandler(Looper.getMainLooper());
+    ExoPlayer player =
+        handler.postAndSync(
+            () -> {
+              ExoPlayer exoPlayer = new TestExoPlayerBuilder(context).build();
+              exoPlayer.setMediaItem(MediaItem.fromUri("asset:///media/mp4/sample.mp4"));
+              exoPlayer.setRepeatMode(Player.REPEAT_MODE_ALL);
+              exoPlayer.prepare();
+              exoPlayer.play();
+              return exoPlayer;
+            });
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player).build();
+    TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
+    // Start the service by creating a remote controller.
+    controllerTestRule.createRemoteController(
+        token, /* waitForConnection= */ true, /* connectionHints= */ Bundle.EMPTY);
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
+    service.setForegroundServiceTimeoutMs(foregroundServiceTimeoutMs);
+    runPendingMainThreadMessages();
+
+    MainLooperTestRule.runOnMainSync(player::pause);
+    Thread.sleep(WAIT_FOR_NOTIFICATION_UPDATE_MS);
+    int notificationFlagsAfterPause =
+        getNotification(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID).flags;
+    Thread.sleep(foregroundServiceTimeoutMs);
+    Thread.sleep(WAIT_FOR_NOTIFICATION_UPDATE_MS);
+    int notificationFlagsAfterTimeout =
+        getNotification(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID).flags;
+    mediaSession.release();
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
+
+    assertThat(notificationFlagsAfterPause & Notification.FLAG_FOREGROUND_SERVICE).isNotEqualTo(0);
+    assertThat(notificationFlagsAfterTimeout & Notification.FLAG_FOREGROUND_SERVICE).isEqualTo(0);
+  }
+
+  @Test
+  public void pauseAllPlayersAndStopSelf_stopsForegroundService() throws Exception {
+    TestHandler handler = new TestHandler(Looper.getMainLooper());
+    ExoPlayer player =
+        handler.postAndSync(
+            () -> {
+              ExoPlayer exoPlayer = new TestExoPlayerBuilder(context).build();
+              exoPlayer.setMediaItem(MediaItem.fromUri("asset:///media/mp4/sample.mp4"));
+              exoPlayer.setRepeatMode(Player.REPEAT_MODE_ALL);
+              exoPlayer.prepare();
+              exoPlayer.play();
+              return exoPlayer;
+            });
+    MediaSession mediaSession =
+        new MediaSession.Builder(ApplicationProvider.getApplicationContext(), player).build();
+    TestServiceRegistry.getInstance().setOnGetSessionHandler(controllerInfo -> mediaSession);
+    // Start the service by creating a remote controller.
+    controllerTestRule.createRemoteController(
+        token, /* waitForConnection= */ true, /* connectionHints= */ Bundle.EMPTY);
+    MockMediaSessionService service =
+        (MockMediaSessionService) TestServiceRegistry.getInstance().getServiceInstance();
+    runPendingMainThreadMessages();
+
+    MainLooperTestRule.runOnMainSync(service::pauseAllPlayersAndStopSelf);
+    Thread.sleep(WAIT_FOR_NOTIFICATION_UPDATE_MS);
+    int notificationFlags =
+        getNotification(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID).flags;
+    mediaSession.release();
+    service.blockUntilAllControllersUnbind(TIMEOUT_MS);
+
+    assertThat(notificationFlags & Notification.FLAG_FOREGROUND_SERVICE).isEqualTo(0);
+  }
+
+  private void runPendingMainThreadMessages() throws Exception {
+    MainLooperTestRule.runOnMainSync(() -> {});
   }
 
   private MediaSession createMediaSession(String id) {
@@ -711,5 +865,17 @@ public class MediaSessionServiceTest {
                     .build())
             .setId(id)
             .build());
+  }
+
+  @Nullable
+  private Notification getNotification(int notificationId) {
+    StatusBarNotification[] activeNotifications =
+        context.getSystemService(NotificationManager.class).getActiveNotifications();
+    for (StatusBarNotification notification : activeNotifications) {
+      if (notification.getId() == notificationId) {
+        return notification.getNotification();
+      }
+    }
+    return null;
   }
 }

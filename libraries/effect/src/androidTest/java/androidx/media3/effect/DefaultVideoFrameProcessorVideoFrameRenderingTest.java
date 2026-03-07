@@ -16,8 +16,8 @@
 package androidx.media3.effect;
 
 import static androidx.media3.common.VideoFrameProcessor.INPUT_TYPE_SURFACE;
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
@@ -28,11 +28,12 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DebugViewProvider;
 import androidx.media3.common.Effect;
-import androidx.media3.common.FrameInfo;
+import androidx.media3.common.Format;
 import androidx.media3.common.SurfaceInfo;
 import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.NullableType;
+import androidx.media3.common.util.SystemClock;
 import androidx.media3.common.util.Util;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
@@ -149,7 +150,7 @@ public final class DefaultVideoFrameProcessorVideoFrameRenderingTest {
   public void controlledFrameRendering_withOneFrameRequestImmediateRender_rendersframe()
       throws Exception {
     long originalPresentationTimeUs = 1234;
-    long renderTimesNs = VideoFrameProcessor.RENDER_OUTPUT_FRAME_IMMEDIATELY;
+    long renderTimesNs = SystemClock.DEFAULT.nanoTime();
     AtomicLong actualPresentationTimeUs = new AtomicLong();
     processFramesToEndOfStream(
         /* inputPresentationTimesUs= */ ImmutableList.of(originalPresentationTimeUs),
@@ -267,8 +268,8 @@ public final class DefaultVideoFrameProcessorVideoFrameRenderingTest {
                       @Override
                       public void onInputStreamRegistered(
                           @VideoFrameProcessor.InputType int inputType,
-                          List<Effect> effects,
-                          FrameInfo frameInfo) {
+                          Format format,
+                          List<Effect> effects) {
                         videoFrameProcessorReadyCountDownLatch.countDown();
                       }
 
@@ -293,7 +294,8 @@ public final class DefaultVideoFrameProcessorVideoFrameRenderingTest {
                       }
 
                       @Override
-                      public void onOutputFrameAvailableForRendering(long presentationTimeUs) {
+                      public void onOutputFrameAvailableForRendering(
+                          long presentationTimeUs, boolean isRedrawnFrame) {
                         onFrameAvailableListener.onFrameAvailableForRendering(presentationTimeUs);
                       }
 
@@ -315,8 +317,13 @@ public final class DefaultVideoFrameProcessorVideoFrameRenderingTest {
     checkNotNull(defaultVideoFrameProcessor)
         .registerInputStream(
             INPUT_TYPE_SURFACE,
+            new Format.Builder()
+                .setColorInfo(ColorInfo.SDR_BT709_LIMITED)
+                .setWidth(WIDTH)
+                .setHeight(HEIGHT)
+                .build(),
             /* effects= */ ImmutableList.of((GlEffect) (context, useHdr) -> blankFrameProducer),
-            new FrameInfo.Builder(ColorInfo.SDR_BT709_LIMITED, WIDTH, HEIGHT).build());
+            /* offsetToAddUs= */ 0);
     boolean testTimedOut = false;
     if (!videoFrameProcessorReadyCountDownLatch.await(TEST_TIMEOUT_MS, MILLISECONDS)) {
       testTimedOut = true;

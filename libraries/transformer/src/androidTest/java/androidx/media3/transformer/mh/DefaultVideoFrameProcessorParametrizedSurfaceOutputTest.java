@@ -15,9 +15,9 @@
  */
 package androidx.media3.transformer.mh;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
 import static androidx.media3.test.utils.VideoFrameProcessorTestRunner.createTimestampIterator;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.graphics.Bitmap;
@@ -48,7 +48,7 @@ import org.junit.runners.Parameterized.Parameters;
  * a {@link SurfaceBitmapReader} to verify that releasing the output surface during processing
  * succeeds.
  */
-// TODO(b/263395272): Move this test to effects/mh tests
+// TODO: b/263395272 - Move this test to effects/mh tests
 @RunWith(Parameterized.class)
 public class DefaultVideoFrameProcessorParametrizedSurfaceOutputTest {
   @Rule public final TestName testName = new TestName();

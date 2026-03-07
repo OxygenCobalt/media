@@ -15,6 +15,8 @@
  */
 package androidx.media3.ui;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -37,9 +39,8 @@ import android.text.style.ForegroundColorSpan;
 import android.util.DisplayMetrics;
 import androidx.annotation.Nullable;
 import androidx.media3.common.text.Cue;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.Util;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
@@ -163,13 +164,13 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       windowColor = cue.windowColorSet ? cue.windowColor : style.windowColor;
     }
     if (areCharSequencesEqual(this.cueText, cue.text)
-        && Util.areEqual(this.cueTextAlignment, cue.textAlignment)
+        && Objects.equals(this.cueTextAlignment, cue.textAlignment)
         && this.cueBitmap == cue.bitmap
         && this.cueLine == cue.line
         && this.cueLineType == cue.lineType
-        && Util.areEqual(this.cueLineAnchor, cue.lineAnchor)
+        && Objects.equals(this.cueLineAnchor, cue.lineAnchor)
         && this.cuePosition == cue.position
-        && Util.areEqual(this.cuePositionAnchor, cue.positionAnchor)
+        && Objects.equals(this.cuePositionAnchor, cue.positionAnchor)
         && this.cueSize == cue.size
         && this.cueBitmapHeight == cue.bitmapHeight
         && this.foregroundColor == style.foregroundColor
@@ -177,7 +178,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
         && this.windowColor == windowColor
         && this.edgeType == style.edgeType
         && this.edgeColor == style.edgeColor
-        && Util.areEqual(this.textPaint.getTypeface(), style.typeface)
+        && Objects.equals(this.textPaint.getTypeface(), style.typeface)
         && this.defaultTextSizePx == defaultTextSizePx
         && this.cueTextSizePx == cueTextSizePx
         && this.bottomPaddingFraction == bottomPaddingFraction
@@ -190,7 +191,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       return;
     }
 
-    this.cueText = cue.text;
+    this.cueText = BidiUtils.containsRtl(cue.text) ? BidiUtils.wrapText(cue.text) : cue.text;
     this.cueTextAlignment = cue.textAlignment;
     this.cueBitmap = cue.bitmap;
     this.cueLine = cue.line;
@@ -215,10 +216,10 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     this.parentBottom = cueBoxBottom;
 
     if (isTextCue) {
-      Assertions.checkNotNull(cueText);
+      checkNotNull(cueText);
       setupTextLayout();
     } else {
-      Assertions.checkNotNull(cueBitmap);
+      checkNotNull(cueBitmap);
       setupBitmapLayout();
     }
     drawLayout(canvas, isTextCue);
@@ -397,8 +398,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     if (isTextCue) {
       drawTextLayout(canvas);
     } else {
-      Assertions.checkNotNull(bitmapRect);
-      Assertions.checkNotNull(cueBitmap);
+      checkNotNull(bitmapRect);
+      checkNotNull(cueBitmap);
       drawBitmapLayout(canvas);
     }
   }

@@ -32,8 +32,8 @@ import static androidx.media3.common.Player.EVENT_POSITION_DISCONTINUITY;
 import static androidx.media3.common.Player.EVENT_REPEAT_MODE_CHANGED;
 import static androidx.media3.common.Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED;
 import static androidx.media3.common.Player.EVENT_TIMELINE_CHANGED;
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.annotation.SuppressLint;
@@ -50,7 +50,6 @@ import android.media.session.MediaSession;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.support.v4.media.session.MediaSessionCompat;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
@@ -73,6 +72,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Starts, updates and cancels a media style notification reflecting the player state. The actions
@@ -1009,16 +1009,6 @@ public class PlayerNotificationManager {
   }
 
   /**
-   * @deprecated Use {@link #setMediaSessionToken(MediaSession.Token)} and pass in {@code
-   *     (MediaSession.Token) compatToken.getToken()}.
-   */
-  // TODO: b/333355694 - Remove the dependency on androidx.media when this method is removed.
-  @Deprecated
-  public final void setMediaSessionToken(MediaSessionCompat.Token compatToken) {
-    setMediaSessionToken((MediaSession.Token) compatToken.getToken());
-  }
-
-  /**
    * Sets the {@link MediaSession.Token}.
    *
    * <p>When using {@code MediaSessionCompat}, this token can be obtained with {@code
@@ -1027,7 +1017,7 @@ public class PlayerNotificationManager {
    * @param token The {@link MediaSession.Token}.
    */
   public final void setMediaSessionToken(MediaSession.Token token) {
-    if (!Util.areEqual(this.mediaSessionToken, token)) {
+    if (!Objects.equals(this.mediaSessionToken, token)) {
       mediaSessionToken = token;
       invalidate();
     }
@@ -1528,14 +1518,7 @@ public class PlayerNotificationManager {
       String action, Context context, int instanceId) {
     Intent intent = new Intent(action).setPackage(context.getPackageName());
     intent.putExtra(EXTRA_INSTANCE_ID, instanceId);
-
-    int pendingFlags;
-    if (Util.SDK_INT >= 23) {
-      pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-    } else {
-      pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
-    }
-
+    int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
     return PendingIntent.getBroadcast(context, instanceId, intent, pendingFlags);
   }
 

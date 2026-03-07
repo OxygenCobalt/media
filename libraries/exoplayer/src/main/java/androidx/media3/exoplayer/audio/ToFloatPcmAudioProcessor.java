@@ -19,6 +19,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.audio.BaseAudioProcessor;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.nio.ByteBuffer;
 
@@ -27,6 +28,7 @@ import java.nio.ByteBuffer;
  * encodings are supported as input:
  *
  * <ul>
+ *   <li>{@link C#ENCODING_PCM_16BIT}
  *   <li>{@link C#ENCODING_PCM_24BIT}
  *   <li>{@link C#ENCODING_PCM_24BIT_BIG_ENDIAN}
  *   <li>{@link C#ENCODING_PCM_32BIT}
@@ -34,7 +36,8 @@ import java.nio.ByteBuffer;
  *   <li>{@link C#ENCODING_PCM_FLOAT} ({@link #isActive()} will return {@code false})
  * </ul>
  */
-/* package */ final class ToFloatPcmAudioProcessor extends BaseAudioProcessor {
+@UnstableApi
+public final class ToFloatPcmAudioProcessor extends BaseAudioProcessor {
 
   private static final int FLOAT_NAN_AS_INT = Float.floatToIntBits(Float.NaN);
   private static final double PCM_32_BIT_INT_TO_PCM_32_BIT_FLOAT_FACTOR = 1.0 / 0x7FFFFFFF;
@@ -43,7 +46,7 @@ import java.nio.ByteBuffer;
   public AudioFormat onConfigure(AudioFormat inputAudioFormat)
       throws UnhandledAudioFormatException {
     @C.PcmEncoding int encoding = inputAudioFormat.encoding;
-    if (!Util.isEncodingHighResolutionPcm(encoding)) {
+    if (!Util.isEncodingHighResolutionPcm(encoding) && encoding != C.ENCODING_PCM_16BIT) {
       throw new UnhandledAudioFormatException(inputAudioFormat);
     }
     return encoding != C.ENCODING_PCM_FLOAT
@@ -60,6 +63,14 @@ import java.nio.ByteBuffer;
 
     ByteBuffer buffer;
     switch (inputAudioFormat.encoding) {
+      case C.ENCODING_PCM_16BIT:
+        buffer = replaceOutputBuffer(size * 2);
+        for (int i = position; i < limit; i += 2) {
+          int pcm32BitInteger =
+              ((inputBuffer.get(i) & 0xFF) << 16) | ((inputBuffer.get(i + 1) & 0xFF) << 24);
+          writePcm32BitFloat(pcm32BitInteger, buffer);
+        }
+        break;
       case C.ENCODING_PCM_24BIT:
         buffer = replaceOutputBuffer((size / 3) * 4);
         for (int i = position; i < limit; i += 3) {
@@ -103,7 +114,6 @@ import java.nio.ByteBuffer;
         }
         break;
       case C.ENCODING_PCM_8BIT:
-      case C.ENCODING_PCM_16BIT:
       case C.ENCODING_PCM_16BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_FLOAT:
       case C.ENCODING_INVALID:

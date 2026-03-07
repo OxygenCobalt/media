@@ -30,6 +30,7 @@ import android.media.MediaCodec;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
 import android.net.Uri;
+import android.opengl.GLES20;
 import android.view.Surface;
 import androidx.annotation.IntDef;
 import androidx.media3.common.util.UnstableApi;
@@ -172,7 +173,6 @@ public final class C {
    * {@link #ENCODING_DTS}, {@link #ENCODING_DTS_HD}, {@link #ENCODING_DOLBY_TRUEHD} or {@link
    * #ENCODING_OPUS}.
    */
-  @UnstableApi
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
@@ -232,79 +232,79 @@ public final class C {
   public @interface PcmEncoding {}
 
   /** See {@link AudioFormat#ENCODING_INVALID}. */
-  @UnstableApi public static final int ENCODING_INVALID = AudioFormat.ENCODING_INVALID;
+  public static final int ENCODING_INVALID = AudioFormat.ENCODING_INVALID;
 
   /** See {@link AudioFormat#ENCODING_PCM_8BIT}. */
-  @UnstableApi public static final int ENCODING_PCM_8BIT = AudioFormat.ENCODING_PCM_8BIT;
+  public static final int ENCODING_PCM_8BIT = AudioFormat.ENCODING_PCM_8BIT;
 
   /** See {@link AudioFormat#ENCODING_PCM_16BIT}. */
-  @UnstableApi public static final int ENCODING_PCM_16BIT = AudioFormat.ENCODING_PCM_16BIT;
+  public static final int ENCODING_PCM_16BIT = AudioFormat.ENCODING_PCM_16BIT;
 
   /** Like {@link #ENCODING_PCM_16BIT}, but with the bytes in big endian order. */
   @UnstableApi public static final int ENCODING_PCM_16BIT_BIG_ENDIAN = 0x10000000;
 
   /** PCM encoding with 24 bits per sample. */
-  @UnstableApi public static final int ENCODING_PCM_24BIT = AudioFormat.ENCODING_PCM_24BIT_PACKED;
+  public static final int ENCODING_PCM_24BIT = AudioFormat.ENCODING_PCM_24BIT_PACKED;
 
   /** Like {@link #ENCODING_PCM_24BIT} but with the bytes in big endian order. */
   @UnstableApi public static final int ENCODING_PCM_24BIT_BIG_ENDIAN = 0x50000000;
 
   /** PCM encoding with 32 bits per sample. */
-  @UnstableApi public static final int ENCODING_PCM_32BIT = AudioFormat.ENCODING_PCM_32BIT;
+  public static final int ENCODING_PCM_32BIT = AudioFormat.ENCODING_PCM_32BIT;
 
   /** Like {@link #ENCODING_PCM_32BIT} but with the bytes in big endian order. */
   @UnstableApi public static final int ENCODING_PCM_32BIT_BIG_ENDIAN = 0x60000000;
 
   /** See {@link AudioFormat#ENCODING_PCM_FLOAT}. */
-  @UnstableApi public static final int ENCODING_PCM_FLOAT = AudioFormat.ENCODING_PCM_FLOAT;
+  public static final int ENCODING_PCM_FLOAT = AudioFormat.ENCODING_PCM_FLOAT;
 
   /** See {@link AudioFormat#ENCODING_MP3}. */
-  @UnstableApi public static final int ENCODING_MP3 = AudioFormat.ENCODING_MP3;
+  public static final int ENCODING_MP3 = AudioFormat.ENCODING_MP3;
 
   /** See {@link AudioFormat#ENCODING_AAC_LC}. */
-  @UnstableApi public static final int ENCODING_AAC_LC = AudioFormat.ENCODING_AAC_LC;
+  public static final int ENCODING_AAC_LC = AudioFormat.ENCODING_AAC_LC;
 
   /** See {@link AudioFormat#ENCODING_AAC_HE_V1}. */
-  @UnstableApi public static final int ENCODING_AAC_HE_V1 = AudioFormat.ENCODING_AAC_HE_V1;
+  public static final int ENCODING_AAC_HE_V1 = AudioFormat.ENCODING_AAC_HE_V1;
 
   /** See {@link AudioFormat#ENCODING_AAC_HE_V2}. */
-  @UnstableApi public static final int ENCODING_AAC_HE_V2 = AudioFormat.ENCODING_AAC_HE_V2;
+  public static final int ENCODING_AAC_HE_V2 = AudioFormat.ENCODING_AAC_HE_V2;
 
   /** See {@link AudioFormat#ENCODING_AAC_XHE}. */
-  @UnstableApi public static final int ENCODING_AAC_XHE = AudioFormat.ENCODING_AAC_XHE;
+  public static final int ENCODING_AAC_XHE = AudioFormat.ENCODING_AAC_XHE;
 
   /** See {@link AudioFormat#ENCODING_AAC_ELD}. */
-  @UnstableApi public static final int ENCODING_AAC_ELD = AudioFormat.ENCODING_AAC_ELD;
+  public static final int ENCODING_AAC_ELD = AudioFormat.ENCODING_AAC_ELD;
 
   /** AAC Error Resilient Bit-Sliced Arithmetic Coding. */
   @UnstableApi public static final int ENCODING_AAC_ER_BSAC = 0x40000000;
 
   /** See {@link AudioFormat#ENCODING_AC3}. */
-  @UnstableApi public static final int ENCODING_AC3 = AudioFormat.ENCODING_AC3;
+  public static final int ENCODING_AC3 = AudioFormat.ENCODING_AC3;
 
   /** See {@link AudioFormat#ENCODING_E_AC3}. */
-  @UnstableApi public static final int ENCODING_E_AC3 = AudioFormat.ENCODING_E_AC3;
+  public static final int ENCODING_E_AC3 = AudioFormat.ENCODING_E_AC3;
 
   /** See {@link AudioFormat#ENCODING_E_AC3_JOC}. */
-  @UnstableApi public static final int ENCODING_E_AC3_JOC = AudioFormat.ENCODING_E_AC3_JOC;
+  public static final int ENCODING_E_AC3_JOC = AudioFormat.ENCODING_E_AC3_JOC;
 
   /** See {@link AudioFormat#ENCODING_AC4}. */
-  @UnstableApi public static final int ENCODING_AC4 = AudioFormat.ENCODING_AC4;
+  public static final int ENCODING_AC4 = AudioFormat.ENCODING_AC4;
 
   /** See {@link AudioFormat#ENCODING_DTS}. */
-  @UnstableApi public static final int ENCODING_DTS = AudioFormat.ENCODING_DTS;
+  public static final int ENCODING_DTS = AudioFormat.ENCODING_DTS;
 
   /** See {@link AudioFormat#ENCODING_DTS_HD}. */
-  @UnstableApi public static final int ENCODING_DTS_HD = AudioFormat.ENCODING_DTS_HD;
+  public static final int ENCODING_DTS_HD = AudioFormat.ENCODING_DTS_HD;
 
   /** See {@link AudioFormat#ENCODING_DTS_UHD_P2}. */
-  @UnstableApi public static final int ENCODING_DTS_UHD_P2 = AudioFormat.ENCODING_DTS_UHD_P2;
+  public static final int ENCODING_DTS_UHD_P2 = AudioFormat.ENCODING_DTS_UHD_P2;
 
   /** See {@link AudioFormat#ENCODING_DOLBY_TRUEHD}. */
-  @UnstableApi public static final int ENCODING_DOLBY_TRUEHD = AudioFormat.ENCODING_DOLBY_TRUEHD;
+  public static final int ENCODING_DOLBY_TRUEHD = AudioFormat.ENCODING_DOLBY_TRUEHD;
 
   /** See {@link AudioFormat#ENCODING_OPUS}. */
-  @UnstableApi public static final int ENCODING_OPUS = AudioFormat.ENCODING_OPUS;
+  public static final int ENCODING_OPUS = AudioFormat.ENCODING_OPUS;
 
   /**
    * Represents the behavior affecting whether spatialization will be used. One of {@link
@@ -327,8 +327,8 @@ public final class C {
   /**
    * Stream types for an {@link android.media.AudioTrack}. One of {@link #STREAM_TYPE_ALARM}, {@link
    * #STREAM_TYPE_DTMF}, {@link #STREAM_TYPE_MUSIC}, {@link #STREAM_TYPE_NOTIFICATION}, {@link
-   * #STREAM_TYPE_RING}, {@link #STREAM_TYPE_SYSTEM}, {@link #STREAM_TYPE_VOICE_CALL} or {@link
-   * #STREAM_TYPE_DEFAULT}.
+   * #STREAM_TYPE_RING}, {@link #STREAM_TYPE_SYSTEM}, {@link #STREAM_TYPE_VOICE_CALL}, {@link
+   * #STREAM_TYPE_ACCESSIBILITY} or {@link #STREAM_TYPE_DEFAULT}.
    */
   // @Target list includes both 'default' targets and TYPE_USE, to ensure backwards compatibility
   // with Kotlin usages from before TYPE_USE was added.
@@ -345,6 +345,7 @@ public final class C {
     STREAM_TYPE_RING,
     STREAM_TYPE_SYSTEM,
     STREAM_TYPE_VOICE_CALL,
+    STREAM_TYPE_ACCESSIBILITY,
     STREAM_TYPE_DEFAULT
   })
   public @interface StreamType {}
@@ -369,6 +370,10 @@ public final class C {
 
   /** See {@link AudioManager#STREAM_VOICE_CALL}. */
   @UnstableApi public static final int STREAM_TYPE_VOICE_CALL = AudioManager.STREAM_VOICE_CALL;
+
+  /** See {@link AudioManager#STREAM_ACCESSIBILITY}. */
+  @UnstableApi
+  public static final int STREAM_TYPE_ACCESSIBILITY = AudioManager.STREAM_ACCESSIBILITY;
 
   /** The default stream type used by audio renderers. Equal to {@link #STREAM_TYPE_MUSIC}. */
   @UnstableApi public static final int STREAM_TYPE_DEFAULT = STREAM_TYPE_MUSIC;
@@ -408,6 +413,35 @@ public final class C {
 
   /** See {@link AudioManager#FLAG_VIBRATE}. */
   public static final int VOLUME_FLAG_VIBRATE = AudioManager.FLAG_VIBRATE;
+
+  /**
+   * Volume operation type. One of:
+   *
+   * <ul>
+   *   <li>{@link #VOLUME_OPERATION_TYPE_SET_VOLUME}
+   *   <li>{@link #VOLUME_OPERATION_TYPE_MUTE}
+   *   <li>{@link #VOLUME_OPERATION_TYPE_UNMUTE}
+   * </ul>
+   */
+  @UnstableApi
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target({TYPE_USE})
+  @IntDef({
+    VOLUME_OPERATION_TYPE_SET_VOLUME,
+    VOLUME_OPERATION_TYPE_MUTE,
+    VOLUME_OPERATION_TYPE_UNMUTE,
+  })
+  public @interface VolumeOperationType {}
+
+  /** A volume operation type constant for direct setting of the Player volume. */
+  @UnstableApi public static final int VOLUME_OPERATION_TYPE_SET_VOLUME = 0;
+
+  /** A volume operation type constant for muting. */
+  @UnstableApi public static final int VOLUME_OPERATION_TYPE_MUTE = 1;
+
+  /** A volume operation type constant for unmuting. */
+  @UnstableApi public static final int VOLUME_OPERATION_TYPE_UNMUTE = 2;
 
   /**
    * Content types for audio attributes. One of:
@@ -612,6 +646,28 @@ public final class C {
   public static final int ALLOW_CAPTURE_BY_SYSTEM = AudioAttributes.ALLOW_CAPTURE_BY_SYSTEM;
 
   /**
+   * Flags which represent a set of video codecs.
+   *
+   * <p>Possible flag values are:
+   *
+   * <ul>
+   *   <li>{@link #VIDEO_CODEC_FLAG_H264}
+   *   <li>{@link #VIDEO_CODEC_FLAG_H265}
+   * </ul>
+   */
+  @UnstableApi
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef(
+      flag = true,
+      value = {VIDEO_CODEC_FLAG_H264, VIDEO_CODEC_FLAG_H265})
+  public @interface VideoCodecFlags {}
+
+  @UnstableApi public static final int VIDEO_CODEC_FLAG_H264 = 1;
+  @UnstableApi public static final int VIDEO_CODEC_FLAG_H265 = 2;
+
+  /**
    * Flags which can apply to a buffer containing a media sample.
    *
    * <p>Possible flag values are:
@@ -670,6 +726,7 @@ public final class C {
   /** A non-realtime (as fast as possible) {@linkplain MediaFormat#KEY_PRIORITY codec priority}. */
   @UnstableApi public static final int MEDIA_CODEC_PRIORITY_NON_REALTIME = 1;
 
+  // LINT.IfChange
   /**
    * Video decoder output modes. Possible modes are {@link #VIDEO_OUTPUT_MODE_NONE}, {@link
    * #VIDEO_OUTPUT_MODE_YUV} and {@link #VIDEO_OUTPUT_MODE_SURFACE_YUV}.
@@ -689,6 +746,11 @@ public final class C {
 
   /** Video decoder output mode that renders 4:2:0 YUV planes directly to a surface. */
   @UnstableApi public static final int VIDEO_OUTPUT_MODE_SURFACE_YUV = 1;
+
+  // LINT.ThenChange(
+  //     ../../../../../../../decoder_av1/src/main/jni/dav1d_jni.cc,
+  //     ../../../../../../../decoder_vp9/src/main/jni/vpx_jni.cc
+  // )
 
   /**
    * Video scaling modes for {@link MediaCodec}-based renderers. One of {@link
@@ -780,6 +842,8 @@ public final class C {
    * preference.
    */
   public static final int SELECTION_FLAG_AUTOSELECT = 1 << 2; // 4
+
+  // LINT.ThenChange("util/Util.java:selection_flags")
 
   /** Represents an undetermined language as an ISO 639-2 language code. */
   public static final String LANGUAGE_UNDETERMINED = "und";
@@ -1162,6 +1226,11 @@ public final class C {
   /** See {@link MediaFormat#COLOR_STANDARD_BT2020}. */
   @UnstableApi public static final int COLOR_SPACE_BT2020 = MediaFormat.COLOR_STANDARD_BT2020;
 
+  // LINT.ThenChange(
+  //   util/MediaFormatUtil.java:color_space,
+  //   ColorInfo.java:color_space,
+  // )
+
   // LINT.IfChange(color_transfer)
   /**
    * Video/image color transfer characteristics. One of {@link Format#NO_VALUE}, {@link
@@ -1209,6 +1278,14 @@ public final class C {
   /** See {@link MediaFormat#COLOR_TRANSFER_HLG}. */
   @UnstableApi public static final int COLOR_TRANSFER_HLG = MediaFormat.COLOR_TRANSFER_HLG;
 
+  // LINT.ThenChange(
+  //   util/MediaFormatUtil.java:color_transfer,
+  //   ColorInfo.java:color_transfer,
+  // ../../../../../../../effect/src/main/assets/shaders/fragment_shader_transformation_sdr_external_es2.glsl:color_transfer,
+  // ../../../../../../../effect/src/main/assets/shaders/fragment_shader_transformation_external_yuv_es3.glsl:color_transfer,
+  // ../../../../../../../effect/src/main/assets/shaders/fragment_shader_oetf_es3.glsl:color_transfer,
+  // )
+
   // LINT.IfChange(color_range)
   /**
    * Video color range. One of {@link Format#NO_VALUE}, {@link #COLOR_RANGE_LIMITED} or {@link
@@ -1226,6 +1303,11 @@ public final class C {
 
   /** See {@link MediaFormat#COLOR_RANGE_FULL}. */
   @UnstableApi public static final int COLOR_RANGE_FULL = MediaFormat.COLOR_RANGE_FULL;
+
+  // LINT.ThenChange(
+  //   util/MediaFormatUtil.java:color_range,
+  //   ColorInfo.java:color_range,
+  // )
 
   /** Video projection types. */
   @UnstableApi
@@ -1394,7 +1476,8 @@ public final class C {
   /**
    * A wake mode that will not cause the player to hold any locks.
    *
-   * <p>This is suitable for applications that do not play media with the screen off.
+   * <p>This is suitable for applications that only play media with the screen on and do not require
+   * low-latency Wifi access.
    */
   public static final int WAKE_MODE_NONE = 0;
 
@@ -1402,8 +1485,8 @@ public final class C {
    * A wake mode that will cause the player to hold a {@link android.os.PowerManager.WakeLock}
    * during playback.
    *
-   * <p>This is suitable for applications that play media with the screen off and do not load media
-   * over wifi.
+   * <p>This is suitable for applications that play media with the screen off, but do not require
+   * low-latency Wifi access while the screen is on.
    */
   public static final int WAKE_MODE_LOCAL = 1;
 
@@ -1411,8 +1494,11 @@ public final class C {
    * A wake mode that will cause the player to hold a {@link android.os.PowerManager.WakeLock} and a
    * {@link android.net.wifi.WifiManager.WifiLock} during playback.
    *
-   * <p>This is suitable for applications that play media with the screen off and may load media
-   * over wifi.
+   * <p>This is suitable for applications that play media with the screen off or require low-latency
+   * Wifi access while the screen is on.
+   *
+   * <p>Note that on API 33 and below, this mode also puts the Wifi in "high-power" mode, which may
+   * help maintain a steady Wifi connection during screen off playback on some devices.
    */
   public static final int WAKE_MODE_NETWORK = 2;
 
@@ -1520,6 +1606,8 @@ public final class C {
    */
   public static final int ROLE_FLAG_AUXILIARY = 1 << 15;
 
+  // LINT.ThenChange("util/Util.java:role_flags")
+
   /**
    * {@linkplain #ROLE_FLAG_AUXILIARY Auxiliary track types}. One of {@link
    * #AUXILIARY_TRACK_TYPE_UNDEFINED}, {@link #AUXILIARY_TRACK_TYPE_ORIGINAL}, {@link
@@ -1564,6 +1652,8 @@ public final class C {
 
   /** A timed metadata of depth video track. */
   @UnstableApi public static final int AUXILIARY_TRACK_TYPE_DEPTH_METADATA = 4;
+
+  // LINT.ThenChange("util/Util.java:auxiliary_track_type")
 
   /**
    * Level of support for a format. One of {@link #FORMAT_HANDLED}, {@link
@@ -1611,17 +1701,24 @@ public final class C {
   @UnstableApi public static final int FORMAT_UNSUPPORTED_DRM = 0b010;
 
   /**
-   * Formats with the same top-level type are generally supported, but not this format or any other
-   * format with the same MIME type because the sub-type is not supported.
+   * Formats with the same type of media (e.g. video, audio, image or text) are generally supported,
+   * but not this format.
    *
-   * <p>Example: The player supports audio and the format's MIME type matches audio/[subtype], but
-   * there does not exist a suitable decoder for [subtype].
+   * <p>Example: The player supports audio and the format's {@linkplain MimeTypes#isAudio(String)
+   * MIME type is for audio}, but there does not exist a suitable decoder for this format's MIME
+   * type.
+   *
+   * @see MimeTypes#isAudio(String)
+   * @see MimeTypes#isVideo(String)
+   * @see MimeTypes#isImage(String)
+   * @see MimeTypes#isText(String)
    */
   @UnstableApi public static final int FORMAT_UNSUPPORTED_SUBTYPE = 0b001;
 
   /**
-   * The format is unsupported, because no formats with the same top-level type are supported or
-   * there is only specialized support for different MIME types of the same top-level type.
+   * The format is unsupported, because no formats with the same type of media (e.g. video, audio,
+   * image or text) are supported or there is only specialized support for different MIME types of
+   * the same type.
    *
    * <p>Example 1: The player is a general purpose audio player, but the format has a video MIME
    * type.
@@ -1665,6 +1762,40 @@ public final class C {
 
   /** The first frame was rendered. */
   @UnstableApi public static final int FIRST_FRAME_RENDERED = 3;
+
+  /**
+   * Texture filtering algorithm for minification.
+   *
+   * <p>Possible values are:
+   *
+   * <ul>
+   *   <li>{@link #TEXTURE_MIN_FILTER_LINEAR}
+   *   <li>{@link #TEXTURE_MIN_FILTER_LINEAR_MIPMAP_LINEAR}
+   * </ul>
+   *
+   * <p>The algorithms are ordered by increasing visual quality and computational cost.
+   */
+  @UnstableApi
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({TEXTURE_MIN_FILTER_LINEAR, TEXTURE_MIN_FILTER_LINEAR_MIPMAP_LINEAR})
+  public @interface TextureMinFilter {}
+
+  /**
+   * Returns the weighted average of the four texture elements that are closest to the specified
+   * texture coordinates.
+   */
+  @UnstableApi public static final int TEXTURE_MIN_FILTER_LINEAR = GLES20.GL_LINEAR;
+
+  /**
+   * Chooses the two mipmaps that most closely match the size of the pixel being textured and uses
+   * the {@link C#TEXTURE_MIN_FILTER_LINEAR} criterion (a weighted average of the texture elements
+   * that are closest to the specified texture coordinates) to produce a texture value from each
+   * mipmap. The final texture value is a weighted average of those two values.
+   */
+  @UnstableApi
+  public static final int TEXTURE_MIN_FILTER_LINEAR_MIPMAP_LINEAR = GLES20.GL_LINEAR_MIPMAP_LINEAR;
 
   /**
    * @deprecated Use {@link Util#usToMs(long)}.

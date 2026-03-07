@@ -15,10 +15,9 @@
  */
 package androidx.media3.extractor.ts;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
@@ -65,6 +64,7 @@ public final class H263Reader implements ElementaryStreamReader {
   private static final int VIDEO_OBJECT_LAYER_SHAPE_RECTANGULAR = 0;
 
   @Nullable private final UserDataReader userDataReader;
+  private final String containerMimeType;
   @Nullable private final ParsableByteArray userDataParsable;
 
   // State that should be reset on seek.
@@ -85,12 +85,13 @@ public final class H263Reader implements ElementaryStreamReader {
   private long pesTimeUs;
 
   /** Creates a new reader. */
-  public H263Reader() {
-    this(null);
+  public H263Reader(String containerMimeType) {
+    this(null, containerMimeType);
   }
 
-  /* package */ H263Reader(@Nullable UserDataReader userDataReader) {
+  /* package */ H263Reader(@Nullable UserDataReader userDataReader, String containerMimeType) {
     this.userDataReader = userDataReader;
+    this.containerMimeType = containerMimeType;
     prefixFlags = new boolean[4];
     csdBuffer = new CsdBuffer(128);
     pesTimeUs = C.TIME_UNSET;
@@ -137,8 +138,8 @@ public final class H263Reader implements ElementaryStreamReader {
   @Override
   public void consume(ParsableByteArray data) {
     // Assert that createTracks has been called.
-    checkStateNotNull(sampleReader);
-    checkStateNotNull(output);
+    checkNotNull(sampleReader);
+    checkNotNull(output);
     int offset = data.getPosition();
     int limit = data.limit();
     byte[] dataArray = data.getData();
@@ -178,7 +179,11 @@ public final class H263Reader implements ElementaryStreamReader {
         if (csdBuffer.onStartCode(startCodeValue, bytesAlreadyPassed)) {
           // The csd data is complete, so we can decode and output the media format.
           output.format(
-              parseCsdBuffer(csdBuffer, csdBuffer.volStartPosition, checkNotNull(formatId)));
+              parseCsdBuffer(
+                  csdBuffer,
+                  csdBuffer.volStartPosition,
+                  checkNotNull(formatId),
+                  containerMimeType));
           hasOutputFormat = true;
         }
       }
@@ -218,7 +223,7 @@ public final class H263Reader implements ElementaryStreamReader {
   @Override
   public void packetFinished(boolean isEndOfInput) {
     // Assert that createTracks has been called.
-    checkStateNotNull(sampleReader);
+    checkNotNull(sampleReader);
     if (isEndOfInput) {
       sampleReader.onDataEnd(totalBytesWritten, /* bytesWrittenPastPosition= */ 0, hasOutputFormat);
       sampleReader.reset();
@@ -231,9 +236,11 @@ public final class H263Reader implements ElementaryStreamReader {
    * @param csdBuffer The buffer to parse.
    * @param volStartPosition The byte offset of the start of the video object layer in the buffer.
    * @param formatId The ID for the generated format.
+   * @param containerMimeType The MIME type of the container for the generated format.
    * @return The {@link Format} of the media represented in the buffer.
    */
-  private static Format parseCsdBuffer(CsdBuffer csdBuffer, int volStartPosition, String formatId) {
+  private static Format parseCsdBuffer(
+      CsdBuffer csdBuffer, int volStartPosition, String formatId, String containerMimeType) {
     byte[] csdData = Arrays.copyOf(csdBuffer.data, csdBuffer.length);
     ParsableBitArray buffer = new ParsableBitArray(csdData);
     buffer.skipBytes(volStartPosition);
@@ -308,6 +315,7 @@ public final class H263Reader implements ElementaryStreamReader {
     buffer.skipBit(); // interlaced
     return new Format.Builder()
         .setId(formatId)
+        .setContainerMimeType(containerMimeType)
         .setSampleMimeType(MimeTypes.VIDEO_MP4V)
         .setWidth(videoObjectLayerWidth)
         .setHeight(videoObjectLayerHeight)

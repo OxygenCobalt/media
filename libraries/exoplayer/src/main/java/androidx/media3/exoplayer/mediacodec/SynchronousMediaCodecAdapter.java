@@ -16,7 +16,8 @@
 
 package androidx.media3.exoplayer.mediacodec;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static android.os.Build.VERSION.SDK_INT;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.annotation.SuppressLint;
 import android.media.MediaCodec;
@@ -30,10 +31,10 @@ import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
 import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import androidx.media3.decoder.CryptoInfo;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * A {@link MediaCodecAdapter} that operates the underlying {@link MediaCodec} in synchronous mode.
@@ -54,7 +55,7 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
         int flags = 0;
         if (configuration.surface == null
             && configuration.codecInfo.detachedSurfaceSupported
-            && Util.SDK_INT >= 35) {
+            && SDK_INT >= 35) {
           flags |= MediaCodec.CONFIGURE_FLAG_DETACHED_SURFACE;
         }
         codec.configure(
@@ -90,7 +91,7 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
       MediaCodec mediaCodec, @Nullable LoudnessCodecController loudnessCodecController) {
     this.codec = mediaCodec;
     this.loudnessCodecController = loudnessCodecController;
-    if (Util.SDK_INT >= 35 && loudnessCodecController != null) {
+    if (SDK_INT >= 35 && loudnessCodecController != null) {
       loudnessCodecController.addMediaCodec(codec);
     }
   }
@@ -163,7 +164,7 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
   @Override
   public void release() {
     try {
-      if (Util.SDK_INT >= 30 && Util.SDK_INT < 33) {
+      if (SDK_INT >= 30 && SDK_INT < 33) {
         // Stopping the codec before releasing it works around a bug on APIs 30, 31 and 32 where
         // MediaCodec.release() returns too early before fully detaching a Surface, and a
         // subsequent MediaCodec.configure() call using the same Surface then fails. See
@@ -171,7 +172,7 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
         codec.stop();
       }
     } finally {
-      if (Util.SDK_INT >= 35 && loudnessCodecController != null) {
+      if (SDK_INT >= 35 && loudnessCodecController != null) {
         loudnessCodecController.removeMediaCodec(codec);
       }
       codec.release();
@@ -179,7 +180,6 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
   }
 
   @Override
-  @RequiresApi(23)
   public void setOnFrameRenderedListener(OnFrameRenderedListener listener, Handler handler) {
     codec.setOnFrameRenderedListener(
         (codec, presentationTimeUs, nanoTime) ->
@@ -189,7 +189,6 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
   }
 
   @Override
-  @RequiresApi(23)
   public void setOutputSurface(Surface surface) {
     codec.setOutputSurface(surface);
   }
@@ -214,5 +213,17 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
   @RequiresApi(26)
   public PersistableBundle getMetrics() {
     return codec.getMetrics();
+  }
+
+  @Override
+  @RequiresApi(31)
+  public void subscribeToVendorParameters(List<String> names) {
+    codec.subscribeToVendorParameters(names);
+  }
+
+  @Override
+  @RequiresApi(31)
+  public void unsubscribeFromVendorParameters(List<String> names) {
+    codec.unsubscribeFromVendorParameters(names);
   }
 }

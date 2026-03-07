@@ -15,18 +15,21 @@
  */
 package androidx.media3.common.audio;
 
-import static androidx.media3.common.audio.SonicTestingUtils.calculateAccumulatedTruncationErrorForResampling;
+import static androidx.media3.test.utils.TestUtil.buildFloatTestSamples;
+import static androidx.media3.test.utils.TestUtil.buildTestData;
 import static androidx.media3.test.utils.TestUtil.generateFloatInRange;
 import static com.google.common.truth.Truth.assertThat;
 import static java.lang.Math.max;
+import static java.lang.Math.min;
 
+import androidx.media3.common.C;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
-import java.nio.ShortBuffer;
+import java.nio.ByteOrder;
 import java.util.Random;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,8 +41,8 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 @RunWith(ParameterizedRobolectricTestRunner.class)
 public final class RandomParameterizedSonicTest {
 
-  private static final int BLOCK_SIZE = 4096;
-  private static final int BYTES_PER_SAMPLE = 2;
+  private static final int BLOCK_SIZE = 8192;
+  private static final int BYTES_PER_SHORT = 2;
   private static final int SAMPLE_RATE = 48000;
   // Max 10 min streams.
   private static final long MAX_LENGTH_SAMPLES = 10 * 60 * SAMPLE_RATE;
@@ -77,7 +80,7 @@ public final class RandomParameterizedSonicTest {
 
   private static final ImmutableList<Object[]> sParams = initParams();
 
-  @Parameters(name = "speed={0}, streamLength={1}")
+  @Parameters(name = "speed={0}, streamLength={1}, useFloatSamples={2}")
   public static ImmutableList<Object[]> params() {
     // params() is called multiple times, so return cached parameters to avoid regenerating
     // different random parameter values.
@@ -118,7 +121,8 @@ public final class RandomParameterizedSonicTest {
             .build();
     for (long length : lengths) {
       for (BigDecimal speed : speeds) {
-        paramsBuilder.add(new Object[] {speed, length});
+        paramsBuilder.add(new Object[] {speed, length, /* useFloatSamples= */ true});
+        paramsBuilder.add(new Object[] {speed, length, /* useFloatSamples= */ false});
       }
     }
     return paramsBuilder.build().asList();
@@ -130,10 +134,16 @@ public final class RandomParameterizedSonicTest {
   @Parameter(1)
   public long streamLength;
 
+  @Parameter(2)
+  public boolean useFloatSamples;
+
   @Test
   public void resampling_returnsExpectedNumberOfSamples() {
-    byte[] inputBuffer = new byte[BLOCK_SIZE * BYTES_PER_SAMPLE];
-    ShortBuffer outBuffer = ShortBuffer.allocate(BLOCK_SIZE);
+    int bytesPerSample = useFloatSamples ? C.BYTES_PER_FLOAT : BYTES_PER_SHORT;
+    ByteBuffer inBuffer =
+        ByteBuffer.allocateDirect(BLOCK_SIZE * bytesPerSample).order(ByteOrder.nativeOrder());
+    ByteBuffer outBuffer =
+        ByteBuffer.allocateDirect(BLOCK_SIZE * bytesPerSample).order(ByteOrder.nativeOrder());
     // Use same speed and pitch values for Sonic to resample stream.
     Sonic sonic =
         new Sonic(
@@ -141,87 +151,88 @@ public final class RandomParameterizedSonicTest {
             /* channelCount= */ 1,
             /* speed= */ speed.floatValue(),
             /* pitch= */ speed.floatValue(),
-            /* outputSampleRateHz= */ SAMPLE_RATE);
+            /* outputSampleRateHz= */ SAMPLE_RATE,
+            useFloatSamples);
     long readSampleCount = 0;
 
     for (long samplesLeft = streamLength; samplesLeft > 0; samplesLeft -= BLOCK_SIZE) {
-      random.nextBytes(inputBuffer);
-      if (samplesLeft >= BLOCK_SIZE) {
-        sonic.queueInput(ByteBuffer.wrap(inputBuffer).asShortBuffer());
+      if (useFloatSamples) {
+        float[] samples = buildFloatTestSamples(BLOCK_SIZE, random);
+        inBuffer.asFloatBuffer().put(samples);
       } else {
-        // The last buffer to queue might have less samples than BLOCK_SIZE, so we should only queue
-        // the remaining number of samples (samplesLeft).
-        sonic.queueInput(
-            ByteBuffer.wrap(inputBuffer, 0, (int) (samplesLeft * BYTES_PER_SAMPLE))
-                .asShortBuffer());
+        inBuffer.put(buildTestData(BLOCK_SIZE * bytesPerSample, random)).flip();
+      }
+      inBuffer.limit((int) min(samplesLeft * bytesPerSample, inBuffer.capacity()));
+      sonic.queueInput(inBuffer);
+      if (samplesLeft <= BLOCK_SIZE) {
         sonic.queueEndOfStream();
       }
+      inBuffer.clear();
+
       while (sonic.getOutputSize() > 0) {
         sonic.getOutput(outBuffer);
-        readSampleCount += outBuffer.position();
+        readSampleCount += outBuffer.position() / bytesPerSample;
         outBuffer.clear();
       }
+      assertThat(sonic.getOutputSize()).isAtLeast(0);
     }
-    sonic.flush();
 
-    BigDecimal bigLength = new BigDecimal(String.valueOf(streamLength));
-    // The scale of expectedSize will be bigLength.scale() - speed.scale(). Thus, the result should
-    // always yield an integer.
-    BigDecimal expectedSize = bigLength.divide(speed, RoundingMode.HALF_EVEN);
-
-    long accumulatedTruncationError =
-        calculateAccumulatedTruncationErrorForResampling(
-            bigLength, new BigDecimal(SAMPLE_RATE), speed);
-
-    assertThat(readSampleCount)
-        .isWithin(1)
-        .of(expectedSize.longValueExact() - accumulatedTruncationError);
+    long expectedSamples =
+        Sonic.getExpectedFrameCountAfterProcessorApplied(
+            SAMPLE_RATE, SAMPLE_RATE, speed.floatValue(), speed.floatValue(), streamLength);
+    assertThat(readSampleCount).isWithin(1).of(expectedSamples);
   }
 
   @Test
   public void timeStretching_returnsExpectedNumberOfSamples() {
-    byte[] buf = new byte[BLOCK_SIZE * BYTES_PER_SAMPLE];
-    ShortBuffer outBuffer = ShortBuffer.allocate(BLOCK_SIZE);
+    int bytesPerSample = useFloatSamples ? C.BYTES_PER_FLOAT : BYTES_PER_SHORT;
+    ByteBuffer outBuffer =
+        ByteBuffer.allocateDirect(BLOCK_SIZE * bytesPerSample).order(ByteOrder.nativeOrder());
+    ByteBuffer inBuffer =
+        ByteBuffer.allocateDirect(BLOCK_SIZE * bytesPerSample).order(ByteOrder.nativeOrder());
     Sonic sonic =
         new Sonic(
             /* inputSampleRateHz= */ SAMPLE_RATE,
             /* channelCount= */ 1,
             speed.floatValue(),
             /* pitch= */ 1,
-            /* outputSampleRateHz= */ SAMPLE_RATE);
+            /* outputSampleRateHz= */ SAMPLE_RATE,
+            useFloatSamples);
     long readSampleCount = 0;
 
     for (long samplesLeft = streamLength; samplesLeft > 0; samplesLeft -= BLOCK_SIZE) {
-      random.nextBytes(buf);
-      if (samplesLeft >= BLOCK_SIZE) {
-        sonic.queueInput(ByteBuffer.wrap(buf).asShortBuffer());
+      if (useFloatSamples) {
+        float[] samples = buildFloatTestSamples(BLOCK_SIZE, random);
+        inBuffer.asFloatBuffer().put(samples);
       } else {
-        sonic.queueInput(
-            ByteBuffer.wrap(buf, 0, (int) (samplesLeft * BYTES_PER_SAMPLE)).asShortBuffer());
+        inBuffer.put(buildTestData(BLOCK_SIZE * bytesPerSample, random)).flip();
+      }
+      inBuffer.limit((int) min(samplesLeft * bytesPerSample, inBuffer.capacity()));
+      sonic.queueInput(inBuffer);
+      if (samplesLeft <= BLOCK_SIZE) {
         sonic.queueEndOfStream();
       }
+      inBuffer.clear();
       while (sonic.getOutputSize() > 0) {
         sonic.getOutput(outBuffer);
-        readSampleCount += outBuffer.position();
+        readSampleCount += outBuffer.position() / bytesPerSample;
         outBuffer.clear();
       }
+      assertThat(sonic.getOutputSize()).isAtLeast(0);
     }
-    sonic.flush();
 
-    BigDecimal bigLength = new BigDecimal(String.valueOf(streamLength));
-    // The scale of expectedSampleCount will be bigLength.scale() - speed.scale(). Thus, the result
-    // should always yield an integer.
-    BigDecimal expectedSampleCount = bigLength.divide(speed, RoundingMode.HALF_EVEN);
+    long expectedSamples =
+        Sonic.getExpectedFrameCountAfterProcessorApplied(
+            SAMPLE_RATE, SAMPLE_RATE, speed.floatValue(), 1, streamLength);
 
     // Calculate allowed tolerance and round to nearest integer.
     BigDecimal allowedTolerance =
         TIME_STRETCHING_SAMPLE_DRIFT_TOLERANCE
-            .multiply(expectedSampleCount)
+            .multiply(BigDecimal.valueOf(expectedSamples))
             .setScale(/* newScale= */ 0, RoundingMode.HALF_EVEN);
 
     // Always allow at least 1 sample of tolerance.
     long tolerance = max(allowedTolerance.longValue(), 1);
-
-    assertThat(readSampleCount).isWithin(tolerance).of(expectedSampleCount.longValueExact());
+    assertThat(readSampleCount).isWithin(tolerance).of(expectedSamples);
   }
 }

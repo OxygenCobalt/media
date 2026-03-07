@@ -16,16 +16,16 @@
 
 package androidx.media3.extractor.text;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.DataReader;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.Util;
 import androidx.media3.extractor.TrackOutput;
@@ -40,6 +40,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
  */
 /* package */ final class SubtitleTranscodingTrackOutput implements TrackOutput {
 
+  private static final String TAG = "SubtitleTranscodingTO";
+
   private final TrackOutput delegate;
   private final SubtitleParser.Factory subtitleParserFactory;
   private final CueEncoder cueEncoder;
@@ -50,6 +52,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   private byte[] sampleData;
   @Nullable private SubtitleParser currentSubtitleParser;
   private @MonotonicNonNull Format currentFormat;
+  private boolean shouldSuppressParsingErrors;
 
   public SubtitleTranscodingTrackOutput(
       TrackOutput delegate, SubtitleParser.Factory subtitleParserFactory) {
@@ -66,6 +69,16 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     if (currentSubtitleParser != null) {
       currentSubtitleParser.reset();
     }
+  }
+
+  /**
+   * Sets whether to suppress parsing errors thrown during the transcoding in {@link
+   * #sampleMetadata}.
+   *
+   * <p>Defaults to {@code false}.
+   */
+  public void shouldSuppressParsingErrors(boolean shouldSuppressParsingErrors) {
+    this.shouldSuppressParsingErrors = shouldSuppressParsingErrors;
   }
 
   // TrackOutput implementation
@@ -143,12 +156,21 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     checkArgument(cryptoData == null, "DRM on subtitles is not supported");
 
     int sampleStart = sampleDataEnd - offset - size;
-    currentSubtitleParser.parse(
-        sampleData,
-        sampleStart,
-        size,
-        SubtitleParser.OutputOptions.allCues(),
-        cuesWithTiming -> outputSample(cuesWithTiming, timeUs, flags));
+    try {
+      currentSubtitleParser.parse(
+          sampleData,
+          sampleStart,
+          size,
+          SubtitleParser.OutputOptions.allCues(),
+          cuesWithTiming -> outputSample(cuesWithTiming, timeUs, flags));
+    } catch (RuntimeException e) {
+      if (shouldSuppressParsingErrors) {
+        // TODO: b/391362063 - Propagate this error out in a non-fatal way.
+        Log.w(TAG, "Parsing subtitles failed, ignoring sample.", e);
+      } else {
+        throw e;
+      }
+    }
     sampleDataStart = sampleStart + size;
     if (sampleDataStart == sampleDataEnd) {
       // The array is now empty, so we can move the start and end pointers back to the start.
@@ -157,8 +179,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
   }
 
-  private void outputSample(CuesWithTiming cuesWithTiming, long timeUs, int flags) {
-    checkStateNotNull(currentFormat); // format() must be called before sampleMetadata()
+  private void outputSample(CuesWithTiming cuesWithTiming, long timeUs, @C.BufferFlags int flags) {
+    // format() must be called before sampleMetadata()
+    checkNotNull(currentFormat);
     byte[] cuesWithDurationBytes =
         cueEncoder.encode(cuesWithTiming.cues, cuesWithTiming.durationUs);
     parsableScratch.reset(cuesWithDurationBytes);
@@ -174,7 +197,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
     delegate.sampleMetadata(
         outputSampleTimeUs,
-        flags,
+        flags | C.BUFFER_FLAG_KEY_FRAME,
         cuesWithDurationBytes.length,
         /* offset= */ 0,
         /* cryptoData= */ null);

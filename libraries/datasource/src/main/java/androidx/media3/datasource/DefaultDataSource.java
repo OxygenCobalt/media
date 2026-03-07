@@ -15,11 +15,13 @@
  */
 package androidx.media3.datasource;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
 import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import androidx.annotation.Nullable;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -87,7 +89,7 @@ public final class DefaultDataSource implements DataSource {
      */
     public Factory(Context context, DataSource.Factory baseDataSourceFactory) {
       this.context = context.getApplicationContext();
-      this.baseDataSourceFactory = Assertions.checkNotNull(baseDataSourceFactory);
+      this.baseDataSourceFactory = checkNotNull(baseDataSourceFactory);
     }
 
     /**
@@ -122,7 +124,7 @@ public final class DefaultDataSource implements DataSource {
   private static final String TAG = "DefaultDataSource";
 
   private static final String SCHEME_ASSET = "asset";
-  private static final String SCHEME_CONTENT = "content";
+  private static final String SCHEME_CONTENT = ContentResolver.SCHEME_CONTENT;
   private static final String SCHEME_RTMP = "rtmp";
   private static final String SCHEME_UDP = "udp";
   private static final String SCHEME_DATA = DataSchemeDataSource.SCHEME_DATA;
@@ -224,14 +226,14 @@ public final class DefaultDataSource implements DataSource {
   @UnstableApi
   public DefaultDataSource(Context context, DataSource baseDataSource) {
     this.context = context.getApplicationContext();
-    this.baseDataSource = Assertions.checkNotNull(baseDataSource);
+    this.baseDataSource = checkNotNull(baseDataSource);
     transferListeners = new ArrayList<>();
   }
 
   @UnstableApi
   @Override
   public void addTransferListener(TransferListener transferListener) {
-    Assertions.checkNotNull(transferListener);
+    checkNotNull(transferListener);
     baseDataSource.addTransferListener(transferListener);
     transferListeners.add(transferListener);
     maybeAddListenerToDataSource(fileDataSource, transferListener);
@@ -246,7 +248,7 @@ public final class DefaultDataSource implements DataSource {
   @UnstableApi
   @Override
   public long open(DataSpec dataSpec) throws IOException {
-    Assertions.checkState(dataSource == null);
+    checkState(dataSource == null);
     // Choose the correct source for the scheme.
     String scheme = dataSpec.uri.getScheme();
     if (Util.isLocalFileUri(dataSpec.uri)) {
@@ -278,7 +280,7 @@ public final class DefaultDataSource implements DataSource {
   @UnstableApi
   @Override
   public int read(byte[] buffer, int offset, int length) throws IOException {
-    return Assertions.checkNotNull(dataSource).read(buffer, offset, length);
+    return checkNotNull(dataSource).read(buffer, offset, length);
   }
 
   @UnstableApi
@@ -341,8 +343,10 @@ public final class DefaultDataSource implements DataSource {
   private DataSource getRtmpDataSource() {
     if (rtmpDataSource == null) {
       try {
+        // LINT.IfChange
         Class<?> clazz = Class.forName("androidx.media3.datasource.rtmp.RtmpDataSource");
         rtmpDataSource = (DataSource) clazz.getConstructor().newInstance();
+        // LINT.ThenChange(../../../../../../proguard-rules.txt)
         addListenersToDataSource(rtmpDataSource);
       } catch (ClassNotFoundException e) {
         // Expected if the app was built without the RTMP extension.

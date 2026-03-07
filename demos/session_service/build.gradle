@@ -13,6 +13,7 @@
 // limitations under the License.
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
 apply plugin: 'kotlin-android'
+apply plugin: 'com.google.protobuf'
 
 android {
     namespace 'androidx.media3.demo.session.service'
@@ -50,9 +51,26 @@ android {
     }
 }
 
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:4.31.1'
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.plugins {
+                create("java")
+            }
+        }
+    }
+}
+
 dependencies {
     implementation 'androidx.core:core-ktx:' + androidxCoreVersion
-    implementation 'androidx.appcompat:appcompat:' + androidxAppCompatVersion
+    implementation 'androidx.datastore:datastore:1.1.5'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0'
+    implementation 'com.google.protobuf:protobuf-java:4.31.1'
+    implementation project(modulePrefix + 'lib-cast')
+    implementation project(modulePrefix + 'lib-common-ktx')
     implementation project(modulePrefix + 'lib-exoplayer')
     implementation project(modulePrefix + 'lib-exoplayer-dash')
     implementation project(modulePrefix + 'lib-exoplayer-hls')

@@ -15,7 +15,7 @@
  */
 package androidx.media3.extractor.mkv;
 
-import static androidx.media3.extractor.mp4.FragmentedMp4Extractor.FLAG_EMIT_RAW_SUBTITLE_DATA;
+import static androidx.media3.extractor.mkv.MatroskaExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA;
 
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory;
 import androidx.media3.extractor.text.SubtitleParser;
@@ -58,6 +58,14 @@ public final class MatroskaExtractorTest {
   }
 
   @Test
+  public void mkvSampleWithMultipleKeyFrames() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        getExtractorFactory(subtitlesParsedDuringExtraction),
+        "media/mkv/sample_with_multiple_key_frames.mkv",
+        simulationConfig);
+  }
+
+  @Test
   public void mkvSample_withSubripSubtitles() throws Exception {
     ExtractorAsserts.assertBehavior(
         getExtractorFactory(subtitlesParsedDuringExtraction),
@@ -87,11 +95,33 @@ public final class MatroskaExtractorTest {
         simulationConfig);
   }
 
+  /**
+   * Test with CodecId = S_TEST/SSA (https://github.com/androidx/media/issues/2384)
+   *
+   * <p>The subtitle data is identical to {@code sample_with_ass_subtitles.mkv} so the same dump
+   * files are used.
+   */
   @Test
   public void mkvSample_withSsaSubtitles() throws Exception {
     ExtractorAsserts.assertBehavior(
         getExtractorFactory(subtitlesParsedDuringExtraction),
         "media/mkv/sample_with_ssa_subtitles.mkv",
+        getAssertionConfigWithPrefix(
+            "media/mkv/sample_with_ssa_subtitles.mkv", subtitlesParsedDuringExtraction),
+        simulationConfig);
+  }
+
+  /**
+   * Test with CodecId = S_TEST/ASS
+   *
+   * <p>The subtitle data is identical to {@code sample_with_ssa_subtitles.mkv} so the same dump
+   * files are used.
+   */
+  @Test
+  public void mkvSample_withAssSubtitles() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        getExtractorFactory(subtitlesParsedDuringExtraction),
+        "media/mkv/sample_with_ass_subtitles.mkv",
         getAssertionConfigWithPrefix(
             "media/mkv/sample_with_ssa_subtitles.mkv", subtitlesParsedDuringExtraction),
         simulationConfig);
@@ -186,6 +216,30 @@ public final class MatroskaExtractorTest {
     ExtractorAsserts.assertBehavior(
         getExtractorFactory(subtitlesParsedDuringExtraction),
         "media/mkv/subsample_encrypted_altref.webm",
+        simulationConfig);
+  }
+
+  @Test
+  public void mkvSample_withDts() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        getExtractorFactory(subtitlesParsedDuringExtraction),
+        "media/mkv/sample_with_dts.mkv",
+        simulationConfig);
+  }
+
+  @Test
+  public void mkvSample_withDtsHdMa() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        getExtractorFactory(subtitlesParsedDuringExtraction),
+        "media/mkv/sample_with_dts_hd_ma.mkv",
+        simulationConfig);
+  }
+
+  @Test
+  public void mkvSample_withDtsX() throws Exception {
+    ExtractorAsserts.assertBehavior(
+        getExtractorFactory(subtitlesParsedDuringExtraction),
+        "media/mkv/sample_with_dts_x.mkv",
         simulationConfig);
   }
 

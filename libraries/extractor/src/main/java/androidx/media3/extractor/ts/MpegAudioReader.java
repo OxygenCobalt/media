@@ -15,13 +15,13 @@
  */
 package androidx.media3.extractor.ts;
 
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.min;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.ExtractorOutput;
@@ -45,6 +45,7 @@ public final class MpegAudioReader implements ElementaryStreamReader {
   private final MpegAudioUtil.Header header;
   @Nullable private final String language;
   private final @C.RoleFlags int roleFlags;
+  private final String containerMimeType;
 
   private @MonotonicNonNull TrackOutput output;
   private @MonotonicNonNull String formatId;
@@ -63,11 +64,12 @@ public final class MpegAudioReader implements ElementaryStreamReader {
   // The timestamp to attach to the next sample in the current packet.
   private long timeUs;
 
-  public MpegAudioReader() {
-    this(null, /* roleFlags= */ 0);
+  public MpegAudioReader(String containerMimeType) {
+    this(null, /* roleFlags= */ 0, containerMimeType);
   }
 
-  public MpegAudioReader(@Nullable String language, @C.RoleFlags int roleFlags) {
+  public MpegAudioReader(
+      @Nullable String language, @C.RoleFlags int roleFlags, String containerMimeType) {
     state = STATE_FINDING_HEADER;
     // The first byte of an MPEG Audio frame header is always 0xFF.
     headerScratch = new ParsableByteArray(4);
@@ -76,6 +78,7 @@ public final class MpegAudioReader implements ElementaryStreamReader {
     timeUs = C.TIME_UNSET;
     this.language = language;
     this.roleFlags = roleFlags;
+    this.containerMimeType = containerMimeType;
   }
 
   @Override
@@ -100,7 +103,8 @@ public final class MpegAudioReader implements ElementaryStreamReader {
 
   @Override
   public void consume(ParsableByteArray data) {
-    Assertions.checkStateNotNull(output); // Asserts that createTracks has been called.
+    // Asserts that createTracks has been called.
+    checkNotNull(output);
     while (data.bytesLeft() > 0) {
       switch (state) {
         case STATE_FINDING_HEADER:
@@ -197,6 +201,7 @@ public final class MpegAudioReader implements ElementaryStreamReader {
       Format format =
           new Format.Builder()
               .setId(formatId)
+              .setContainerMimeType(containerMimeType)
               .setSampleMimeType(header.mimeType)
               .setMaxInputSize(MpegAudioUtil.MAX_FRAME_SIZE_BYTES)
               .setChannelCount(header.channels)

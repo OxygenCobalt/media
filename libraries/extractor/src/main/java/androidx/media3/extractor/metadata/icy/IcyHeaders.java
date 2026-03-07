@@ -15,19 +15,18 @@
  */
 package androidx.media3.extractor.metadata.icy;
 
-import android.os.Parcel;
-import android.os.Parcelable;
+import static com.google.common.base.Preconditions.checkArgument;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Metadata;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** ICY headers. */
 @UnstableApi
@@ -158,22 +157,13 @@ public final class IcyHeaders implements Metadata.Entry {
       @Nullable String url,
       boolean isPublic,
       int metadataInterval) {
-    Assertions.checkArgument(metadataInterval == C.LENGTH_UNSET || metadataInterval > 0);
+    checkArgument(metadataInterval == C.LENGTH_UNSET || metadataInterval > 0);
     this.bitrate = bitrate;
     this.genre = genre;
     this.name = name;
     this.url = url;
     this.isPublic = isPublic;
     this.metadataInterval = metadataInterval;
-  }
-
-  /* package */ IcyHeaders(Parcel in) {
-    bitrate = in.readInt();
-    genre = in.readString();
-    name = in.readString();
-    url = in.readString();
-    isPublic = Util.readBoolean(in);
-    metadataInterval = in.readInt();
   }
 
   @Override
@@ -196,9 +186,9 @@ public final class IcyHeaders implements Metadata.Entry {
     }
     IcyHeaders other = (IcyHeaders) obj;
     return bitrate == other.bitrate
-        && Util.areEqual(genre, other.genre)
-        && Util.areEqual(name, other.name)
-        && Util.areEqual(url, other.url)
+        && Objects.equals(genre, other.genre)
+        && Objects.equals(name, other.name)
+        && Objects.equals(url, other.url)
         && isPublic == other.isPublic
         && metadataInterval == other.metadataInterval;
   }
@@ -226,35 +216,4 @@ public final class IcyHeaders implements Metadata.Entry {
         + ", metadataInterval="
         + metadataInterval;
   }
-
-  // Parcelable implementation.
-
-  @Override
-  public void writeToParcel(Parcel dest, int flags) {
-    dest.writeInt(bitrate);
-    dest.writeString(genre);
-    dest.writeString(name);
-    dest.writeString(url);
-    Util.writeBoolean(dest, isPublic);
-    dest.writeInt(metadataInterval);
-  }
-
-  @Override
-  public int describeContents() {
-    return 0;
-  }
-
-  public static final Parcelable.Creator<IcyHeaders> CREATOR =
-      new Parcelable.Creator<IcyHeaders>() {
-
-        @Override
-        public IcyHeaders createFromParcel(Parcel in) {
-          return new IcyHeaders(in);
-        }
-
-        @Override
-        public IcyHeaders[] newArray(int size) {
-          return new IcyHeaders[size];
-        }
-      };
 }

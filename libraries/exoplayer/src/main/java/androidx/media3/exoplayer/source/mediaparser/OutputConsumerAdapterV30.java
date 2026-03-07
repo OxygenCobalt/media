@@ -29,8 +29,8 @@ import static android.media.MediaParser.PARSER_NAME_OGG;
 import static android.media.MediaParser.PARSER_NAME_PS;
 import static android.media.MediaParser.PARSER_NAME_TS;
 import static android.media.MediaParser.PARSER_NAME_WAV;
+import static com.google.common.base.Preconditions.checkNotNull;
 
-import android.annotation.SuppressLint;
 import android.media.DrmInitData.SchemeInitData;
 import android.media.MediaCodec;
 import android.media.MediaCodec.CryptoInfo;
@@ -47,7 +47,6 @@ import androidx.media3.common.DrmInitData;
 import androidx.media3.common.DrmInitData.SchemeData;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.common.util.NullableType;
@@ -68,6 +67,7 @@ import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -76,7 +76,6 @@ import java.util.regex.Pattern;
  * ExtractorOutput}.
  */
 @RequiresApi(30)
-@SuppressLint("Override") // TODO: Remove once the SDK becomes stable.
 @UnstableApi
 public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsumer {
 
@@ -238,7 +237,7 @@ public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsume
     }
     Format[] sampleFormats = new Format[trackFormats.size()];
     for (int i = 0; i < trackFormats.size(); i++) {
-      sampleFormats[i] = Assertions.checkNotNull(trackFormats.get(i));
+      sampleFormats[i] = checkNotNull(trackFormats.get(i));
     }
     return sampleFormats;
   }
@@ -333,7 +332,7 @@ public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsume
     } else if (timestampAdjuster != null) {
       timeUs = timestampAdjuster.adjustSampleTimestamp(timeUs);
     }
-    Assertions.checkNotNull(trackOutputs.get(trackIndex))
+    checkNotNull(trackOutputs.get(trackIndex))
         .sampleMetadata(timeUs, flags, size, offset, toExoPlayerCryptoData(trackIndex, cryptoInfo));
   }
 
@@ -348,14 +347,13 @@ public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsume
     }
     IntBuffer chunkIndexSizes = chunkIndexSizesByteBuffer.asIntBuffer();
     LongBuffer chunkIndexOffsets =
-        Assertions.checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_OFFSETS))
+        checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_OFFSETS))
             .asLongBuffer();
     LongBuffer chunkIndexDurationsUs =
-        Assertions.checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_DURATIONS))
+        checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_DURATIONS))
             .asLongBuffer();
     LongBuffer chunkIndexTimesUs =
-        Assertions.checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_TIMES))
-            .asLongBuffer();
+        checkNotNull(mediaFormat.getByteBuffer(MEDIA_FORMAT_KEY_CHUNK_INDEX_TIMES)).asLongBuffer();
     int[] sizes = new int[chunkIndexSizes.remaining()];
     long[] offsets = new long[chunkIndexOffsets.remaining()];
     long[] durationsUs = new long[chunkIndexDurationsUs.remaining()];
@@ -389,7 +387,7 @@ public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsume
     // MediaParser keeps identity and value equality aligned for efficient comparison.
     if (lastReceivedCryptoInfo == cryptoInfo) {
       // They match, we can reuse the last one we created.
-      cryptoDataToOutput = Assertions.checkNotNull(lastOutputCryptoDatas.get(trackIndex));
+      cryptoDataToOutput = checkNotNull(lastOutputCryptoDatas.get(trackIndex));
     } else {
       // They don't match, we create a new CryptoData.
 
@@ -509,7 +507,7 @@ public final class OutputConsumerAdapterV30 implements MediaParser.OutputConsume
             .setAccessibilityChannel(mediaFormatAccessibilityChannel);
     for (int i = 0; i < muxedCaptionFormats.size(); i++) {
       Format muxedCaptionFormat = muxedCaptionFormats.get(i);
-      if (Util.areEqual(muxedCaptionFormat.sampleMimeType, mediaFormatMimeType)
+      if (Objects.equals(muxedCaptionFormat.sampleMimeType, mediaFormatMimeType)
           && muxedCaptionFormat.accessibilityChannel == mediaFormatAccessibilityChannel) {
         // The track's format matches this muxedCaptionFormat, so we apply the manifest format
         // information to the track.

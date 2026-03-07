@@ -22,6 +22,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
@@ -30,9 +31,12 @@ import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.media3.cast.MediaRouteButtonFactory
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionToken
@@ -95,6 +99,14 @@ class MainActivity : AppCompatActivity() {
     }
   }
 
+  @OptIn(UnstableApi::class) // MediaRouteButtonFactory is unstable API.
+  override fun onCreateOptionsMenu(menu: Menu): Boolean {
+    super.onCreateOptionsMenu(menu)
+    getMenuInflater().inflate(R.menu.menu, menu)
+    val unused = MediaRouteButtonFactory.setUpMediaRouteButton(this, menu, R.id.cast_menu_item)
+    return true
+  }
+
   override fun onOptionsItemSelected(item: MenuItem): Boolean {
     if (item.itemId == android.R.id.home) {
       onBackPressedDispatcher.onBackPressed()
@@ -116,7 +128,7 @@ class MainActivity : AppCompatActivity() {
   override fun onRequestPermissionsResult(
     requestCode: Int,
     permissions: Array<out String>,
-    grantResults: IntArray
+    grantResults: IntArray,
   ) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     if (grantResults.isEmpty()) {
@@ -134,7 +146,7 @@ class MainActivity : AppCompatActivity() {
     browserFuture =
       MediaBrowser.Builder(
           this,
-          SessionToken(this, ComponentName(this, PlaybackService::class.java))
+          SessionToken(this, ComponentName(this, PlaybackService::class.java)),
         )
         .buildAsync()
     browserFuture.addListener({ pushRoot() }, ContextCompat.getMainExecutor(this))
@@ -153,7 +165,7 @@ class MainActivity : AppCompatActivity() {
         mediaItem.mediaId,
         /* page= */ 0,
         /* pageSize= */ Int.MAX_VALUE,
-        /* params= */ null
+        /* params= */ null,
       )
 
     subItemMediaList.clear()
@@ -164,7 +176,7 @@ class MainActivity : AppCompatActivity() {
         subItemMediaList.addAll(children)
         mediaListAdapter.notifyDataSetChanged()
       },
-      ContextCompat.getMainExecutor(this)
+      ContextCompat.getMainExecutor(this),
     )
   }
 
@@ -175,7 +187,7 @@ class MainActivity : AppCompatActivity() {
 
   private fun popPathStack() {
     treePathStack.removeLast()
-    if (treePathStack.size == 0) {
+    if (treePathStack.isEmpty()) {
       finish()
       return
     }
@@ -197,14 +209,14 @@ class MainActivity : AppCompatActivity() {
         val root: MediaItem = result.value!!
         pushPathStack(root)
       },
-      ContextCompat.getMainExecutor(this)
+      ContextCompat.getMainExecutor(this),
     )
   }
 
   private class FolderMediaItemArrayAdapter(
     context: Context,
     viewID: Int,
-    mediaItemList: List<MediaItem>
+    mediaItemList: List<MediaItem>,
   ) : ArrayAdapter<MediaItem>(context, viewID, mediaItemList) {
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
       val mediaItem = getItem(position)!!

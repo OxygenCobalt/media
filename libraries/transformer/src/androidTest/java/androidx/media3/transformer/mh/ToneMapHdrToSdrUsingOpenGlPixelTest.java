@@ -19,20 +19,17 @@ import static androidx.media3.common.MimeTypes.VIDEO_H265;
 import static androidx.media3.effect.DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.getBitmapAveragePixelAbsoluteDifferenceArgb8888;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmap;
-import static androidx.media3.transformer.AndroidTestUtil.recordTestSkipped;
-import static androidx.media3.transformer.mh.HdrCapabilitiesUtil.assumeDeviceSupportsOpenGlToneMapping;
+import static androidx.media3.test.utils.HdrCapabilitiesUtil.assumeDeviceSupportsOpenGlToneMapping;
 import static androidx.media3.transformer.mh.UnoptimizedGlEffect.NO_OP_EFFECT;
-import static androidx.test.core.app.ApplicationProvider.getApplicationContext;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.graphics.Bitmap;
-import android.util.Log;
+import android.os.Build;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
-import androidx.media3.common.util.Util;
+import androidx.media3.common.util.Log;
 import androidx.media3.effect.DefaultVideoFrameProcessor;
-import androidx.media3.test.utils.DecodeOneFrameUtil;
 import androidx.media3.test.utils.VideoFrameProcessorTestRunner;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.base.Ascii;
@@ -51,7 +48,7 @@ import org.junit.runner.RunWith;
  * <p>Uses a {@link DefaultVideoFrameProcessor} to process one frame, and checks that the actual
  * output matches expected output, either from a golden file or from another edit.
  */
-// TODO(b/263395272): Move this test to effects/mh tests.
+// TODO: b/263395272 - Move this test to effects/mh tests.
 @RunWith(AndroidJUnit4.class)
 public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
   private static final String TAG = "ToneMapHdrToSdrGl";
@@ -63,7 +60,8 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
    * substantial distortions introduced by changes in tested components will cause the test to fail.
    */
   private static final float MAXIMUM_DEVICE_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE =
-      !Ascii.equalsIgnoreCase(Util.MODEL, "dn2103") && !Ascii.equalsIgnoreCase(Util.MODEL, "v2059")
+      !Ascii.equalsIgnoreCase(Build.MODEL, "dn2103")
+              && !Ascii.equalsIgnoreCase(Build.MODEL, "v2059")
           ? 6f
           : 7f;
 
@@ -146,25 +144,11 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
             .build();
     Bitmap expectedBitmap = readBitmap(TONE_MAP_HLG_TO_SDR_PNG_ASSET_PATH);
 
-    Bitmap actualBitmap;
-    try {
-      videoFrameProcessorTestRunner.processFirstFrameAndEnd();
-      actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
-    } catch (UnsupportedOperationException e) {
-      if (e.getMessage() != null
-          && e.getMessage().equals(DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING)) {
-        recordTestSkipped(
-            getApplicationContext(),
-            testId,
-            /* reason= */ DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING);
-        return;
-      } else {
-        throw e;
-      }
-    }
+    videoFrameProcessorTestRunner.processFirstFrameAndEnd();
+    Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
     Log.i(TAG, "Successfully tone mapped.");
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -182,25 +166,11 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
             .build();
     Bitmap expectedBitmap = readBitmap(TONE_MAP_HLG_TO_SDR_PNG_ASSET_PATH);
 
-    Bitmap actualBitmap;
-    try {
-      videoFrameProcessorTestRunner.processFirstFrameAndEnd();
-      actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
-    } catch (UnsupportedOperationException e) {
-      if (e.getMessage() != null
-          && e.getMessage().equals(DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING)) {
-        recordTestSkipped(
-            getApplicationContext(),
-            testId,
-            /* reason= */ DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING);
-        return;
-      } else {
-        throw e;
-      }
-    }
+    videoFrameProcessorTestRunner.processFirstFrameAndEnd();
+    Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
     Log.i(TAG, "Successfully tone mapped.");
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -218,25 +188,11 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
             .build();
     Bitmap expectedBitmap = readBitmap(TONE_MAP_PQ_TO_SDR_PNG_ASSET_PATH);
 
-    Bitmap actualBitmap;
-    try {
-      videoFrameProcessorTestRunner.processFirstFrameAndEnd();
-      actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
-    } catch (UnsupportedOperationException e) {
-      if (e.getMessage() != null
-          && e.getMessage().equals(DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING)) {
-        recordTestSkipped(
-            getApplicationContext(),
-            testId,
-            /* reason= */ DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING);
-        return;
-      } else {
-        throw e;
-      }
-    }
+    videoFrameProcessorTestRunner.processFirstFrameAndEnd();
+    Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
     Log.i(TAG, "Successfully tone mapped.");
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -255,25 +211,11 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
             .build();
     Bitmap expectedBitmap = readBitmap(TONE_MAP_PQ_TO_SDR_PNG_ASSET_PATH);
 
-    Bitmap actualBitmap;
-    try {
-      videoFrameProcessorTestRunner.processFirstFrameAndEnd();
-      actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
-    } catch (UnsupportedOperationException e) {
-      if (e.getMessage() != null
-          && e.getMessage().equals(DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING)) {
-        recordTestSkipped(
-            getApplicationContext(),
-            testId,
-            /* reason= */ DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING);
-        return;
-      } else {
-        throw e;
-      }
-    }
+    videoFrameProcessorTestRunner.processFirstFrameAndEnd();
+    Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
     Log.i(TAG, "Successfully tone mapped.");
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)
@@ -295,25 +237,11 @@ public final class ToneMapHdrToSdrUsingOpenGlPixelTest {
             .build();
     Bitmap expectedBitmap = readBitmap(TONE_MAP_HLG_TO_SDR_PNG_ASSET_PATH);
 
-    Bitmap actualBitmap;
-    try {
-      videoFrameProcessorTestRunner.processFirstFrameAndEnd();
-      actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
-    } catch (UnsupportedOperationException e) {
-      if (e.getMessage() != null
-          && e.getMessage().equals(DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING)) {
-        recordTestSkipped(
-            getApplicationContext(),
-            testId,
-            /* reason= */ DecodeOneFrameUtil.NO_DECODER_SUPPORT_ERROR_STRING);
-        return;
-      } else {
-        throw e;
-      }
-    }
+    videoFrameProcessorTestRunner.processFirstFrameAndEnd();
+    Bitmap actualBitmap = videoFrameProcessorTestRunner.getOutputBitmap();
 
     Log.i(TAG, "Successfully tone mapped.");
-    // TODO(b/207848601): Switch to using proper tooling for testing against golden data.
+    // TODO: b/207848601 - Switch to using proper tooling for testing against golden data.
     float averagePixelAbsoluteDifference =
         getBitmapAveragePixelAbsoluteDifferenceArgb8888(expectedBitmap, actualBitmap, testId);
     assertThat(averagePixelAbsoluteDifference)

@@ -15,10 +15,11 @@
  */
 package androidx.media3.common;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import com.google.common.base.Ascii;
@@ -40,10 +41,12 @@ public final class MimeTypes {
   // video/ MIME types
 
   public static final String VIDEO_MP4 = BASE_TYPE_VIDEO + "/mp4";
+  @UnstableApi public static final String VIDEO_QUICK_TIME = BASE_TYPE_VIDEO + "/quicktime";
   @UnstableApi public static final String VIDEO_MATROSKA = BASE_TYPE_VIDEO + "/x-matroska";
   public static final String VIDEO_WEBM = BASE_TYPE_VIDEO + "/webm";
   public static final String VIDEO_H263 = BASE_TYPE_VIDEO + "/3gpp";
   public static final String VIDEO_H264 = BASE_TYPE_VIDEO + "/avc";
+  @UnstableApi public static final String VIDEO_APV = BASE_TYPE_VIDEO + "/apv";
   public static final String VIDEO_H265 = BASE_TYPE_VIDEO + "/hevc";
   @UnstableApi public static final String VIDEO_VP8 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp8";
   @UnstableApi public static final String VIDEO_VP9 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp9";
@@ -146,6 +149,8 @@ public final class MimeTypes {
   @UnstableApi
   public static final String APPLICATION_CAMERA_MOTION = BASE_TYPE_APPLICATION + "/x-camera-motion";
 
+  @UnstableApi public static final String APPLICATION_META = BASE_TYPE_APPLICATION + "/meta";
+
   @UnstableApi
   public static final String APPLICATION_DEPTH_METADATA =
       BASE_TYPE_APPLICATION + "/x-depth-metadata";
@@ -212,6 +217,17 @@ public final class MimeTypes {
       }
     }
     customMimeTypes.add(customMimeType);
+  }
+
+  /**
+   * Clears all previously registered custom MIME types.
+   *
+   * @see #registerCustomMimeType(String, String, int)
+   */
+  @UnstableApi
+  @VisibleForTesting
+  public static void clearRegisteredCustomMimeTypes() {
+    customMimeTypes.clear();
   }
 
   /** Returns whether the given string is an audio MIME type. */
@@ -580,6 +596,36 @@ public final class MimeTypes {
   }
 
   /**
+   * Returns whether the given {@code codecs} and {@code supplementalCodecs} correspond to a valid
+   * Dolby Vision codec.
+   *
+   * @param codecs An RFC 6381 codecs string for the base codec. may be null.
+   * @param supplementalCodecs An optional RFC 6381 codecs string for supplemental codecs.
+   * @return Whether the given {@code codecs} and {@code supplementalCodecs} correspond to a valid
+   *     Dolby Vision codec.
+   */
+  @UnstableApi
+  public static boolean isDolbyVisionCodec(
+      @Nullable String codecs, @Nullable String supplementalCodecs) {
+    if (codecs == null) {
+      return false;
+    }
+    if (codecs.startsWith("dvhe") || codecs.startsWith("dvh1")) {
+      // profile 5
+      return true;
+    }
+    if (supplementalCodecs == null) {
+      return false;
+    }
+    // profiles 8, 9 and 10
+    return (supplementalCodecs.startsWith("dvhe") && codecs.startsWith("hev1"))
+        || (supplementalCodecs.startsWith("dvh1") && codecs.startsWith("hvc1"))
+        || (supplementalCodecs.startsWith("dvav") && codecs.startsWith("avc3"))
+        || (supplementalCodecs.startsWith("dva1") && codecs.startsWith("avc1"))
+        || (supplementalCodecs.startsWith("dav1") && codecs.startsWith("av01"));
+  }
+
+  /**
    * Returns the {@link C.TrackType track type} constant corresponding to a specified MIME type,
    * which may be {@link C#TRACK_TYPE_UNKNOWN} if it could not be determined.
    *
@@ -603,7 +649,8 @@ public final class MimeTypes {
         || APPLICATION_EMSG.equals(mimeType)
         || APPLICATION_SCTE35.equals(mimeType)
         || APPLICATION_ICY.equals(mimeType)
-        || APPLICATION_AIT.equals(mimeType)) {
+        || APPLICATION_AIT.equals(mimeType)
+        || APPLICATION_META.equals(mimeType)) {
       return C.TRACK_TYPE_METADATA;
     } else if (APPLICATION_CAMERA_MOTION.equals(mimeType)) {
       return C.TRACK_TYPE_CAMERA_MOTION;
@@ -685,6 +732,9 @@ public final class MimeTypes {
     }
     mimeType = Ascii.toLowerCase(mimeType);
     switch (mimeType) {
+      // Normalize uncommon versions of some video MIME types to their standard equivalent.
+      case BASE_TYPE_VIDEO + "/x-mvhevc":
+        return VIDEO_MV_HEVC;
       // Normalize uncommon versions of some audio MIME types to their standard equivalent.
       case BASE_TYPE_AUDIO + "/x-flac":
         return AUDIO_FLAC;
@@ -786,7 +836,7 @@ public final class MimeTypes {
     if (!matcher.matches()) {
       return null;
     }
-    String objectTypeIndicationHex = Assertions.checkNotNull(matcher.group(1));
+    String objectTypeIndicationHex = checkNotNull(matcher.group(1));
     @Nullable String audioObjectTypeIndicationDec = matcher.group(2);
     int objectTypeIndication;
     int audioObjectTypeIndication = 0;

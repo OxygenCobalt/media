@@ -15,8 +15,9 @@
  */
 package androidx.media3.exoplayer.source.ads;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.os.Handler;
@@ -25,11 +26,11 @@ import android.os.SystemClock;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AdPlaybackState;
+import androidx.media3.common.AdPlaybackState.AdGroup;
 import androidx.media3.common.AdViewProvider;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Timeline;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -53,7 +54,9 @@ import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
+import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
 /**
  * A {@link MediaSource} that inserts ads linearly into a provided content media source.
@@ -126,7 +129,7 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
      * #TYPE_UNEXPECTED}.
      */
     public RuntimeException getRuntimeExceptionForUnexpected() {
-      Assertions.checkState(type == TYPE_UNEXPECTED);
+      checkState(type == TYPE_UNEXPECTED);
       return (RuntimeException) checkNotNull(getCause());
     }
   }
@@ -144,16 +147,22 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
   private final Object adsId;
   private final Handler mainHandler;
   private final Timeline.Period period;
+  private final boolean useLazyContentSourcePreparation;
 
   // Accessed on the player thread.
   @Nullable private ComponentListener componentListener;
   @Nullable private Timeline contentTimeline;
   @Nullable private AdPlaybackState adPlaybackState;
   private @NullableType AdMediaSourceHolder[][] adMediaSourceHolders;
+  @Nullable private Handler playerHandler;
 
   /**
    * Constructs a new source that inserts ads linearly with the content specified by {@code
    * contentMediaSource}.
+   *
+   * <p>This is equivalent to passing true as param {@code useLazyContentSourcePreparation} when
+   * calling {@link AdsMediaSource#AdsMediaSource(MediaSource, DataSpec, Object,
+   * MediaSource.Factory, AdsLoader, AdViewProvider, boolean)}.
    *
    * @param contentMediaSource The {@link MediaSource} providing the content to play.
    * @param adTagDataSpec The data specification of the ad tag to load.
@@ -169,11 +178,50 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
       MediaSource contentMediaSource,
       DataSpec adTagDataSpec,
       Object adsId,
-      MediaSource.Factory adMediaSourceFactory,
+      Factory adMediaSourceFactory,
       AdsLoader adsLoader,
       AdViewProvider adViewProvider) {
+    this(
+        contentMediaSource,
+        adTagDataSpec,
+        adsId,
+        adMediaSourceFactory,
+        adsLoader,
+        adViewProvider,
+        /* useLazyContentSourcePreparation= */ true);
+  }
+
+  /**
+   * Constructs a new source that inserts ads linearly with the content specified by {@code
+   * contentMediaSource}.
+   *
+   * @param contentMediaSource The {@link MediaSource} providing the content to play.
+   * @param adTagDataSpec The data specification of the ad tag to load.
+   * @param adsId An opaque identifier for ad playback state associated with this instance. Ad
+   *     loading and playback state is shared among all playlist items that have the same ads id (by
+   *     {@link Object#equals(Object) equality}), so it is important to pass the same identifiers
+   *     when constructing playlist items each time the player returns to the foreground.
+   * @param adMediaSourceFactory Factory for media sources used to load ad media.
+   * @param adsLoader The loader for ads.
+   * @param adViewProvider Provider of views for the ad UI.
+   * @param useLazyContentSourcePreparation True if the content source should be prepared lazily and
+   *     wait for an {@link AdPlaybackState} to be set before preparing. False if the timeline is
+   *     required {@linkplain AdsLoader#handleContentTimelineChanged(AdsMediaSource, Timeline) to
+   *     read ad data from it} to populate the {@link AdPlaybackState} (See {@link
+   *     Timeline.Window#manifest} also).
+   */
+  public AdsMediaSource(
+      MediaSource contentMediaSource,
+      DataSpec adTagDataSpec,
+      Object adsId,
+      Factory adMediaSourceFactory,
+      AdsLoader adsLoader,
+      AdViewProvider adViewProvider,
+      boolean useLazyContentSourcePreparation) {
+    this.useLazyContentSourcePreparation = useLazyContentSourcePreparation;
     this.contentMediaSource =
-        new MaskingMediaSource(contentMediaSource, /* useLazyPreparation= */ true);
+        new MaskingMediaSource(
+            contentMediaSource, /* useLazyPreparation= */ useLazyContentSourcePreparation);
     this.contentDrmConfiguration =
         checkNotNull(contentMediaSource.getMediaItem().localConfiguration).drmConfiguration;
     this.adMediaSourceFactory = adMediaSourceFactory;
@@ -192,9 +240,14 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
     return contentMediaSource.getMediaItem();
   }
 
+  /** Returns the ads ID this source is serving. */
+  public Object getAdsId() {
+    return adsId;
+  }
+
   @Override
   public boolean canUpdateMediaItem(MediaItem mediaItem) {
-    return Util.areEqual(getAdsConfiguration(getMediaItem()), getAdsConfiguration(mediaItem))
+    return Objects.equals(getAdsConfiguration(getMediaItem()), getAdsConfiguration(mediaItem))
         && contentMediaSource.canUpdateMediaItem(mediaItem);
   }
 
@@ -206,7 +259,8 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
   @Override
   protected void prepareSourceInternal(@Nullable TransferListener mediaTransferListener) {
     super.prepareSourceInternal(mediaTransferListener);
-    ComponentListener componentListener = new ComponentListener();
+    this.playerHandler = Util.createHandlerForCurrentLooper();
+    ComponentListener componentListener = new ComponentListener(playerHandler);
     this.componentListener = componentListener;
     contentTimeline = contentMediaSource.getTimeline();
     prepareChildSource(CHILD_SOURCE_MEDIA_PERIOD_ID, contentMediaSource);
@@ -270,6 +324,7 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
     super.releaseSourceInternal();
     ComponentListener componentListener = checkNotNull(this.componentListener);
     this.componentListener = null;
+    this.playerHandler = null;
     componentListener.stop();
     contentTimeline = null;
     adPlaybackState = null;
@@ -285,11 +340,26 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
       int adIndexInAdGroup = childSourceId.adIndexInAdGroup;
       checkNotNull(adMediaSourceHolders[adGroupIndex][adIndexInAdGroup])
           .handleSourceInfoRefresh(newTimeline);
+      maybeUpdateSourceInfo();
     } else {
-      Assertions.checkArgument(newTimeline.getPeriodCount() == 1);
+      checkArgument(newTimeline.getPeriodCount() == 1);
       contentTimeline = newTimeline;
+      mainHandler.post(
+          () -> {
+            boolean sourceInfoUpdated = adsLoader.handleContentTimelineChanged(this, newTimeline);
+            // The ad playback state must not be updated when lazy preparation is used.
+            checkState(!sourceInfoUpdated || !useLazyContentSourcePreparation);
+            // If the source isn't updated by the ads loader we do, if not already published.
+            if (!sourceInfoUpdated && !useLazyContentSourcePreparation) {
+              checkNotNull(playerHandler).post(this::maybeUpdateSourceInfo);
+            }
+          });
+      if (useLazyContentSourcePreparation) {
+        // If lazy preparation is used, the ads loader is not allowed to update the ad playback
+        // state on timeline change. We can synchronously publish the timeline as early as possible.
+        maybeUpdateSourceInfo();
+      }
     }
-    maybeUpdateSourceInfo();
   }
 
   @Override
@@ -304,14 +374,59 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
 
   private void onAdPlaybackState(AdPlaybackState adPlaybackState) {
     if (this.adPlaybackState == null) {
-      adMediaSourceHolders = new AdMediaSourceHolder[adPlaybackState.adGroupCount][];
+      int playableAdGroupCount =
+          adPlaybackState.adGroupCount
+              - (adPlaybackState.endsWithLivePostrollPlaceHolder() ? 1 : 0);
+      adMediaSourceHolders = new AdMediaSourceHolder[playableAdGroupCount][];
       Arrays.fill(adMediaSourceHolders, new AdMediaSourceHolder[0]);
     } else {
-      checkState(adPlaybackState.adGroupCount == this.adPlaybackState.adGroupCount);
+      int adGroupInsertionCount =
+          checkValidAdPlaybackStateUpdate(this.adPlaybackState, adPlaybackState);
+      if (adGroupInsertionCount > 0) {
+        adMediaSourceHolders =
+            growAdMediaSourceHolderGrid(adMediaSourceHolders, adGroupInsertionCount);
+      }
     }
     this.adPlaybackState = adPlaybackState;
     maybeUpdateAdMediaSources();
     maybeUpdateSourceInfo();
+  }
+
+  private static int checkValidAdPlaybackStateUpdate(
+      AdPlaybackState oldAdPlaybackState, AdPlaybackState newAdPlaybackState) {
+    checkState(
+        oldAdPlaybackState.endsWithLivePostrollPlaceHolder()
+            == newAdPlaybackState.endsWithLivePostrollPlaceHolder());
+    int insertionCount = newAdPlaybackState.adGroupCount - oldAdPlaybackState.adGroupCount;
+    checkState(insertionCount >= 0);
+    for (int i = newAdPlaybackState.removedAdGroupCount; i < oldAdPlaybackState.adGroupCount; i++) {
+      AdGroup oldAdGroup = oldAdPlaybackState.getAdGroup(i);
+      if (oldAdGroup.isLivePostrollPlaceholder()) {
+        // Post-roll placeholder must be at the last index.
+        checkState(i == oldAdPlaybackState.adGroupCount - 1);
+        break;
+      }
+      AdGroup newAdGroup = newAdPlaybackState.getAdGroup(i);
+      checkState(oldAdGroup.count <= newAdGroup.count);
+      checkState(oldAdGroup.timeUs == newAdGroup.timeUs);
+      for (int j = 0; j < oldAdGroup.count; j++) {
+        if (oldAdGroup.mediaItems[j] != null) {
+          checkState(oldAdGroup.mediaItems[j].equals(newAdGroup.mediaItems[j]));
+        }
+      }
+    }
+    return insertionCount;
+  }
+
+  private static @NullableType AdMediaSourceHolder[][] growAdMediaSourceHolderGrid(
+      @NullableType AdMediaSourceHolder[][] grid, int insertionCount) {
+    @NullableType
+    AdMediaSourceHolder[][] grownGrid = new AdMediaSourceHolder[grid.length + insertionCount][];
+    System.arraycopy(grid, 0, grownGrid, 0, grid.length);
+    for (int i = grid.length; i < grownGrid.length; i++) {
+      grownGrid[i] = new AdMediaSourceHolder[0];
+    }
+    return grownGrid;
   }
 
   /**
@@ -330,7 +445,7 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
         @Nullable
         AdMediaSourceHolder adMediaSourceHolder =
             this.adMediaSourceHolders[adGroupIndex][adIndexInAdGroup];
-        AdPlaybackState.AdGroup adGroup = adPlaybackState.getAdGroup(adGroupIndex);
+        AdGroup adGroup = adPlaybackState.getAdGroup(adGroupIndex);
         if (adMediaSourceHolder != null
             && !adMediaSourceHolder.hasMediaSource()
             && adIndexInAdGroup < adGroup.mediaItems.length) {
@@ -361,14 +476,22 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
     }
   }
 
+  @RequiresNonNull("adPlaybackState")
   private long[][] getAdDurationsUs() {
-    long[][] adDurationsUs = new long[adMediaSourceHolders.length][];
+    boolean hasPostRollPlaceholder =
+        checkNotNull(adPlaybackState).endsWithLivePostrollPlaceHolder();
+    int adGroupCount = adMediaSourceHolders.length + (hasPostRollPlaceholder ? 1 : 0);
+    long[][] adDurationsUs = new long[adGroupCount][];
     for (int i = 0; i < adMediaSourceHolders.length; i++) {
       adDurationsUs[i] = new long[adMediaSourceHolders[i].length];
       for (int j = 0; j < adMediaSourceHolders[i].length; j++) {
         @Nullable AdMediaSourceHolder holder = adMediaSourceHolders[i][j];
         adDurationsUs[i][j] = holder == null ? C.TIME_UNSET : holder.getDurationUs();
       }
+    }
+    if (hasPostRollPlaceholder) {
+      // Set the pseudo-durations of the placeholder that is not represented by the holders.
+      adDurationsUs[adGroupCount - 1] = new long[0];
     }
     return adDurationsUs;
   }
@@ -391,8 +514,8 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
      * Creates new listener which forwards ad playback states on the creating thread and all other
      * events on the external event listener thread.
      */
-    public ComponentListener() {
-      playerHandler = Util.createHandlerForCurrentLooper();
+    public ComponentListener(Handler playerHandler) {
+      this.playerHandler = playerHandler;
     }
 
     /** Stops event delivery from this instance. */
@@ -514,7 +637,7 @@ public final class AdsMediaSource extends CompositeMediaSource<MediaPeriodId> {
     }
 
     public void handleSourceInfoRefresh(Timeline timeline) {
-      Assertions.checkArgument(timeline.getPeriodCount() == 1);
+      checkArgument(timeline.getPeriodCount() == 1);
       if (this.timeline == null) {
         Object periodUid = timeline.getUidOfPeriod(/* periodIndex= */ 0);
         for (int i = 0; i < activeMediaPeriods.size(); i++) {

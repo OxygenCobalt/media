@@ -15,11 +15,11 @@
  */
 package androidx.media3.test.utils;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.min;
 
 import android.os.Environment;
 import androidx.annotation.Nullable;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -132,7 +132,7 @@ public final class OggFileAudioBufferSink extends ForwardingAudioSink {
     scratchByteBuffer.put(isIdHeaderPacket ? (byte) 0x02 : (byte) 0x00);
 
     // granule_position
-    scratchByteBuffer.putLong((long) 0);
+    scratchByteBuffer.putLong(0L);
 
     // bitstream_serial_number
     scratchByteBuffer.putInt(0);
@@ -234,7 +234,7 @@ public final class OggFileAudioBufferSink extends ForwardingAudioSink {
   }
 
   private void writeBuffer(ByteBuffer buffer) throws IOException {
-    RandomAccessFile randomAccessFile = Assertions.checkNotNull(this.randomAccessFile);
+    RandomAccessFile randomAccessFile = checkNotNull(this.randomAccessFile);
     while (buffer.hasRemaining()) {
       int bytesToWrite = min(buffer.remaining(), scratchBuffer.length);
       buffer.get(scratchBuffer, /* offset= */ 0, bytesToWrite);

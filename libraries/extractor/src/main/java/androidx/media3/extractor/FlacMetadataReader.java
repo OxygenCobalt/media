@@ -30,10 +30,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Reads and peeks FLAC stream metadata elements according to the <a
- * href="https://xiph.org/flac/format.html">FLAC format specification</a>.
- */
+/** Reads and peeks FLAC stream metadata elements according to RFC 9639. */
 @UnstableApi
 public final class FlacMetadataReader {
 
@@ -66,7 +63,9 @@ public final class FlacMetadataReader {
       throws IOException {
     @Nullable
     Id3Decoder.FramePredicate id3FramePredicate = parseData ? null : Id3Decoder.NO_FRAMES_PREDICATE;
-    @Nullable Metadata id3Metadata = new Id3Peeker().peekId3Data(input, id3FramePredicate);
+    @Nullable
+    Metadata id3Metadata =
+        new Id3Peeker().peekId3Data(input, id3FramePredicate, /* maxTagPeekBytes= */ 0);
     return id3Metadata == null || id3Metadata.length() == 0 ? null : id3Metadata;
   }
 

@@ -15,7 +15,7 @@
  */
 package androidx.media3.exoplayer.analytics;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
@@ -57,19 +57,20 @@ import androidx.media3.exoplayer.DecoderCounters;
 import androidx.media3.exoplayer.DecoderReuseEvaluation;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.drm.DrmSession;
+import androidx.media3.exoplayer.drm.KeyRequestInfo;
 import androidx.media3.exoplayer.metadata.MetadataOutput;
 import androidx.media3.exoplayer.source.LoadEventInfo;
 import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
 import androidx.media3.exoplayer.trackselection.TrackSelection;
 import androidx.media3.exoplayer.video.VideoDecoderOutputBufferRenderer;
-import com.google.common.base.Objects;
 import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A listener for analytics events.
@@ -448,6 +449,9 @@ public interface AnalyticsListener {
   /** A renderer changed its readiness for playback. */
   @UnstableApi int EVENT_RENDERER_READY_CHANGED = 1033;
 
+  /** Seeks have been dropped when scrubbing. */
+  @UnstableApi int EVENT_DROPPED_SEEKS_WHILE_SCRUBBING = 1034;
+
   /** Time information of an event. */
   @UnstableApi
   final class EventTime {
@@ -572,15 +576,15 @@ public interface AnalyticsListener {
           && currentWindowIndex == eventTime.currentWindowIndex
           && currentPlaybackPositionMs == eventTime.currentPlaybackPositionMs
           && totalBufferedDurationMs == eventTime.totalBufferedDurationMs
-          && Objects.equal(timeline, eventTime.timeline)
-          && Objects.equal(mediaPeriodId, eventTime.mediaPeriodId)
-          && Objects.equal(currentTimeline, eventTime.currentTimeline)
-          && Objects.equal(currentMediaPeriodId, eventTime.currentMediaPeriodId);
+          && Objects.equals(timeline, eventTime.timeline)
+          && Objects.equals(mediaPeriodId, eventTime.mediaPeriodId)
+          && Objects.equals(currentTimeline, eventTime.currentTimeline)
+          && Objects.equals(currentMediaPeriodId, eventTime.currentMediaPeriodId);
     }
 
     @Override
     public int hashCode() {
-      return Objects.hashCode(
+      return Objects.hash(
           realtimeMs,
           timeline,
           windowIndex,
@@ -844,15 +848,29 @@ public interface AnalyticsListener {
   default void onPlaylistMetadataChanged(EventTime eventTime, MediaMetadata playlistMetadata) {}
 
   /**
+   * @deprecated Implement {@link #onLoadStarted(EventTime, LoadEventInfo, MediaLoadData, int)}
+   *     instead, and check for {@code retryCount == 0} for equivalent behavior.
+   */
+  @UnstableApi
+  @Deprecated
+  default void onLoadStarted(
+      EventTime eventTime, LoadEventInfo loadEventInfo, MediaLoadData mediaLoadData) {}
+
+  /**
    * Called when a media source started loading data.
    *
    * @param eventTime The event time.
    * @param loadEventInfo The {@link LoadEventInfo} defining the load event.
    * @param mediaLoadData The {@link MediaLoadData} defining the data being loaded.
+   * @param retryCount The number of failed attempts since {@link #onLoadStarted} was called (this
+   *     is zero for the first load attempt).
    */
   @UnstableApi
   default void onLoadStarted(
-      EventTime eventTime, LoadEventInfo loadEventInfo, MediaLoadData mediaLoadData) {}
+      EventTime eventTime,
+      LoadEventInfo loadEventInfo,
+      MediaLoadData mediaLoadData,
+      int retryCount) {}
 
   /**
    * Called when a media source completed loading data.
@@ -1347,12 +1365,20 @@ public interface AnalyticsListener {
   default void onDrmSessionAcquired(EventTime eventTime, @DrmSession.State int state) {}
 
   /**
+   * @deprecated Implement {@link #onDrmKeysLoaded(EventTime, KeyRequestInfo)} instead.
+   */
+  @UnstableApi
+  @Deprecated
+  default void onDrmKeysLoaded(EventTime eventTime) {}
+
+  /**
    * Called each time drm keys are loaded.
    *
    * @param eventTime The event time.
+   * @param keyRequestInfo information for any required load operation, null if none
    */
   @UnstableApi
-  default void onDrmKeysLoaded(EventTime eventTime) {}
+  default void onDrmKeysLoaded(EventTime eventTime, KeyRequestInfo keyRequestInfo) {}
 
   /**
    * Called when a drm error occurs.
@@ -1409,6 +1435,21 @@ public interface AnalyticsListener {
       int rendererIndex,
       @C.TrackType int rendererTrackType,
       boolean isRendererReady) {}
+
+  /**
+   * Called when seeks have been dropped while in {@linkplain
+   * androidx.media3.exoplayer.ExoPlayer#setScrubbingModeEnabled(boolean) scrubbing mode}.
+   *
+   * <p>Seeks are dropped in scrubbing mode when at least two calls are made to {@link
+   * Player#seekTo} while an earlier call to {@link Player#seekTo} is still being processed (i.e.
+   * the resulting frame hasn't been rendered/released yet). The most recent seek is queued to
+   * process later and any intermediate seeks are dropped.
+   *
+   * @param eventTime The event time.
+   * @param droppedSeeks The number of dropped seeks since the last call to this method.
+   */
+  @UnstableApi
+  default void onDroppedSeeksWhileScrubbing(EventTime eventTime, int droppedSeeks) {}
 
   /**
    * Called when the {@link Player} is released.

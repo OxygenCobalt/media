@@ -17,11 +17,11 @@
 package androidx.media3.transformer;
 
 import static androidx.media3.common.ColorInfo.isTransferHdr;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static androidx.media3.exoplayer.mediacodec.MediaCodecUtil.getAlternativeCodecMimeType;
 import static androidx.media3.transformer.EncoderUtil.getSupportedEncoders;
 import static androidx.media3.transformer.EncoderUtil.getSupportedEncodersForHdrEditing;
 import static androidx.media3.transformer.TransformerUtil.getProcessedTrackType;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -30,7 +30,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.decoder.DecoderInputBuffer;
-import androidx.media3.muxer.Muxer.MuxerException;
+import androidx.media3.muxer.MuxerException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
@@ -109,6 +109,13 @@ import java.util.List;
       if (metadata != null) {
         inputFormat = inputFormat.buildUpon().setMetadata(metadata).build();
       }
+      if (!muxerWrapper.supportsSampleMimeType(inputFormat.sampleMimeType)) {
+        String alternativeSampleMimeType = getAlternativeCodecMimeType(inputFormat);
+        if (muxerWrapper.supportsSampleMimeType(alternativeSampleMimeType)) {
+          inputFormat =
+              inputFormat.buildUpon().setSampleMimeType(alternativeSampleMimeType).build();
+        }
+      }
       try {
         muxerWrapper.addTrackFormat(inputFormat);
       } catch (MuxerException e) {
@@ -132,7 +139,7 @@ import java.util.List;
     try {
       if (!muxerWrapper.writeSample(
           outputTrackType,
-          checkStateNotNull(muxerInputBuffer.data),
+          checkNotNull(muxerInputBuffer.data),
           muxerInputBuffer.isKeyFrame(),
           muxerInputBuffer.timeUs)) {
         return false;

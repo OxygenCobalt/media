@@ -17,6 +17,7 @@ package androidx.media3.exoplayer.source;
 
 import static androidx.media3.common.util.Util.postOrRun;
 import static androidx.media3.common.util.Util.usToMs;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.os.Handler;
 import androidx.annotation.CheckResult;
@@ -25,7 +26,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.C.DataType;
 import androidx.media3.common.Format;
 import androidx.media3.common.Player;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Consumer;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
@@ -46,12 +46,15 @@ public interface MediaSourceEventListener {
    *     LoadEventInfo#uri} won't reflect potential redirection yet and {@link
    *     LoadEventInfo#responseHeaders} will be empty.
    * @param mediaLoadData The {@link MediaLoadData} defining the data being loaded.
+   * @param retryCount The number of failed attempts since this method was first called (this is
+   *     zero for the first load attempt).
    */
   default void onLoadStarted(
       int windowIndex,
       @Nullable MediaPeriodId mediaPeriodId,
       LoadEventInfo loadEventInfo,
-      MediaLoadData mediaLoadData) {}
+      MediaLoadData mediaLoadData,
+      int retryCount) {}
 
   /**
    * Called when a load ends.
@@ -61,8 +64,7 @@ public interface MediaSourceEventListener {
    *     belong to a specific media period.
    * @param loadEventInfo The {@link LoadEventInfo} corresponding to the event. The values of {@link
    *     LoadEventInfo#elapsedRealtimeMs} and {@link LoadEventInfo#bytesLoaded} are relative to the
-   *     corresponding {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}
-   *     event.
+   *     corresponding {@link #onLoadStarted} event.
    * @param mediaLoadData The {@link MediaLoadData} defining the data being loaded.
    */
   default void onLoadCompleted(
@@ -79,8 +81,7 @@ public interface MediaSourceEventListener {
    *     belong to a specific media period.
    * @param loadEventInfo The {@link LoadEventInfo} corresponding to the event. The values of {@link
    *     LoadEventInfo#elapsedRealtimeMs} and {@link LoadEventInfo#bytesLoaded} are relative to the
-   *     corresponding {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}
-   *     event.
+   *     corresponding {@link #onLoadStarted} event.
    * @param mediaLoadData The {@link MediaLoadData} defining the data being loaded.
    */
   default void onLoadCanceled(
@@ -108,8 +109,7 @@ public interface MediaSourceEventListener {
    *     belong to a specific media period.
    * @param loadEventInfo The {@link LoadEventInfo} corresponding to the event. The values of {@link
    *     LoadEventInfo#elapsedRealtimeMs} and {@link LoadEventInfo#bytesLoaded} are relative to the
-   *     corresponding {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}
-   *     event.
+   *     corresponding {@link #onLoadStarted} event.
    * @param mediaLoadData The {@link MediaLoadData} defining the data being loaded.
    * @param error The load error.
    * @param wasCanceled Whether the load was canceled as a result of the error.
@@ -205,8 +205,8 @@ public interface MediaSourceEventListener {
      * @param eventListener The listener to be added.
      */
     public void addEventListener(Handler handler, MediaSourceEventListener eventListener) {
-      Assertions.checkNotNull(handler);
-      Assertions.checkNotNull(eventListener);
+      checkNotNull(handler);
+      checkNotNull(eventListener);
       listenerAndHandlers.add(new ListenerAndHandler(handler, eventListener));
     }
 
@@ -223,8 +223,17 @@ public interface MediaSourceEventListener {
       }
     }
 
-    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}. */
+    /**
+     * @deprecated Use {link {@link #loadStarted(LoadEventInfo, int, int)} instead to pass {@code
+     *     retryCount}.
+     */
+    @Deprecated
     public void loadStarted(LoadEventInfo loadEventInfo, @DataType int dataType) {
+      loadStarted(loadEventInfo, dataType, /* retryCount= */ 0);
+    }
+
+    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData, int)}. */
+    public void loadStarted(LoadEventInfo loadEventInfo, @DataType int dataType, int retryCount) {
       loadStarted(
           loadEventInfo,
           dataType,
@@ -233,10 +242,15 @@ public interface MediaSourceEventListener {
           /* trackSelectionReason= */ C.SELECTION_REASON_UNKNOWN,
           /* trackSelectionData= */ null,
           /* mediaStartTimeUs= */ C.TIME_UNSET,
-          /* mediaEndTimeUs= */ C.TIME_UNSET);
+          /* mediaEndTimeUs= */ C.TIME_UNSET,
+          retryCount);
     }
 
-    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}. */
+    /**
+     * @deprecated Use {link {@link #loadStarted(LoadEventInfo, int, int, Format, int, Object, long,
+     *     long, int)} )} instead to pass {@code retryCount}.
+     */
+    @Deprecated
     public void loadStarted(
         LoadEventInfo loadEventInfo,
         @DataType int dataType,
@@ -258,11 +272,46 @@ public interface MediaSourceEventListener {
               usToMs(mediaEndTimeUs)));
     }
 
-    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}. */
+    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData, int)}. */
+    public void loadStarted(
+        LoadEventInfo loadEventInfo,
+        @DataType int dataType,
+        @C.TrackType int trackType,
+        @Nullable Format trackFormat,
+        @C.SelectionReason int trackSelectionReason,
+        @Nullable Object trackSelectionData,
+        long mediaStartTimeUs,
+        long mediaEndTimeUs,
+        int retryCount) {
+      loadStarted(
+          loadEventInfo,
+          new MediaLoadData(
+              dataType,
+              trackType,
+              trackFormat,
+              trackSelectionReason,
+              trackSelectionData,
+              usToMs(mediaStartTimeUs),
+              usToMs(mediaEndTimeUs)),
+          retryCount);
+    }
+
+    /**
+     * @deprecated Use {link {@link #loadStarted(LoadEventInfo, MediaLoadData, int)} instead to pass
+     *     {@code retryCount}.
+     */
+    @Deprecated
     public void loadStarted(LoadEventInfo loadEventInfo, MediaLoadData mediaLoadData) {
+      loadStarted(loadEventInfo, mediaLoadData, /* retryCount= */ 0);
+    }
+
+    /** Dispatches {@link #onLoadStarted(int, MediaPeriodId, LoadEventInfo, MediaLoadData, int)}. */
+    public void loadStarted(
+        LoadEventInfo loadEventInfo, MediaLoadData mediaLoadData, int retryCount) {
       dispatchEvent(
           (listener) ->
-              listener.onLoadStarted(windowIndex, mediaPeriodId, loadEventInfo, mediaLoadData));
+              listener.onLoadStarted(
+                  windowIndex, mediaPeriodId, loadEventInfo, mediaLoadData, retryCount));
     }
 
     /** Dispatches {@link #onLoadCompleted(int, MediaPeriodId, LoadEventInfo, MediaLoadData)}. */
@@ -430,7 +479,7 @@ public interface MediaSourceEventListener {
 
     /** Dispatches {@link #onUpstreamDiscarded(int, MediaPeriodId, MediaLoadData)}. */
     public void upstreamDiscarded(MediaLoadData mediaLoadData) {
-      MediaPeriodId mediaPeriodId = Assertions.checkNotNull(this.mediaPeriodId);
+      MediaPeriodId mediaPeriodId = checkNotNull(this.mediaPeriodId);
       dispatchEvent(
           (listener) -> listener.onUpstreamDiscarded(windowIndex, mediaPeriodId, mediaLoadData));
     }

@@ -15,9 +15,10 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import android.os.Bundle;
+import android.text.TextUtils;
 import androidx.annotation.CheckResult;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.BundleCollectionUtil;
@@ -88,11 +89,11 @@ public final class TrackGroup {
     this.id = id;
     this.formats = formats;
     this.length = formats.length;
-    @C.TrackType int type = MimeTypes.getTrackType(formats[0].sampleMimeType);
-    if (type == C.TRACK_TYPE_UNKNOWN) {
-      type = MimeTypes.getTrackType(formats[0].containerMimeType);
-    }
-    this.type = type;
+    @Nullable String sampleMimeType = formats[0].sampleMimeType;
+    this.type =
+        TextUtils.isEmpty(sampleMimeType)
+            ? MimeTypes.getTrackType(formats[0].containerMimeType)
+            : MimeTypes.getTrackType(sampleMimeType);
     verifyCorrectness();
   }
 
@@ -161,6 +162,11 @@ public final class TrackGroup {
     return id.equals(other.id) && Arrays.equals(formats, other.formats);
   }
 
+  @Override
+  public String toString() {
+    return id + ": " + Arrays.toString(formats);
+  }
+
   private static final String FIELD_FORMATS = Util.intToStringMaxRadix(0);
   private static final String FIELD_ID = Util.intToStringMaxRadix(1);
 
@@ -169,7 +175,7 @@ public final class TrackGroup {
     Bundle bundle = new Bundle();
     ArrayList<Bundle> arrayList = new ArrayList<>(formats.length);
     for (Format format : formats) {
-      arrayList.add(format.toBundle(/* excludeMetadata= */ true));
+      arrayList.add(format.toBundle());
     }
     bundle.putParcelableArrayList(FIELD_FORMATS, arrayList);
     bundle.putString(FIELD_ID, id);

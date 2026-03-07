@@ -18,13 +18,13 @@ package androidx.media3.exoplayer.ima;
 import static androidx.media3.common.AdPlaybackState.AD_STATE_AVAILABLE;
 import static androidx.media3.common.AdPlaybackState.AD_STATE_PLAYED;
 import static androidx.media3.common.AdPlaybackState.AD_STATE_UNAVAILABLE;
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.msToUs;
 import static androidx.media3.common.util.Util.sum;
 import static androidx.media3.exoplayer.source.ads.ServerSideAdInsertionUtil.addAdGroupToAdPlaybackState;
 import static androidx.media3.exoplayer.source.ads.ServerSideAdInsertionUtil.getMediaPeriodPositionUsForContent;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -425,7 +425,9 @@ import java.util.Set;
       long windowStartTimeUs =
           getWindowStartTimeUs(window.windowStartTimeMs, window.positionInFirstPeriodUs);
       totalElapsedContentDurationUs = windowStartTimeUs - window.positionInFirstPeriodUs;
-      contentOnlyAdPlaybackState = contentOnlyAdPlaybackState.withLivePostrollPlaceholderAppended();
+      contentOnlyAdPlaybackState =
+          contentOnlyAdPlaybackState.withLivePostrollPlaceholderAppended(
+              /* isServerSideInserted= */ true);
     }
     Map<Object, AdPlaybackState> adPlaybackStates = new HashMap<>();
     for (int i = adPlaybackState.removedAdGroupCount; i < adPlaybackState.adGroupCount; i++) {
@@ -505,7 +507,8 @@ import java.util.Set;
             .withIsServerSideInserted(/* adGroupIndex= */ 0, true)
             .withAdCount(/* adGroupIndex= */ 0, /* adCount= */ 1);
     if (isLiveStream) {
-      adPlaybackState = adPlaybackState.withLivePostrollPlaceholderAppended();
+      adPlaybackState =
+          adPlaybackState.withLivePostrollPlaceholderAppended(/* isServerSideInserted= */ true);
     }
     long adGroupDurationUs = 0;
     for (int i = 0; i < adGroup.count; i++) {

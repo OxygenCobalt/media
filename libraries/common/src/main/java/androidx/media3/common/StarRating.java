@@ -15,7 +15,7 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import android.os.Bundle;
 import androidx.annotation.FloatRange;
@@ -23,7 +23,7 @@ import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
-import com.google.common.base.Objects;
+import java.util.Objects;
 
 /** A rating expressed as a fractional number of stars. */
 public final class StarRating extends Rating {
@@ -84,7 +84,7 @@ public final class StarRating extends Rating {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(maxStars, starRating);
+    return Objects.hash(maxStars, starRating);
   }
 
   @Override

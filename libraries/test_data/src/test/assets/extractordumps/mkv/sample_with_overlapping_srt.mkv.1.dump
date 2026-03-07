@@ -3,20 +3,22 @@ seekMap:
   duration = 1072000
   getPosition(0) = [[timeUs=67000, position=5679]]
   getPosition(1) = [[timeUs=67000, position=5679]]
-  getPosition(536000) = [[timeUs=200000, position=5679]]
-  getPosition(1072000) = [[timeUs=200000, position=5679]]
+  getPosition(536000) = [[timeUs=67000, position=5679]]
+  getPosition(1072000) = [[timeUs=67000, position=5679]]
 numberOfTracks = 3
 track 1:
   total output bytes = 89502
   sample count = 30
   format 0:
     id = 1
+    containerMimeType = video/x-matroska
     sampleMimeType = video/avc
     codecs = avc1.640034
     width = 1080
     height = 720
     selectionFlags = [default]
     language = und
+    metadata = entries=[ThumbnailMetadata: presentationTimeUs=67000]
     initializationData:
       data = length 30, hash F6F3D010
       data = length 10, hash 7A0D0F2B
@@ -145,6 +147,7 @@ track 2:
   sample count = 29
   format 0:
     id = 2
+    containerMimeType = video/x-matroska
     sampleMimeType = audio/ac3
     channelCount = 1
     sampleRate = 44100
@@ -271,6 +274,7 @@ track 3:
   sample count = 3
   format 0:
     id = 3
+    containerMimeType = video/x-matroska
     sampleMimeType = application/x-subrip
     selectionFlags = [default]
     language = und

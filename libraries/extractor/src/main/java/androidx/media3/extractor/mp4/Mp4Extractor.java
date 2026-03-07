@@ -19,19 +19,13 @@ import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_INVERSE;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_LINEAR;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_ORIGINAL;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_UNDEFINED;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
-import static androidx.media3.common.util.Util.castNonNull;
-import static androidx.media3.container.MdtaMetadataEntry.EDITABLE_TRACKS_SAMPLES_LOCATION_IN_EDIT_DATA_MP4;
-import static androidx.media3.container.Mp4Util.EDITABLE_TRACK_TYPE_DEPTH_INVERSE;
-import static androidx.media3.container.Mp4Util.EDITABLE_TRACK_TYPE_DEPTH_LINEAR;
-import static androidx.media3.container.Mp4Util.EDITABLE_TRACK_TYPE_DEPTH_METADATA;
-import static androidx.media3.container.Mp4Util.EDITABLE_TRACK_TYPE_SHARP;
+import static androidx.media3.container.MdtaMetadataEntry.AUXILIARY_TRACKS_SAMPLES_NOT_INTERLEAVED;
 import static androidx.media3.extractor.mp4.BoxParser.parseTraks;
-import static androidx.media3.extractor.mp4.MetadataUtil.findMdtaMetadataEntryWithKey;
+import static androidx.media3.extractor.mp4.MimeTypeResolver.getContainerMimeType;
 import static androidx.media3.extractor.mp4.Sniffer.BRAND_HEIC;
 import static androidx.media3.extractor.mp4.Sniffer.BRAND_QUICKTIME;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
@@ -43,7 +37,6 @@ import androidx.media3.common.Format;
 import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.container.MdtaMetadataEntry;
@@ -57,13 +50,16 @@ import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.ExtractorsFactory;
 import androidx.media3.extractor.GaplessInfoHolder;
+import androidx.media3.extractor.MpegAudioUtil;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.SeekPoint;
 import androidx.media3.extractor.SniffFailure;
+import androidx.media3.extractor.TrackAwareSeekMap;
 import androidx.media3.extractor.TrackOutput;
 import androidx.media3.extractor.TrueHdSampleRechunker;
-import androidx.media3.extractor.metadata.mp4.MotionPhotoMetadata;
+import androidx.media3.extractor.metadata.MotionPhotoMetadata;
+import androidx.media3.extractor.metadata.ThumbnailMetadata;
 import androidx.media3.extractor.metadata.mp4.SlowMotionData;
 import androidx.media3.extractor.text.SubtitleParser;
 import androidx.media3.extractor.text.SubtitleTranscodingExtractorOutput;
@@ -78,11 +74,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** Extracts data from the MP4 container format. */
 @UnstableApi
-public final class Mp4Extractor implements Extractor, SeekMap {
+public final class Mp4Extractor implements Extractor {
 
   /**
    * Creates a factory for {@link Mp4Extractor} instances with the provided {@link
@@ -94,8 +89,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   /**
    * Flags controlling the behavior of the extractor. Possible flag values are {@link
-   * #FLAG_WORKAROUND_IGNORE_EDIT_LISTS}, {@link #FLAG_READ_MOTION_PHOTO_METADATA} and {@link
-   * #FLAG_READ_SEF_DATA}, {@link #FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES}.
+   * #FLAG_WORKAROUND_IGNORE_EDIT_LISTS}, {@link #FLAG_READ_MOTION_PHOTO_METADATA}, {@link
+   * #FLAG_READ_SEF_DATA}, {@link #FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES}, {@link
+   * #FLAG_READ_AUXILIARY_TRACKS}, {@link #FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265} and {@link
+   * #FLAG_OMIT_TRACK_SAMPLE_TABLE}.
    */
   @Documented
   @Retention(RetentionPolicy.SOURCE)
@@ -109,7 +106,9 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         FLAG_MARK_FIRST_VIDEO_TRACK_WITH_MAIN_ROLE,
         FLAG_EMIT_RAW_SUBTITLE_DATA,
         FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES,
-        FLAG_READ_EDITABLE_VIDEO_TRACKS
+        FLAG_READ_AUXILIARY_TRACKS,
+        FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265,
+        FLAG_OMIT_TRACK_SAMPLE_TABLE
       })
   public @interface Flags {}
 
@@ -117,13 +116,9 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   public static final int FLAG_WORKAROUND_IGNORE_EDIT_LISTS = 1;
 
   /**
-   * Flag to extract {@link MotionPhotoMetadata} from HEIC motion photos following the Google Photos
-   * Motion Photo File Format V1.1.
-   *
-   * <p>As playback is not supported for motion photos, this flag should only be used for metadata
-   * retrieval use cases.
+   * @deprecated Use {@code HeifExtractor} to extract {@link MotionPhotoMetadata} from HEIC files.
    */
-  public static final int FLAG_READ_MOTION_PHOTO_METADATA = 1 << 1;
+  @Deprecated public static final int FLAG_READ_MOTION_PHOTO_METADATA = 1 << 1;
 
   /**
    * Flag to extract {@link SlowMotionData} metadata from Samsung Extension Format (SEF) slow motion
@@ -141,7 +136,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   /**
    * Flag to extract additional sample dependency information, and mark output buffers with {@link
-   * C#BUFFER_FLAG_NOT_DEPENDED_ON}.
+   * C#BUFFER_FLAG_NOT_DEPENDED_ON} for {@linkplain MimeTypes#VIDEO_H264 H.264} video.
    *
    * <p>This class always marks the samples at the start of each group of picture (GOP) with {@link
    * C#BUFFER_FLAG_KEY_FRAME}. Usually, key frames can be decoded independently, without depending
@@ -150,26 +145,43 @@ public final class Mp4Extractor implements Extractor, SeekMap {
    * <p>Setting this flag enables elementary stream parsing to identify disposable samples that are
    * not depended on by other samples. Any disposable sample can be safely omitted, and the rest of
    * the track will remain valid.
-   *
-   * <p>Supported formats are:
-   *
-   * <ul>
-   *   <li>{@linkplain MimeTypes#VIDEO_H264 H.264}
-   * </ul>
    */
   public static final int FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES = 1 << 5;
 
-  // TODO: b/345219017 - Add depth/editing file format spec link after its published.
   /**
-   * Flag to extract the editable video tracks.
+   * Flag to extract the auxiliary tracks from the MP4 With Auxiliary Tracks Extension (MP4-AT) file
+   * format.
    *
-   * <p>Either primary video tracks or editable video tracks (but not both) will be extracted based
-   * on the flag.
+   * <p>Either primary video tracks or auxiliary tracks (but not both) will be extracted based on
+   * the flag.
    *
-   * <p>If the flag is set but the editable video tracks are not present, then it fallbacks to
-   * extract primary tracks instead.
+   * <p>If the flag is set but the auxiliary tracks are not present, then it fallbacks to extract
+   * primary tracks instead.
+   *
+   * <p>See the file format at https://developer.android.com/media/platform/mp4-at-file-format.
    */
-  public static final int FLAG_READ_EDITABLE_VIDEO_TRACKS = 1 << 6;
+  public static final int FLAG_READ_AUXILIARY_TRACKS = 1 << 6;
+
+  /**
+   * Flag to extract additional sample dependency information, and mark output buffers with {@link
+   * C#BUFFER_FLAG_NOT_DEPENDED_ON} for {@linkplain MimeTypes#VIDEO_H265 H.265} video.
+   *
+   * <p>See {@link #FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES}.
+   */
+  public static final int FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265 = 1 << 7;
+
+  /**
+   * Flag to omit allocating and populating the large per-sample arrays (offsets, sizes, timestamps,
+   * flags) within {@link TrackSampleTable}. This is used to reduce memory consumption in metadata
+   * retrieval scenarios where individual sample data is not required.
+   */
+  public static final int FLAG_OMIT_TRACK_SAMPLE_TABLE = 1 << 8;
+
+  /** The maximum number of sync samples to scan when searching for a thumbnail. */
+  private static final int MAX_SYNC_SAMPLES_TO_SCAN_FOR_THUMBNAIL = 20;
+
+  /** The maximum duration to scan for a thumbnail, in microseconds. */
+  private static final long MAX_DURATION_US_TO_SCAN_FOR_THUMBNAIL = 10_000_000L;
 
   /**
    * @deprecated Use {@link #newFactory(SubtitleParser.Factory)} instead.
@@ -223,6 +235,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   private final SubtitleParser.Factory subtitleParserFactory;
   private final @Flags int flags;
+  private final boolean omitTrackSampleTable;
 
   // Temporary arrays.
   private final ParsableByteArray nalStartCode;
@@ -247,20 +260,19 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   private int sampleCurrentNalBytesRemaining;
   private boolean isSampleDependedOn;
   private boolean seenFtypAtom;
-  private boolean seekToEdvdAtom;
-  private long edvdAtomOffset;
-  private boolean readingEditableVideoTracks;
+  private boolean seekToAxteAtom;
+  private long axteAtomOffset;
+  private boolean readingAuxiliaryTracks;
+  private boolean moovAtomProcessed;
 
-  // Used when editable video samples are in the edit data MP4 (inside edvd atom).
-  private long sampleOffsetForEditableVideoTracks;
+  // Used when auxiliary tracks samples are in the auxiliary tracks MP4 (inside axte atom).
+  private long sampleOffsetForAuxiliaryTracks;
 
   // Extractor outputs.
   private ExtractorOutput extractorOutput;
   private Mp4Track[] tracks;
 
-  private long @MonotonicNonNull [][] accumulatedSampleSizes;
-  private int firstVideoTrackIndex;
-  private long durationUs;
+  @Nullable private long[][] accumulatedSampleSizes;
   private @FileType int fileType;
   @Nullable private MotionPhotoMetadata motionPhotoMetadata;
 
@@ -301,6 +313,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   public Mp4Extractor(SubtitleParser.Factory subtitleParserFactory, @Flags int flags) {
     this.subtitleParserFactory = subtitleParserFactory;
     this.flags = flags;
+    omitTrackSampleTable = (flags & FLAG_OMIT_TRACK_SAMPLE_TABLE) != 0;
     lastSniffFailures = ImmutableList.of();
     parserState =
         ((flags & FLAG_READ_SEF_DATA) != 0) ? STATE_READING_SEF : STATE_READING_ATOM_HEADER;
@@ -309,13 +322,28 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     atomHeader = new ParsableByteArray(Mp4Box.LONG_HEADER_SIZE);
     containerAtoms = new ArrayDeque<>();
     nalStartCode = new ParsableByteArray(NalUnitUtil.NAL_START_CODE);
-    nalPrefix = new ParsableByteArray(5);
+    nalPrefix = new ParsableByteArray(6);
     scratch = new ParsableByteArray();
     sampleTrackIndex = C.INDEX_UNSET;
     extractorOutput = ExtractorOutput.PLACEHOLDER;
     tracks = new Mp4Track[0];
-    // Treat all samples as depended on when FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES is unset.
-    isSampleDependedOn = (flags & FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES) == 0;
+  }
+
+  /**
+   * Returns {@link Flags} denoting if an extractor should parse within GOP sample dependencies.
+   *
+   * @param videoCodecFlags The set of codecs for which to parse within GOP sample dependencies.
+   */
+  public static @Flags int codecsToParseWithinGopSampleDependenciesAsFlags(
+      @C.VideoCodecFlags int videoCodecFlags) {
+    @Flags int flags = 0;
+    if ((videoCodecFlags & C.VIDEO_CODEC_FLAG_H264) != 0) {
+      flags |= FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES;
+    }
+    if ((videoCodecFlags & C.VIDEO_CODEC_FLAG_H265) != 0) {
+      flags |= FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265;
+    }
+    return flags;
   }
 
   @Override
@@ -349,8 +377,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     sampleBytesRead = 0;
     sampleBytesWritten = 0;
     sampleCurrentNalBytesRemaining = 0;
-    // Treat all samples as depended on when FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES is unset.
-    isSampleDependedOn = (flags & FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES) == 0;
+    isSampleDependedOn = false;
+    moovAtomProcessed = false;
     if (position == 0) {
       // Reading the SEF data occurs before normal MP4 parsing. Therefore we can not transition to
       // reading the atom header until that has completed.
@@ -377,6 +405,9 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   @Override
   public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
+    if (omitTrackSampleTable && moovAtomProcessed) {
+      return RESULT_END_OF_INPUT;
+    }
     while (true) {
       switch (parserState) {
         case STATE_READING_ATOM_HEADER:
@@ -396,91 +427,6 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         default:
           throw new IllegalStateException();
       }
-    }
-  }
-
-  // SeekMap implementation.
-
-  @Override
-  public boolean isSeekable() {
-    return true;
-  }
-
-  @Override
-  public long getDurationUs() {
-    return durationUs;
-  }
-
-  @Override
-  public SeekPoints getSeekPoints(long timeUs) {
-    return getSeekPoints(timeUs, /* trackId= */ C.INDEX_UNSET);
-  }
-
-  // Non-inherited public methods.
-
-  /**
-   * Equivalent to {@link SeekMap#getSeekPoints(long)}, except it adds the {@code trackId}
-   * parameter.
-   *
-   * @param timeUs A seek time in microseconds.
-   * @param trackId The id of the track on which to seek for {@link SeekPoints}. May be {@link
-   *     C#INDEX_UNSET} if the extractor is expected to define the strategy for generating {@link
-   *     SeekPoints}.
-   * @return The corresponding seek points.
-   */
-  public SeekPoints getSeekPoints(long timeUs, int trackId) {
-    if (tracks.length == 0) {
-      return new SeekPoints(SeekPoint.START);
-    }
-
-    long firstTimeUs;
-    long firstOffset;
-    long secondTimeUs = C.TIME_UNSET;
-    long secondOffset = C.INDEX_UNSET;
-
-    // Note that the id matches the index in tracks.
-    int mainTrackIndex = trackId != C.INDEX_UNSET ? trackId : firstVideoTrackIndex;
-    // If we have a video track, use it to establish one or two seek points.
-    if (mainTrackIndex != C.INDEX_UNSET) {
-      TrackSampleTable sampleTable = tracks[mainTrackIndex].sampleTable;
-      int sampleIndex = getSynchronizationSampleIndex(sampleTable, timeUs);
-      if (sampleIndex == C.INDEX_UNSET) {
-        return new SeekPoints(SeekPoint.START);
-      }
-      long sampleTimeUs = sampleTable.timestampsUs[sampleIndex];
-      firstTimeUs = sampleTimeUs;
-      firstOffset = sampleTable.offsets[sampleIndex];
-      if (sampleTimeUs < timeUs && sampleIndex < sampleTable.sampleCount - 1) {
-        int secondSampleIndex = sampleTable.getIndexOfLaterOrEqualSynchronizationSample(timeUs);
-        if (secondSampleIndex != C.INDEX_UNSET && secondSampleIndex != sampleIndex) {
-          secondTimeUs = sampleTable.timestampsUs[secondSampleIndex];
-          secondOffset = sampleTable.offsets[secondSampleIndex];
-        }
-      }
-    } else {
-      firstTimeUs = timeUs;
-      firstOffset = Long.MAX_VALUE;
-    }
-
-    if (trackId == C.INDEX_UNSET) {
-      // Take into account other tracks, but only if the caller has not specified a trackId.
-      for (int i = 0; i < tracks.length; i++) {
-        if (i != firstVideoTrackIndex) {
-          TrackSampleTable sampleTable = tracks[i].sampleTable;
-          firstOffset = maybeAdjustSeekOffset(sampleTable, firstTimeUs, firstOffset);
-          if (secondTimeUs != C.TIME_UNSET) {
-            secondOffset = maybeAdjustSeekOffset(sampleTable, secondTimeUs, secondOffset);
-          }
-        }
-      }
-    }
-
-    SeekPoint firstSeekPoint = new SeekPoint(firstTimeUs, firstOffset);
-    if (secondTimeUs == C.TIME_UNSET) {
-      return new SeekPoints(firstSeekPoint);
-    } else {
-      SeekPoint secondSeekPoint = new SeekPoint(secondTimeUs, secondOffset);
-      return new SeekPoints(firstSeekPoint, secondSeekPoint);
     }
   }
 
@@ -539,8 +485,14 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     }
 
     if (atomSize < atomHeaderBytesRead) {
-      throw ParserException.createForUnsupportedContainerFeature(
-          "Atom size less than header length (unsupported).");
+      if (atomType == Mp4Box.TYPE_free && atomHeaderBytesRead == Mp4Box.HEADER_SIZE) {
+        // Workaround for writers that could create a malformed 'free' box with a size less than
+        // its header, causing file corruption. [See internal: b/438187097].
+        atomSize = atomHeaderBytesRead;
+      } else {
+        throw ParserException.createForUnsupportedContainerFeature(
+            "Atom size less than header length (unsupported).");
+      }
     }
 
     if (shouldParseContainerAtom(atomType)) {
@@ -558,8 +510,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     } else if (shouldParseLeafAtom(atomType)) {
       // We don't support parsing of leaf atoms that define extended atom sizes, or that have
       // lengths greater than Integer.MAX_VALUE.
-      Assertions.checkState(atomHeaderBytesRead == Mp4Box.HEADER_SIZE);
-      Assertions.checkState(atomSize <= Integer.MAX_VALUE);
+      checkState(atomHeaderBytesRead == Mp4Box.HEADER_SIZE);
+      checkState(atomSize <= Integer.MAX_VALUE);
       ParsableByteArray atomData = new ParsableByteArray((int) atomSize);
       System.arraycopy(atomHeader.getData(), 0, atomData.getData(), 0, Mp4Box.HEADER_SIZE);
       this.atomData = atomData;
@@ -608,11 +560,11 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       }
     }
     processAtomEnded(atomEndPosition);
-    if (seekToEdvdAtom) {
-      readingEditableVideoTracks = true;
-      positionHolder.position = edvdAtomOffset;
+    if (seekToAxteAtom) {
+      readingAuxiliaryTracks = true;
+      positionHolder.position = axteAtomOffset;
       seekRequired = true;
-      seekToEdvdAtom = false;
+      seekToAxteAtom = false;
     }
     return seekRequired && parserState != STATE_READING_SAMPLE;
   }
@@ -633,7 +585,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         // We've reached the end of the moov atom. Process it and prepare to read samples.
         processMoovAtom(containerAtom);
         containerAtoms.clear();
-        if (!seekToEdvdAtom) {
+        moovAtomProcessed = true;
+        if (!seekToAxteAtom && !omitTrackSampleTable) {
           parserState = STATE_READING_SAMPLE;
         }
       } else if (!containerAtoms.isEmpty()) {
@@ -648,23 +601,22 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   /**
    * Processes moov atom and updates the stored track metadata.
    *
-   * <p>The processing is aborted if the edvd.moov atom needs to be processed instead.
+   * <p>The processing is aborted if the axte.moov atom needs to be processed instead.
    */
   private void processMoovAtom(ContainerBox moov) throws ParserException {
-    // Process metadata first to determine whether to abort processing and seek to the edvd atom.
+    // Process metadata first to determine whether to abort processing and seek to the axte atom.
     @Nullable Metadata mdtaMetadata = null;
     @Nullable Mp4Box.ContainerBox meta = moov.getContainerBoxOfType(Mp4Box.TYPE_meta);
-    List<@C.AuxiliaryTrackType Integer> auxiliaryTrackTypesForEditableVideoTracks =
-        new ArrayList<>();
+    List<@C.AuxiliaryTrackType Integer> auxiliaryTrackTypesForAuxiliaryTracks = new ArrayList<>();
     if (meta != null) {
       mdtaMetadata = BoxParser.parseMdtaFromMeta(meta);
-      if (readingEditableVideoTracks) {
-        checkStateNotNull(mdtaMetadata);
-        maybeSetDefaultSampleOffsetForEditableVideoTracks(mdtaMetadata);
-        auxiliaryTrackTypesForEditableVideoTracks =
-            getAuxiliaryTrackTypesForEditableVideoTracks(mdtaMetadata);
-      } else if (shouldSeekToEdvdAtom(mdtaMetadata)) {
-        seekToEdvdAtom = true;
+      if (readingAuxiliaryTracks) {
+        checkNotNull(mdtaMetadata);
+        maybeSetDefaultSampleOffsetForAuxiliaryTracks(mdtaMetadata);
+        auxiliaryTrackTypesForAuxiliaryTracks =
+            getAuxiliaryTrackTypesForAuxiliaryTracks(mdtaMetadata);
+      } else if (shouldSeekToAxteAtom(mdtaMetadata)) {
+        seekToAxteAtom = true;
         return;
       }
     }
@@ -695,30 +647,33 @@ public final class Mp4Extractor implements Extractor, SeekMap {
             /* drmInitData= */ null,
             ignoreEditLists,
             isQuickTime,
-            /* modifyTrackFunction= */ track -> track);
+            /* modifyTrackFunction= */ track -> track,
+            omitTrackSampleTable);
 
-    if (readingEditableVideoTracks) {
+    if (readingAuxiliaryTracks) {
       checkState(
-          auxiliaryTrackTypesForEditableVideoTracks.size() == trackSampleTables.size(),
+          auxiliaryTrackTypesForAuxiliaryTracks.size() == trackSampleTables.size(),
           String.format(
               Locale.US,
               "The number of auxiliary track types from metadata (%d) is not same as the number of"
-                  + " editable video tracks (%d)",
-              auxiliaryTrackTypesForEditableVideoTracks.size(),
+                  + " auxiliary tracks (%d)",
+              auxiliaryTrackTypesForAuxiliaryTracks.size(),
               trackSampleTables.size()));
     }
     int trackIndex = 0;
+    String containerMimeType = getContainerMimeType(trackSampleTables);
     for (int i = 0; i < trackSampleTables.size(); i++) {
       TrackSampleTable trackSampleTable = trackSampleTables.get(i);
       if (trackSampleTable.sampleCount == 0) {
         continue;
       }
       Track track = trackSampleTable.track;
-      long trackDurationUs =
-          track.durationUs != C.TIME_UNSET ? track.durationUs : trackSampleTable.durationUs;
-      durationUs = max(durationUs, trackDurationUs);
       Mp4Track mp4Track =
           new Mp4Track(track, trackSampleTable, extractorOutput.track(trackIndex++, track.type));
+      long trackDurationUs =
+          track.durationUs != C.TIME_UNSET ? track.durationUs : trackSampleTable.durationUs;
+      mp4Track.trackOutput.durationUs(trackDurationUs);
+      durationUs = max(durationUs, trackDurationUs);
 
       int maxInputSize;
       if (MimeTypes.AUDIO_TRUEHD.equals(track.format.sampleMimeType)) {
@@ -738,17 +693,18 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           roleFlags |=
               firstVideoTrackIndex == C.INDEX_UNSET ? C.ROLE_FLAG_MAIN : C.ROLE_FLAG_ALTERNATE;
         }
-        if (track.format.frameRate == Format.NO_VALUE
-            && trackDurationUs > 0
-            && trackSampleTable.sampleCount > 0) {
-          float frameRate = trackSampleTable.sampleCount / (trackDurationUs / 1000000f);
-          formatBuilder.setFrameRate(frameRate);
-        }
-        if (readingEditableVideoTracks) {
+        if (readingAuxiliaryTracks) {
           roleFlags |= C.ROLE_FLAG_AUXILIARY;
-          formatBuilder.setAuxiliaryTrackType(auxiliaryTrackTypesForEditableVideoTracks.get(i));
+          formatBuilder.setAuxiliaryTrackType(auxiliaryTrackTypesForAuxiliaryTracks.get(i));
         }
         formatBuilder.setRoleFlags(roleFlags);
+      }
+
+      @Nullable Metadata thumbnailMetadata = null;
+      long thumbnailPresentationTimeUs =
+          findBestThumbnailPresentationTimeUs(trackSampleTable, trackDurationUs);
+      if (thumbnailPresentationTimeUs != C.TIME_UNSET) {
+        thumbnailMetadata = new Metadata(new ThumbnailMetadata(thumbnailPresentationTimeUs));
       }
 
       MetadataUtil.setFormatGaplessInfo(track.type, gaplessInfoHolder, formatBuilder);
@@ -756,81 +712,130 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           track.type,
           mdtaMetadata,
           formatBuilder,
+          track.format.metadata,
           slowMotionMetadataEntries.isEmpty() ? null : new Metadata(slowMotionMetadataEntries),
           udtaMetadata,
-          mvhdMetadata);
-      mp4Track.trackOutput.format(formatBuilder.build());
+          mvhdMetadata,
+          thumbnailMetadata);
+      formatBuilder.setContainerMimeType(containerMimeType);
+      if (Objects.equals(track.format.sampleMimeType, MimeTypes.AUDIO_MPEG)) {
+        // The moov and esds boxes don't contain enough information to distinguish between MPEG
+        // audio layers 1, 2 and 3, but the distinction is important to select the right MIME type
+        // for MediaCodec decoders (and other decoders that handle the same audio/mpeg-L1 and
+        // audio/mpeg-L2 MIME types). So we store the format with audio/mpeg for now, and then
+        // update the MIME type and pass it to TrackOutput.format(...) based on the layer info in
+        // the first sample.
+        mp4Track.pendingFormat = formatBuilder.build();
+      } else {
+        mp4Track.trackOutput.format(formatBuilder.build());
+      }
 
       if (track.type == C.TRACK_TYPE_VIDEO && firstVideoTrackIndex == C.INDEX_UNSET) {
         firstVideoTrackIndex = tracks.size();
       }
       tracks.add(mp4Track);
     }
-    this.firstVideoTrackIndex = firstVideoTrackIndex;
-    this.durationUs = durationUs;
     this.tracks = tracks.toArray(new Mp4Track[0]);
-    accumulatedSampleSizes = calculateAccumulatedSampleSizes(this.tracks);
+    accumulatedSampleSizes =
+        !omitTrackSampleTable ? calculateAccumulatedSampleSizes(this.tracks) : null;
 
     extractorOutput.endTracks();
-    extractorOutput.seekMap(this);
+    extractorOutput.seekMap(new Mp4SeekMap(durationUs, this.tracks, firstVideoTrackIndex));
   }
 
-  private boolean shouldSeekToEdvdAtom(@Nullable Metadata mdtaMetadata) {
-    if (mdtaMetadata == null) {
-      return false;
+  private static long findBestThumbnailPresentationTimeUs(
+      TrackSampleTable sampleTable, long durationUs) {
+    if (!MimeTypes.isVideo(sampleTable.track.format.sampleMimeType)) {
+      return C.TIME_UNSET;
     }
-    if ((flags & FLAG_READ_EDITABLE_VIDEO_TRACKS) != 0) {
-      @Nullable
-      MdtaMetadataEntry edvdAtomOffsetMetadata =
-          findMdtaMetadataEntryWithKey(mdtaMetadata, MdtaMetadataEntry.KEY_EDITABLE_TRACKS_OFFSET);
-      if (edvdAtomOffsetMetadata != null) {
-        long offset = new ParsableByteArray(edvdAtomOffsetMetadata.value).readUnsignedLongToLong();
-        if (offset > 0) {
-          edvdAtomOffset = offset;
-          return true;
-        }
+
+    int bestSampleIndex = -1;
+    int maxSampleSize = 0;
+
+    int syncSampleCount =
+        sampleTable.hasOnlySyncSamples
+            ? sampleTable.sampleCount
+            : sampleTable.syncSampleIndices.length;
+    int scanLimit = min(syncSampleCount, MAX_SYNC_SAMPLES_TO_SCAN_FOR_THUMBNAIL);
+    checkState(durationUs != C.TIME_UNSET);
+    long maxDurationUsToScan = min(durationUs, MAX_DURATION_US_TO_SCAN_FOR_THUMBNAIL);
+
+    for (int i = 0; i < scanLimit; i++) {
+      int sampleIndex = sampleTable.hasOnlySyncSamples ? i : sampleTable.syncSampleIndices[i];
+      long timestampUs = sampleTable.timestampsUs[sampleIndex];
+
+      if (timestampUs > maxDurationUsToScan) {
+        break;
+      }
+
+      if (timestampUs >= 0 && sampleTable.sizes[sampleIndex] > maxSampleSize) {
+        maxSampleSize = sampleTable.sizes[sampleIndex];
+        bestSampleIndex = sampleIndex;
       }
     }
-    return false;
+
+    return bestSampleIndex == -1 ? C.TIME_UNSET : sampleTable.timestampsUs[bestSampleIndex];
+  }
+
+  private boolean shouldSeekToAxteAtom(@Nullable Metadata mdtaMetadata) {
+    if (mdtaMetadata == null || (flags & FLAG_READ_AUXILIARY_TRACKS) == 0) {
+      return false;
+    }
+    @Nullable
+    MdtaMetadataEntry axteAtomOffsetMetadata =
+        mdtaMetadata.getFirstMatchingEntry(
+            MdtaMetadataEntry.class,
+            mdtaEntry -> mdtaEntry.key.equals(MdtaMetadataEntry.KEY_AUXILIARY_TRACKS_OFFSET));
+    if (axteAtomOffsetMetadata == null) {
+      return false;
+    }
+    long offset = new ParsableByteArray(axteAtomOffsetMetadata.value).readUnsignedLongToLong();
+    if (offset <= 0) {
+      return false;
+    }
+    axteAtomOffset = offset;
+    return true;
   }
 
   /**
-   * Sets the sample offset for the editable video tracks, if the samples are in the edit data MP4
-   * (inside edvd atom).
+   * Sets the sample offset for the auxiliary tracks, if the samples are in the auxiliary tracks MP4
+   * (inside axte atom).
    */
-  private void maybeSetDefaultSampleOffsetForEditableVideoTracks(Metadata metadata) {
+  private void maybeSetDefaultSampleOffsetForAuxiliaryTracks(Metadata metadata) {
     @Nullable
-    MdtaMetadataEntry sampleLocationMetadata =
-        findMdtaMetadataEntryWithKey(
-            metadata, MdtaMetadataEntry.KEY_EDITABLE_TRACKS_SAMPLES_LOCATION);
-    if (sampleLocationMetadata != null) {
-      if (sampleLocationMetadata.value[0] == EDITABLE_TRACKS_SAMPLES_LOCATION_IN_EDIT_DATA_MP4) {
-        sampleOffsetForEditableVideoTracks = edvdAtomOffset + 16; // 16 bits for edvd atom header
-      }
+    MdtaMetadataEntry samplesInterleavedMetadata =
+        metadata.getFirstMatchingEntry(
+            MdtaMetadataEntry.class,
+            mdtaEntry -> mdtaEntry.key.equals(MdtaMetadataEntry.KEY_AUXILIARY_TRACKS_INTERLEAVED));
+    if (samplesInterleavedMetadata != null
+        && samplesInterleavedMetadata.value[0] == AUXILIARY_TRACKS_SAMPLES_NOT_INTERLEAVED) {
+      sampleOffsetForAuxiliaryTracks = axteAtomOffset + 16; // 16 bits for axte atom header
     }
   }
 
-  private List<@C.AuxiliaryTrackType Integer> getAuxiliaryTrackTypesForEditableVideoTracks(
+  private List<@C.AuxiliaryTrackType Integer> getAuxiliaryTrackTypesForAuxiliaryTracks(
       Metadata metadata) {
     MdtaMetadataEntry trackTypesMetadata =
-        checkStateNotNull(
-            findMdtaMetadataEntryWithKey(metadata, MdtaMetadataEntry.KEY_EDITABLE_TRACKS_MAP));
-    List<Integer> editableVideoTrackTypes = trackTypesMetadata.getEditableTrackTypesFromMap();
+        checkNotNull(
+            metadata.getFirstMatchingEntry(
+                MdtaMetadataEntry.class,
+                mdtaEntry -> mdtaEntry.key.equals(MdtaMetadataEntry.KEY_AUXILIARY_TRACKS_MAP)));
+    List<Integer> auxiliaryTrackTypesFromMap = trackTypesMetadata.getAuxiliaryTrackTypesFromMap();
     List<@C.AuxiliaryTrackType Integer> auxiliaryTrackTypes =
-        new ArrayList<>(editableVideoTrackTypes.size());
-    for (int i = 0; i < editableVideoTrackTypes.size(); i++) {
+        new ArrayList<>(auxiliaryTrackTypesFromMap.size());
+    for (int i = 0; i < auxiliaryTrackTypesFromMap.size(); i++) {
       @C.AuxiliaryTrackType int auxiliaryTrackType;
-      switch (editableVideoTrackTypes.get(i)) {
-        case EDITABLE_TRACK_TYPE_SHARP:
+      switch (auxiliaryTrackTypesFromMap.get(i)) {
+        case 0:
           auxiliaryTrackType = AUXILIARY_TRACK_TYPE_ORIGINAL;
           break;
-        case EDITABLE_TRACK_TYPE_DEPTH_LINEAR:
+        case 1:
           auxiliaryTrackType = AUXILIARY_TRACK_TYPE_DEPTH_LINEAR;
           break;
-        case EDITABLE_TRACK_TYPE_DEPTH_INVERSE:
+        case 2:
           auxiliaryTrackType = AUXILIARY_TRACK_TYPE_DEPTH_INVERSE;
           break;
-        case EDITABLE_TRACK_TYPE_DEPTH_METADATA:
+        case 3:
           auxiliaryTrackType = C.AUXILIARY_TRACK_TYPE_DEPTH_METADATA;
           break;
         default:
@@ -867,7 +872,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     Mp4Track track = tracks[sampleTrackIndex];
     TrackOutput trackOutput = track.trackOutput;
     int sampleIndex = track.sampleIndex;
-    long position = track.sampleTable.offsets[sampleIndex] + sampleOffsetForEditableVideoTracks;
+    long position = track.sampleTable.offsets[sampleIndex] + sampleOffsetForAuxiliaryTracks;
     int sampleSize = track.sampleTable.sizes[sampleIndex];
     @Nullable TrueHdSampleRechunker trueHdSampleRechunker = track.trueHdSampleRechunker;
     long skipAmount = position - inputPosition + sampleBytesRead;
@@ -882,8 +887,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       sampleSize -= Mp4Box.HEADER_SIZE;
     }
     input.skipFully((int) skipAmount);
-    // Treat all samples in non-H.264 codecs as depended on.
-    if (!Objects.equals(track.track.format.sampleMimeType, MimeTypes.VIDEO_H264)) {
+    if (!canReadWithinGopSampleDependencies(track.track.format)) {
       isSampleDependedOn = true;
     }
     if (track.track.nalUnitLengthFieldLength != 0) {
@@ -893,38 +897,55 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       nalPrefixData[0] = 0;
       nalPrefixData[1] = 0;
       nalPrefixData[2] = 0;
-      int nalUnitPrefixLength = track.track.nalUnitLengthFieldLength + 1;
       int nalUnitLengthFieldLengthDiff = 4 - track.track.nalUnitLengthFieldLength;
+      sampleSize += nalUnitLengthFieldLengthDiff;
       // NAL units are length delimited, but the decoder requires start code delimited units.
       // Loop until we've written the sample to the track output, replacing length delimiters with
       // start codes as we encounter them.
       while (sampleBytesWritten < sampleSize) {
         if (sampleCurrentNalBytesRemaining == 0) {
+          int nalUnitPrefixLength = track.track.nalUnitLengthFieldLength;
+          int numberOfBytesToDetermineSampleDependencies = 0;
+          if (!isSampleDependedOn
+              && nalUnitPrefixLength + NalUnitUtil.numberOfBytesInNalUnitHeader(track.track.format)
+                  <= track.sampleTable.sizes[sampleIndex] - sampleBytesRead) {
+            // Parsing sample dependencies needs the first few NAL unit bytes. Read them in the same
+            // readFully call that reads the NAL length. This ensures sampleBytesRead,
+            // sampleBytesWritten and isSampleDependedOn remain in a consistent state if we have
+            // read failures.
+            numberOfBytesToDetermineSampleDependencies =
+                NalUnitUtil.numberOfBytesInNalUnitHeader(track.track.format);
+            nalUnitPrefixLength =
+                track.track.nalUnitLengthFieldLength + numberOfBytesToDetermineSampleDependencies;
+          }
           // Read the NAL length so that we know where we find the next one.
-          // In the same readFully call, read the first payload byte in order to determine
-          // sample dependencies. Do not attempt to peek the first payload byte because that might
-          // fail, and we should keep sampleBytesRead, sampleBytesWritten, isSampleDependedOn in
-          // a consistent state.
           input.readFully(nalPrefixData, nalUnitLengthFieldLengthDiff, nalUnitPrefixLength);
           sampleBytesRead += nalUnitPrefixLength;
           nalPrefix.setPosition(0);
           int nalLengthInt = nalPrefix.readInt();
-          if (nalLengthInt < 1) {
+          if (nalLengthInt < 0) {
             throw ParserException.createForMalformedContainer(
                 "Invalid NAL length", /* cause= */ null);
           }
-          sampleCurrentNalBytesRemaining = nalLengthInt - 1;
+          sampleCurrentNalBytesRemaining =
+              nalLengthInt - numberOfBytesToDetermineSampleDependencies;
           // Write a start code for the current NAL unit.
           nalStartCode.setPosition(0);
           trackOutput.sampleData(nalStartCode, 4);
-          // Write the NAL unit type byte.
-          trackOutput.sampleData(nalPrefix, 1);
-          sampleBytesWritten += 5;
-          sampleSize += nalUnitLengthFieldLengthDiff;
-          // If any NAL unit that's part of this sample can be depended on, treat the entire sample
-          // as depended on.
-          if (!isSampleDependedOn && NalUnitUtil.isH264NalUnitDependedOn(nalPrefixData[4])) {
-            isSampleDependedOn = true;
+          sampleBytesWritten += 4;
+          if (numberOfBytesToDetermineSampleDependencies > 0) {
+            // Write the first NAL unit bytes that were read.
+            trackOutput.sampleData(nalPrefix, numberOfBytesToDetermineSampleDependencies);
+            sampleBytesWritten += numberOfBytesToDetermineSampleDependencies;
+            // If any NAL unit that's part of this sample can be depended on, treat the entire
+            // sample as depended on.
+            if (NalUnitUtil.isDependedOn(
+                nalPrefixData,
+                /* offset= */ 4,
+                /* length= */ numberOfBytesToDetermineSampleDependencies,
+                track.track.format)) {
+              isSampleDependedOn = true;
+            }
           }
         } else {
           // Write the payload of the NAL unit.
@@ -942,6 +963,22 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           sampleBytesWritten += Ac4Util.SAMPLE_HEADER_SIZE;
         }
         sampleSize += Ac4Util.SAMPLE_HEADER_SIZE;
+      } else if (track.pendingFormat != null
+          && Objects.equals(track.track.format.sampleMimeType, MimeTypes.AUDIO_MPEG)) {
+        Format pendingFormat = track.pendingFormat;
+        scratch.reset(/* limit= */ 4);
+        input.peekFully(scratch.getData(), /* offset= */ 0, /* length= */ 4);
+        input.resetPeekPosition();
+        MpegAudioUtil.Header mpegHeader = new MpegAudioUtil.Header();
+        track.trackOutput.format(
+            mpegHeader.setForHeaderData(scratch.readInt())
+                    && !Objects.equals(pendingFormat.sampleMimeType, mpegHeader.mimeType)
+                ? pendingFormat
+                    .buildUpon()
+                    .setSampleMimeType(checkNotNull(mpegHeader.mimeType))
+                    .build()
+                : pendingFormat);
+        track.pendingFormat = null;
       } else if (trueHdSampleRechunker != null) {
         trueHdSampleRechunker.startSample(input);
       }
@@ -975,8 +1012,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     sampleBytesRead = 0;
     sampleBytesWritten = 0;
     sampleCurrentNalBytesRemaining = 0;
-    // Treat all samples as depended on when FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES is unset.
-    isSampleDependedOn = (flags & FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES) == 0;
+    isSampleDependedOn = false;
     return RESULT_CONTINUE;
   }
 
@@ -1008,7 +1044,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         continue;
       }
       long sampleOffset = track.sampleTable.offsets[sampleIndex];
-      long sampleAccumulatedBytes = castNonNull(accumulatedSampleSizes)[trackIndex][sampleIndex];
+      long sampleAccumulatedBytes = checkNotNull(accumulatedSampleSizes)[trackIndex][sampleIndex];
       long skipAmount = sampleOffset - inputPosition;
       boolean requiresReload = skipAmount < 0 || skipAmount >= RELOAD_MINIMUM_SEEK_DISTANCE;
       if ((!requiresReload && preferredRequiresReload)
@@ -1056,8 +1092,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   }
 
   private void maybeSkipRemainingMetaAtomHeaderBytes(ExtractorInput input) throws IOException {
-    scratch.reset(8);
-    input.peekFully(scratch.getData(), 0, 8);
+    scratch.reset(Mp4Box.HEADER_SIZE);
+    input.peekFully(scratch.getData(), 0, Mp4Box.HEADER_SIZE);
     BoxParser.maybeSkipRemainingMetaBoxHeaderBytes(scratch);
     input.skipFully(scratch.getPosition());
     input.resetPeekPosition();
@@ -1076,6 +1112,20 @@ public final class Mp4Extractor implements Extractor, SeekMap {
               /* videoStartPosition= */ atomStartPosition + atomHeaderBytesRead,
               /* videoSize= */ atomSize - atomHeaderBytesRead);
     }
+  }
+
+  /**
+   * Returns whether reading within GOP sample dependencies is enabled for the sample {@link
+   * Format}.
+   */
+  private boolean canReadWithinGopSampleDependencies(Format format) {
+    if (Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H264)) {
+      return (flags & FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES) != 0;
+    }
+    if (Objects.equals(format.sampleMimeType, MimeTypes.VIDEO_H265)) {
+      return (flags & FLAG_READ_WITHIN_GOP_SAMPLE_DEPENDENCIES_H265) != 0;
+    }
+    return false;
   }
 
   /**
@@ -1221,7 +1271,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
         || atom == Mp4Box.TYPE_stbl
         || atom == Mp4Box.TYPE_edts
         || atom == Mp4Box.TYPE_meta
-        || atom == Mp4Box.TYPE_edvd;
+        || atom == Mp4Box.TYPE_axte;
   }
 
   private static final class Mp4Track {
@@ -1233,6 +1283,12 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
     public int sampleIndex;
 
+    /**
+     * A {@link Format} that needs to be passed to {@link #trackOutput}, after being possibly
+     * modified based on sample data, before {@link TrackOutput#sampleMetadata} is called.
+     */
+    @Nullable public Format pendingFormat;
+
     public Mp4Track(Track track, TrackSampleTable sampleTable, TrackOutput trackOutput) {
       this.track = track;
       this.sampleTable = sampleTable;
@@ -1241,6 +1297,95 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           MimeTypes.AUDIO_TRUEHD.equals(track.format.sampleMimeType)
               ? new TrueHdSampleRechunker()
               : null;
+    }
+  }
+
+  private static final class Mp4SeekMap implements TrackAwareSeekMap {
+    private final long durationUs;
+    private final Mp4Track[] tracks;
+    private final int firstVideoTrackIndex;
+
+    public Mp4SeekMap(long durationUs, Mp4Track[] tracks, int firstVideoTrackIndex) {
+      this.durationUs = durationUs;
+      this.tracks = tracks;
+      this.firstVideoTrackIndex = firstVideoTrackIndex;
+    }
+
+    @Override
+    public boolean isSeekable() {
+      return true;
+    }
+
+    @Override
+    public boolean isSeekable(int trackId) {
+      return true;
+    }
+
+    @Override
+    public long getDurationUs() {
+      return durationUs;
+    }
+
+    @Override
+    public SeekPoints getSeekPoints(long timeUs) {
+      return getSeekPoints(timeUs, /* trackId= */ C.INDEX_UNSET);
+    }
+
+    @Override
+    public SeekPoints getSeekPoints(long timeUs, int trackId) {
+      if (tracks.length == 0) {
+        return new SeekPoints(SeekPoint.START);
+      }
+
+      long firstTimeUs;
+      long firstOffset;
+      long secondTimeUs = C.TIME_UNSET;
+      long secondOffset = C.INDEX_UNSET;
+
+      // Note that the id matches the index in tracks.
+      int mainTrackIndex = trackId != C.INDEX_UNSET ? trackId : firstVideoTrackIndex;
+      // If we have a video track, use it to establish one or two seek points.
+      if (mainTrackIndex != C.INDEX_UNSET) {
+        TrackSampleTable sampleTable = tracks[mainTrackIndex].sampleTable;
+        int sampleIndex = getSynchronizationSampleIndex(sampleTable, timeUs);
+        if (sampleIndex == C.INDEX_UNSET) {
+          return new SeekPoints(SeekPoint.START);
+        }
+        long sampleTimeUs = sampleTable.timestampsUs[sampleIndex];
+        firstTimeUs = sampleTimeUs;
+        firstOffset = sampleTable.offsets[sampleIndex];
+        if (sampleTimeUs < timeUs && sampleIndex < sampleTable.sampleCount - 1) {
+          int secondSampleIndex = sampleTable.getIndexOfLaterOrEqualSynchronizationSample(timeUs);
+          if (secondSampleIndex != C.INDEX_UNSET && secondSampleIndex != sampleIndex) {
+            secondTimeUs = sampleTable.timestampsUs[secondSampleIndex];
+            secondOffset = sampleTable.offsets[secondSampleIndex];
+          }
+        }
+      } else {
+        firstTimeUs = timeUs;
+        firstOffset = Long.MAX_VALUE;
+      }
+
+      if (trackId == C.INDEX_UNSET) {
+        // Take into account other tracks, but only if the caller has not specified a trackId.
+        for (int i = 0; i < tracks.length; i++) {
+          if (i != firstVideoTrackIndex) {
+            TrackSampleTable sampleTable = tracks[i].sampleTable;
+            firstOffset = maybeAdjustSeekOffset(sampleTable, firstTimeUs, firstOffset);
+            if (secondTimeUs != C.TIME_UNSET) {
+              secondOffset = maybeAdjustSeekOffset(sampleTable, secondTimeUs, secondOffset);
+            }
+          }
+        }
+      }
+
+      SeekPoint firstSeekPoint = new SeekPoint(firstTimeUs, firstOffset);
+      if (secondTimeUs == C.TIME_UNSET) {
+        return new SeekPoints(firstSeekPoint);
+      } else {
+        SeekPoint secondSeekPoint = new SeekPoint(secondTimeUs, secondOffset);
+        return new SeekPoints(firstSeekPoint, secondSeekPoint);
+      }
     }
   }
 }

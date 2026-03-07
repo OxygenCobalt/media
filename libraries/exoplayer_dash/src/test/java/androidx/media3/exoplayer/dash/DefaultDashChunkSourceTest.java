@@ -15,8 +15,9 @@
  */
 package androidx.media3.exoplayer.dash;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy.DEFAULT_LOCATION_EXCLUSION_MS;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.net.Uri;
@@ -26,7 +27,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.TrackGroup;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.HttpDataSource;
@@ -87,7 +87,7 @@ public class DefaultDashChunkSourceTest {
                     SAMPLE_MPD_LIVE_WITH_OFFSET_INSIDE_WINDOW));
     DefaultDashChunkSource chunkSource =
         new DefaultDashChunkSource(
-            BundledChunkExtractor.FACTORY,
+            new BundledChunkExtractor.Factory(),
             new LoaderErrorThrower.Placeholder(),
             manifest,
             new BaseUrlExclusionList(),
@@ -139,7 +139,7 @@ public class DefaultDashChunkSourceTest {
                     ApplicationProvider.getApplicationContext(), SAMPLE_MPD_VOD));
     DefaultDashChunkSource chunkSource =
         new DefaultDashChunkSource(
-            BundledChunkExtractor.FACTORY,
+            new BundledChunkExtractor.Factory(),
             new LoaderErrorThrower.Placeholder(),
             manifest,
             new BaseUrlExclusionList(),
@@ -551,7 +551,7 @@ public class DefaultDashChunkSourceTest {
                     "media/mpd/sample_mpd_live_known_duration_not_ended"));
     DefaultDashChunkSource chunkSource =
         new DefaultDashChunkSource(
-            BundledChunkExtractor.FACTORY,
+            new BundledChunkExtractor.Factory(),
             new LoaderErrorThrower.Placeholder(),
             manifest,
             new BaseUrlExclusionList(),
@@ -600,7 +600,7 @@ public class DefaultDashChunkSourceTest {
                     "media/mpd/sample_mpd_live_known_duration_ended"));
     DefaultDashChunkSource chunkSource =
         new DefaultDashChunkSource(
-            BundledChunkExtractor.FACTORY,
+            new BundledChunkExtractor.Factory(),
             new LoaderErrorThrower.Placeholder(),
             manifest,
             new BaseUrlExclusionList(),
@@ -638,7 +638,7 @@ public class DefaultDashChunkSourceTest {
 
   private DashChunkSource createDashChunkSource(
       int numberOfTracks, @Nullable CmcdConfiguration cmcdConfiguration) throws IOException {
-    Assertions.checkArgument(numberOfTracks < 6);
+    checkArgument(numberOfTracks < 6);
     DashManifest manifest =
         new DashManifestParser()
             .parse(
@@ -665,7 +665,7 @@ public class DefaultDashChunkSourceTest {
             selectedTracks,
             new DefaultBandwidthMeter.Builder(ApplicationProvider.getApplicationContext()).build());
     return new DefaultDashChunkSource(
-        BundledChunkExtractor.FACTORY,
+        new BundledChunkExtractor.Factory(),
         new LoaderErrorThrower.Placeholder(),
         manifest,
         new BaseUrlExclusionList(new Random(/* seed= */ 1234)),

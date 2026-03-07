@@ -15,8 +15,9 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.os.Bundle;
@@ -27,12 +28,12 @@ import androidx.media3.common.Rating;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaLibraryService.LibraryParams;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.Objects;
 
 /**
  * A command that a {@link MediaController} can send to a {@link MediaSession}.
@@ -122,10 +123,6 @@ public final class SessionCommand {
 
   /**
    * The extra bundle of a custom command. It will be {@link Bundle#EMPTY} for a predefined command.
-   *
-   * <p>Interoperability: This value is not used when the command is sent to a legacy {@code
-   * android.support.v4.media.session.MediaSessionCompat} or {@code
-   * android.support.v4.media.session.MediaControllerCompat}.
    */
   public final Bundle customExtras;
 
@@ -168,7 +165,7 @@ public final class SessionCommand {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(customAction, commandCode);
+    return Objects.hash(customAction, commandCode);
   }
 
   private static final String FIELD_COMMAND_CODE = Util.intToStringMaxRadix(0);
@@ -192,9 +189,8 @@ public final class SessionCommand {
       return new SessionCommand(commandCode);
     } else {
       String customAction = checkNotNull(bundle.getString(FIELD_CUSTOM_ACTION));
-      @Nullable Bundle customExtras = bundle.getBundle(FIELD_CUSTOM_EXTRAS);
+      @Nullable Bundle customExtras = convertToNullIfInvalid(bundle.getBundle(FIELD_CUSTOM_EXTRAS));
       return new SessionCommand(customAction, customExtras == null ? Bundle.EMPTY : customExtras);
     }
   }
-  ;
 }

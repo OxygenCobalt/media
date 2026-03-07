@@ -9,8 +9,12 @@ numberOfTracks = 1
 track 0:
   total output bytes = 942
   sample count = 30
+  track duration = 1000000
   format 0:
+    averageBitrate = 7536
+    peakBitrate = 7536
     id = 1
+    containerMimeType = video/mp4
     sampleMimeType = video/av01
     maxInputSize = 188
     width = 720
@@ -22,7 +26,8 @@ track 0:
       colorTransfer = 7
       lumaBitdepth = 10
       chromaBitdepth = 10
-    metadata = entries=[TSSE: description=null: values=[Lavf60.3.100], Mp4Timestamp: creation time=0, modification time=0, timescale=1000]
+    language = und
+    metadata = entries=[TSSE: description=null: values=[Lavf60.3.100], Mp4Timestamp: creation time=0, modification time=0, timescale=1000, ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 20, hash 3DFDDB0E
   sample 0:

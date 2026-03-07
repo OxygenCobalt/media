@@ -15,14 +15,15 @@
  */
 package androidx.media3.extractor;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import androidx.media3.common.C;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 
 /**
  * A {@link SeekMap} implementation for FLAC streams that contain a <a
- * href="https://xiph.org/flac/format.html#metadata_block_seektable">seek table</a>.
+ * href="https://www.rfc-editor.org/rfc/rfc9639.html#name-seek-table">seek table</a>.
  */
 @UnstableApi
 public final class FlacSeekTableSeekMap implements SeekMap {
@@ -53,7 +54,7 @@ public final class FlacSeekTableSeekMap implements SeekMap {
 
   @Override
   public SeekPoints getSeekPoints(long timeUs) {
-    Assertions.checkStateNotNull(flacStreamMetadata.seekTable);
+    checkNotNull(flacStreamMetadata.seekTable);
     long[] pointSampleNumbers = flacStreamMetadata.seekTable.pointSampleNumbers;
     long[] pointOffsets = flacStreamMetadata.seekTable.pointOffsets;
 

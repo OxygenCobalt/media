@@ -15,16 +15,15 @@
  */
 package androidx.media3.exoplayer.analytics;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static android.os.Build.VERSION.SDK_INT;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.media.metrics.LogSessionId;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import androidx.media3.exoplayer.ExoPlayer.Builder;
-import java.util.Objects;
 
 /** Identifier for a player instance. */
 @UnstableApi
@@ -33,10 +32,13 @@ public final class PlayerId {
   /**
    * A player identifier with unset default values that can be used as a placeholder or for testing.
    */
-  public static final PlayerId UNSET =
-      Util.SDK_INT < 31
-          ? new PlayerId(/* playerName= */ "")
-          : new PlayerId(LogSessionIdApi31.UNSET, /* playerName= */ "");
+  public static final PlayerId UNSET = new PlayerId(/* playerName= */ "");
+
+  /**
+   * A player identifier that is used when we preload media outside of a player but have to pass a
+   * {@link PlayerId} to the components requiring one.
+   */
+  public static final PlayerId PRELOAD = new PlayerId("preload");
 
   /**
    * A name to identify the player. Use {@link Builder#setName(String)} to set the name, otherwise
@@ -47,73 +49,42 @@ public final class PlayerId {
   @Nullable private final LogSessionIdApi31 logSessionIdApi31;
 
   /**
-   * An object used for equals/hashCode below API 31 or when the MediaMetricsService is unavailable.
-   */
-  @Nullable private final Object equalityToken;
-
-  /**
-   * Creates an instance for API &lt; 31.
+   * Creates an instance.
    *
    * @param playerName The name of the player, for informational purpose only.
    */
   public PlayerId(String playerName) {
-    checkState(Util.SDK_INT < 31);
     this.name = playerName;
-    this.logSessionIdApi31 = null;
-    equalityToken = new Object();
-  }
-
-  /**
-   * Creates an instance for API &ge; 31.
-   *
-   * @param logSessionId The {@link LogSessionId} used for this player.
-   * @param playerName The name of the player, for informational purpose only.
-   */
-  @RequiresApi(31)
-  public PlayerId(LogSessionId logSessionId, String playerName) {
-    this(new LogSessionIdApi31(logSessionId), playerName);
-  }
-
-  private PlayerId(LogSessionIdApi31 logSessionIdApi31, String playerName) {
-    this.logSessionIdApi31 = logSessionIdApi31;
-    this.name = playerName;
-    equalityToken = new Object();
-  }
-
-  @Override
-  public boolean equals(@Nullable Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (!(o instanceof PlayerId)) {
-      return false;
-    }
-    PlayerId playerId = (PlayerId) o;
-    return Objects.equals(name, playerId.name)
-        && Objects.equals(logSessionIdApi31, playerId.logSessionIdApi31)
-        && Objects.equals(equalityToken, playerId.equalityToken);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(name, logSessionIdApi31, equalityToken);
+    this.logSessionIdApi31 = SDK_INT >= 31 ? new LogSessionIdApi31() : null;
   }
 
   /** Returns the {@link LogSessionId} for this player instance. */
   @RequiresApi(31)
-  public LogSessionId getLogSessionId() {
+  public synchronized LogSessionId getLogSessionId() {
     return checkNotNull(logSessionIdApi31).logSessionId;
+  }
+
+  /**
+   * Set the {@link LogSessionId} for this player instance.
+   *
+   * <p>Must not be called if already set.
+   */
+  @RequiresApi(31)
+  public synchronized void setLogSessionId(LogSessionId logSessionId) {
+    checkNotNull(logSessionIdApi31).setLogSessionId(logSessionId);
   }
 
   @RequiresApi(31)
   private static final class LogSessionIdApi31 {
 
-    public static final LogSessionIdApi31 UNSET =
-        new LogSessionIdApi31(LogSessionId.LOG_SESSION_ID_NONE);
+    public LogSessionId logSessionId;
 
-    public final LogSessionId logSessionId;
+    public LogSessionIdApi31() {
+      this.logSessionId = LogSessionId.LOG_SESSION_ID_NONE;
+    }
 
-    public LogSessionIdApi31(LogSessionId logSessionId) {
+    public void setLogSessionId(LogSessionId logSessionId) {
+      checkState(this.logSessionId.equals(LogSessionId.LOG_SESSION_ID_NONE));
       this.logSessionId = logSessionId;
     }
   }

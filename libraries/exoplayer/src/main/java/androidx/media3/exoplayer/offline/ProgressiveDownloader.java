@@ -15,14 +15,16 @@
  */
 package androidx.media3.exoplayer.offline;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.annotation.VisibleForTesting.PRIVATE;
+import static androidx.media3.common.util.Util.percentFloat;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.PriorityTaskManager.PriorityTooLowException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.RunnableFutureTask;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -39,7 +41,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 public final class ProgressiveDownloader implements Downloader {
 
   private final Executor executor;
-  private final DataSpec dataSpec;
+
+  @VisibleForTesting(otherwise = PRIVATE)
+  /* package */ final DataSpec dataSpec;
+
   private final CacheDataSource dataSource;
   private final CacheWriter cacheWriter;
   @Nullable private final PriorityTaskManager priorityTaskManager;
@@ -57,7 +62,26 @@ public final class ProgressiveDownloader implements Downloader {
    */
   public ProgressiveDownloader(
       MediaItem mediaItem, CacheDataSource.Factory cacheDataSourceFactory) {
-    this(mediaItem, cacheDataSourceFactory, Runnable::run);
+    this(mediaItem, cacheDataSourceFactory, /* executor= */ Runnable::run);
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param mediaItem The media item with a uri to the stream to be downloaded.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   * @param position The position of the {@link DataSpec} from which the {@link
+   *     ProgressiveDownloader} downloads.
+   * @param length The length of the {@link DataSpec} for which the {@link ProgressiveDownloader}
+   *     downloads.
+   */
+  public ProgressiveDownloader(
+      MediaItem mediaItem,
+      CacheDataSource.Factory cacheDataSourceFactory,
+      long position,
+      long length) {
+    this(mediaItem, cacheDataSourceFactory, /* executor= */ Runnable::run, position, length);
   }
 
   /**
@@ -72,13 +96,43 @@ public final class ProgressiveDownloader implements Downloader {
    */
   public ProgressiveDownloader(
       MediaItem mediaItem, CacheDataSource.Factory cacheDataSourceFactory, Executor executor) {
-    this.executor = Assertions.checkNotNull(executor);
-    Assertions.checkNotNull(mediaItem.localConfiguration);
+    this(
+        mediaItem,
+        cacheDataSourceFactory,
+        executor,
+        /* position= */ 0,
+        /* length= */ C.LENGTH_UNSET);
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param mediaItem The media item with a uri to the stream to be downloaded.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded. In
+   *     the future, providing an {@link Executor} that uses multiple threads may speed up the
+   *     download by allowing parts of it to be executed in parallel.
+   * @param position The position of the {@link DataSpec} from which the {@link
+   *     ProgressiveDownloader} downloads.
+   * @param length The length of the {@link DataSpec} for which the {@link ProgressiveDownloader}
+   *     downloads.
+   */
+  public ProgressiveDownloader(
+      MediaItem mediaItem,
+      CacheDataSource.Factory cacheDataSourceFactory,
+      Executor executor,
+      long position,
+      long length) {
+    this.executor = checkNotNull(executor);
+    checkNotNull(mediaItem.localConfiguration);
     dataSpec =
         new DataSpec.Builder()
             .setUri(mediaItem.localConfiguration.uri)
             .setKey(mediaItem.localConfiguration.customCacheKey)
             .setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION)
+            .setPosition(position)
+            .setLength(length)
             .build();
     dataSource = cacheDataSourceFactory.createDataSourceForDownloading();
     @SuppressWarnings("nullness:methodref.receiver.bound")
@@ -120,7 +174,7 @@ public final class ProgressiveDownloader implements Downloader {
           downloadRunnable.get();
           finished = true;
         } catch (ExecutionException e) {
-          Throwable cause = Assertions.checkNotNull(e.getCause());
+          Throwable cause = checkNotNull(e.getCause());
           if (cause instanceof PriorityTooLowException) {
             // The next loop iteration will block until the task is able to proceed.
           } else if (cause instanceof IOException) {
@@ -162,7 +216,7 @@ public final class ProgressiveDownloader implements Downloader {
     float percentDownloaded =
         contentLength == C.LENGTH_UNSET || contentLength == 0
             ? C.PERCENTAGE_UNSET
-            : ((bytesCached * 100f) / contentLength);
-    progressListener.onProgress(contentLength, bytesCached, percentDownloaded);
+            : percentFloat(bytesCached, contentLength);
+    checkNotNull(progressListener).onProgress(contentLength, bytesCached, percentDownloaded);
   }
 }

@@ -15,24 +15,36 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static androidx.media3.session.SessionCommand.COMMAND_CODE_CUSTOM;
+import static androidx.media3.session.SessionCommand.COMMAND_CODE_SESSION_SET_RATING;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.ContentResolver;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.SparseArray;
+import android.util.SparseBooleanArray;
+import android.util.SparseIntArray;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
+import androidx.media3.common.Rating;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
-import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.ImmutableIntArray;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import java.lang.annotation.Documented;
@@ -40,6 +52,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.List;
+import java.util.Objects;
+import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
 /**
  * A button for a {@link SessionCommand} or {@link Player.Command} that can be displayed by
@@ -50,10 +64,7 @@ import java.util.List;
  */
 public final class CommandButton {
 
-  // TODO: b/328238954 - Stabilize these constants and the corresponding methods, and deprecate the
-  //  methods that do not use these constants.
   /** An icon constant for a button. Must be one of the {@code CommandButton.ICON_} constants. */
-  @UnstableApi
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
@@ -141,276 +152,276 @@ public final class CommandButton {
    * An icon constant representing an undefined icon, for example a custom icon not covered by the
    * existing constants.
    */
-  @UnstableApi public static final int ICON_UNDEFINED = 0;
+  public static final int ICON_UNDEFINED = 0;
 
   /** An icon showing a play symbol (a right facing triangle). */
-  @UnstableApi public static final int ICON_PLAY = 0xe037;
+  public static final int ICON_PLAY = 0xe037;
 
   /** An icon showing a pause symbol (two vertical bars). */
-  @UnstableApi public static final int ICON_PAUSE = 0xe034;
+  public static final int ICON_PAUSE = 0xe034;
 
   /** An icon showing a stop symbol (a square). */
-  @UnstableApi public static final int ICON_STOP = 0xe047;
+  public static final int ICON_STOP = 0xe047;
 
   /** An icon showing a next symbol (a right facing triangle with a vertical bar). */
-  @UnstableApi public static final int ICON_NEXT = 0xe044;
+  public static final int ICON_NEXT = 0xe044;
 
   /** An icon showing a previous symbol (a left facing triangle with a vertical bar). */
-  @UnstableApi public static final int ICON_PREVIOUS = 0xe045;
+  public static final int ICON_PREVIOUS = 0xe045;
 
   /** An icon showing a skip forward symbol (an open clock-wise arrow). */
-  @UnstableApi public static final int ICON_SKIP_FORWARD = 0xf6f4;
+  public static final int ICON_SKIP_FORWARD = 0xf6f4;
 
   /**
    * An icon showing a skip forward 5 seconds symbol (an open clockwise arrow with the number 5).
    */
-  @UnstableApi public static final int ICON_SKIP_FORWARD_5 = 0xe058;
+  public static final int ICON_SKIP_FORWARD_5 = 0xe058;
 
   /**
    * An icon showing a skip forward 10 seconds symbol (an open clockwise arrow with the number 10).
    */
-  @UnstableApi public static final int ICON_SKIP_FORWARD_10 = 0xe056;
+  public static final int ICON_SKIP_FORWARD_10 = 0xe056;
 
   /**
    * An icon showing a skip forward 15 seconds symbol (an open clockwise arrow with the number 15).
    */
-  @UnstableApi public static final int ICON_SKIP_FORWARD_15 = 0xfe056;
+  public static final int ICON_SKIP_FORWARD_15 = 0xfe056;
 
   /**
    * An icon showing a skip forward 30 seconds symbol (an open clockwise arrow with the number 30).
    */
-  @UnstableApi public static final int ICON_SKIP_FORWARD_30 = 0xe057;
+  public static final int ICON_SKIP_FORWARD_30 = 0xe057;
 
   /** An icon showing a skip back symbol (an open anti-clockwise arrow). */
-  @UnstableApi public static final int ICON_SKIP_BACK = 0xe042;
+  public static final int ICON_SKIP_BACK = 0xe042;
 
   /**
    * An icon showing a skip back 5 seconds symbol (an open anti-clockwise arrow with the number 5).
    */
-  @UnstableApi public static final int ICON_SKIP_BACK_5 = 0xe05b;
+  public static final int ICON_SKIP_BACK_5 = 0xe05b;
 
   /**
    * An icon showing a skip back 10 seconds symbol (an open anti-clockwise arrow with the number
    * 10).
    */
-  @UnstableApi public static final int ICON_SKIP_BACK_10 = 0xe059;
+  public static final int ICON_SKIP_BACK_10 = 0xe059;
 
   /**
    * An icon showing a skip back 15 seconds symbol (an open anti-clockwise arrow with the number
    * 15).
    */
-  @UnstableApi public static final int ICON_SKIP_BACK_15 = 0xfe059;
+  public static final int ICON_SKIP_BACK_15 = 0xfe059;
 
   /**
    * An icon showing a skip back 30 seconds symbol (an open anti-clockwise arrow with the number
    * 30).
    */
-  @UnstableApi public static final int ICON_SKIP_BACK_30 = 0xe05a;
+  public static final int ICON_SKIP_BACK_30 = 0xe05a;
 
   /** An icon showing a fast forward symbol (two right facing triangles). */
-  @UnstableApi public static final int ICON_FAST_FORWARD = 0xe01f;
+  public static final int ICON_FAST_FORWARD = 0xe01f;
 
   /** An icon showing a rewind symbol (two left facing triangles). */
-  @UnstableApi public static final int ICON_REWIND = 0xe020;
+  public static final int ICON_REWIND = 0xe020;
 
   /** An icon showing a repeat all symbol (two open clockwise arrows). */
-  @UnstableApi public static final int ICON_REPEAT_ALL = 0xe040;
+  public static final int ICON_REPEAT_ALL = 0xe040;
 
   /** An icon showing a repeat one symbol (two open clockwise arrows with an overlaid number 1). */
-  @UnstableApi public static final int ICON_REPEAT_ONE = 0xe041;
+  public static final int ICON_REPEAT_ONE = 0xe041;
 
   /**
    * An icon showing a disabled repeat symbol (two open clockwise arrows, in a color representing a
    * disabled state).
    */
-  @UnstableApi public static final int ICON_REPEAT_OFF = 0xfe040;
+  public static final int ICON_REPEAT_OFF = 0xfe040;
 
   /** An icon showing a shuffle symbol (two diagonal upward and downward facing arrows). */
-  @UnstableApi public static final int ICON_SHUFFLE_ON = 0xe043;
+  public static final int ICON_SHUFFLE_ON = 0xe043;
 
   /**
    * An icon showing a disabled shuffle symbol (two diagonal upward and downward facing arrows, in a
    * color representing a disabled state).
    */
-  @UnstableApi public static final int ICON_SHUFFLE_OFF = 0xfe044;
+  public static final int ICON_SHUFFLE_OFF = 0xfe044;
 
   /**
    * An icon showing a shuffle symbol with a start (two diagonal upward and downward facing arrows
    * with an overlaid star).
    */
-  @UnstableApi public static final int ICON_SHUFFLE_STAR = 0xfe043;
+  public static final int ICON_SHUFFLE_STAR = 0xfe043;
 
   /** An icon showing a filled heart symbol. */
-  @UnstableApi public static final int ICON_HEART_FILLED = 0xfe87d;
+  public static final int ICON_HEART_FILLED = 0xfe87d;
 
   /** An icon showing an unfilled heart symbol. */
-  @UnstableApi public static final int ICON_HEART_UNFILLED = 0xe87d;
+  public static final int ICON_HEART_UNFILLED = 0xe87d;
 
   /** An icon showing a filled star symbol. */
-  @UnstableApi public static final int ICON_STAR_FILLED = 0xfe838;
+  public static final int ICON_STAR_FILLED = 0xfe838;
 
   /** An icon showing an unfilled star symbol. */
-  @UnstableApi public static final int ICON_STAR_UNFILLED = 0xe838;
+  public static final int ICON_STAR_UNFILLED = 0xe838;
 
   /** An icon showing a filled bookmark symbol. */
-  @UnstableApi public static final int ICON_BOOKMARK_FILLED = 0xfe866;
+  public static final int ICON_BOOKMARK_FILLED = 0xfe866;
 
   /** An icon showing an unfilled bookmark symbol. */
-  @UnstableApi public static final int ICON_BOOKMARK_UNFILLED = 0xe866;
+  public static final int ICON_BOOKMARK_UNFILLED = 0xe866;
 
   /** An icon showing a filled thumb-up symbol. */
-  @UnstableApi public static final int ICON_THUMB_UP_FILLED = 0xfe8dc;
+  public static final int ICON_THUMB_UP_FILLED = 0xfe8dc;
 
   /** An icon showing an unfilled thumb-up symbol. */
-  @UnstableApi public static final int ICON_THUMB_UP_UNFILLED = 0xe8dc;
+  public static final int ICON_THUMB_UP_UNFILLED = 0xe8dc;
 
   /** An icon showing a filled thumb-down symbol. */
-  @UnstableApi public static final int ICON_THUMB_DOWN_FILLED = 0xfe8db;
+  public static final int ICON_THUMB_DOWN_FILLED = 0xfe8db;
 
   /** An icon showing an unfilled thumb-down symbol. */
-  @UnstableApi public static final int ICON_THUMB_DOWN_UNFILLED = 0xe8db;
+  public static final int ICON_THUMB_DOWN_UNFILLED = 0xe8db;
 
   /** An icon showing a filled flag symbol. */
-  @UnstableApi public static final int ICON_FLAG_FILLED = 0xfe153;
+  public static final int ICON_FLAG_FILLED = 0xfe153;
 
   /** An icon showing an unfilled flag symbol. */
-  @UnstableApi public static final int ICON_FLAG_UNFILLED = 0xe153;
+  public static final int ICON_FLAG_UNFILLED = 0xe153;
 
   /** An icon showing a plus symbol. */
-  @UnstableApi public static final int ICON_PLUS = 0xe145;
+  public static final int ICON_PLUS = 0xe145;
 
   /** An icon showing a minus symbol. */
-  @UnstableApi public static final int ICON_MINUS = 0xe15b;
+  public static final int ICON_MINUS = 0xe15b;
 
   /** An icon showing an add to playlist symbol (multiple horizontal bars with a small plus). */
-  @UnstableApi public static final int ICON_PLAYLIST_ADD = 0xe03b;
+  public static final int ICON_PLAYLIST_ADD = 0xe03b;
 
   /**
    * An icon showing an remove from playlist symbol (multiple horizontal bars with a small minus).
    */
-  @UnstableApi public static final int ICON_PLAYLIST_REMOVE = 0xeb80;
+  public static final int ICON_PLAYLIST_REMOVE = 0xeb80;
 
   /** An icon showing an add to queue symbol (a stylized TV with a plus). */
-  @UnstableApi public static final int ICON_QUEUE_ADD = 0xe05c;
+  public static final int ICON_QUEUE_ADD = 0xe05c;
 
   /**
    * An icon showing a play next queue item symbol (a stylized TV with a plus and a right-facing
    * arrow).
    */
-  @UnstableApi public static final int ICON_QUEUE_NEXT = 0xe066;
+  public static final int ICON_QUEUE_NEXT = 0xe066;
 
   /** An icon showing a remove from queue symbol (a stylized TV with a minus). */
-  @UnstableApi public static final int ICON_QUEUE_REMOVE = 0xe067;
+  public static final int ICON_QUEUE_REMOVE = 0xe067;
 
   /** An icon showing a block symbol (a circle with a diagonal line). */
-  @UnstableApi public static final int ICON_BLOCK = 0xe14b;
+  public static final int ICON_BLOCK = 0xe14b;
 
   /** An icon showing a filled circle with a plus. */
-  @UnstableApi public static final int ICON_PLUS_CIRCLE_FILLED = 0xfe147;
+  public static final int ICON_PLUS_CIRCLE_FILLED = 0xfe147;
 
   /** An icon showing an unfilled circle with a plus. */
-  @UnstableApi public static final int ICON_PLUS_CIRCLE_UNFILLED = 0xe147;
+  public static final int ICON_PLUS_CIRCLE_UNFILLED = 0xe147;
 
   /** An icon showing a filled circle with a minus. */
-  @UnstableApi public static final int ICON_MINUS_CIRCLE_FILLED = 0xfe148;
+  public static final int ICON_MINUS_CIRCLE_FILLED = 0xfe148;
 
   /** An icon showing an unfilled circle with a minus. */
-  @UnstableApi public static final int ICON_MINUS_CIRCLE_UNFILLED = 0xfe149;
+  public static final int ICON_MINUS_CIRCLE_UNFILLED = 0xfe149;
 
   /** An icon showing a filled circle with a check mark. */
-  @UnstableApi public static final int ICON_CHECK_CIRCLE_FILLED = 0xfe86c;
+  public static final int ICON_CHECK_CIRCLE_FILLED = 0xfe86c;
 
   /** An icon showing a unfilled circle with a check mark. */
-  @UnstableApi public static final int ICON_CHECK_CIRCLE_UNFILLED = 0xe86c;
+  public static final int ICON_CHECK_CIRCLE_UNFILLED = 0xe86c;
 
   /**
    * An icon showing a playback speed symbol (a right facing triangle in a circle with half-dashed,
    * half-solid contour).
    */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED = 0xe068;
+  public static final int ICON_PLAYBACK_SPEED = 0xe068;
 
   /** An icon showing a 0.5x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_0_5 = 0xf4e2;
+  public static final int ICON_PLAYBACK_SPEED_0_5 = 0xf4e2;
 
   /** An icon showing a 0.8x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_0_8 = 0xff4e2;
+  public static final int ICON_PLAYBACK_SPEED_0_8 = 0xff4e2;
 
   /** An icon showing a 1.0x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_1_0 = 0xefcd;
+  public static final int ICON_PLAYBACK_SPEED_1_0 = 0xefcd;
 
   /** An icon showing a 1.2x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_1_2 = 0xf4e1;
+  public static final int ICON_PLAYBACK_SPEED_1_2 = 0xf4e1;
 
   /** An icon showing a 1.5x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_1_5 = 0xf4e0;
+  public static final int ICON_PLAYBACK_SPEED_1_5 = 0xf4e0;
 
   /** An icon showing a 1.8x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_1_8 = 0xff4e0;
+  public static final int ICON_PLAYBACK_SPEED_1_8 = 0xff4e0;
 
   /** An icon showing a 2.0x speed symbol. */
-  @UnstableApi public static final int ICON_PLAYBACK_SPEED_2_0 = 0xf4eb;
+  public static final int ICON_PLAYBACK_SPEED_2_0 = 0xf4eb;
 
   /** An icon showing a settings symbol (a stylized cog). */
-  @UnstableApi public static final int ICON_SETTINGS = 0xe8b8;
+  public static final int ICON_SETTINGS = 0xe8b8;
 
   /** An icon showing a quality selection symbol (multiple horizontal bars with sliders). */
-  @UnstableApi public static final int ICON_QUALITY = 0xe429;
+  public static final int ICON_QUALITY = 0xe429;
 
   /** An icon showing a subtitles symbol (a rectangle filled with dots and horizontal lines). */
-  @UnstableApi public static final int ICON_SUBTITLES = 0xe048;
+  public static final int ICON_SUBTITLES = 0xe048;
 
   /**
    * An icon showing a subtitles off symbol (a rectangle filled with dots and horizontal lines, with
    * a large diagonal line across).
    */
-  @UnstableApi public static final int ICON_SUBTITLES_OFF = 0xef72;
+  public static final int ICON_SUBTITLES_OFF = 0xef72;
 
   /** An icon showing a closed caption symbol (a rectangle with the letters CC). */
-  @UnstableApi public static final int ICON_CLOSED_CAPTIONS = 0xe01c;
+  public static final int ICON_CLOSED_CAPTIONS = 0xe01c;
 
   /**
    * An icon showing a closed caption off symbol (a rectangle with the letters CC, with a large
    * diagonal line across).
    */
-  @UnstableApi public static final int ICON_CLOSED_CAPTIONS_OFF = 0xf1dc;
+  public static final int ICON_CLOSED_CAPTIONS_OFF = 0xf1dc;
 
   /** An icon showing a sync symbol (two open anti-clockwise arrows). */
-  @UnstableApi public static final int ICON_SYNC = 0xe627;
+  public static final int ICON_SYNC = 0xe627;
 
   /**
    * An icon showing a share symbol (three dots connected by two diagonal lines, open on the right).
    */
-  @UnstableApi public static final int ICON_SHARE = 0xe80d;
+  public static final int ICON_SHARE = 0xe80d;
 
   /** An icon showing a volume up symbol (a stylized speaker with multiple sound waves). */
-  @UnstableApi public static final int ICON_VOLUME_UP = 0xe050;
+  public static final int ICON_VOLUME_UP = 0xe050;
 
   /** An icon showing a volume down symbol (a stylized speaker with a single small sound wave). */
-  @UnstableApi public static final int ICON_VOLUME_DOWN = 0xe04d;
+  public static final int ICON_VOLUME_DOWN = 0xe04d;
 
   /**
    * An icon showing a volume off symbol (a stylized speaker with multiple sound waves, with a large
    * diagonal line across).
    */
-  @UnstableApi public static final int ICON_VOLUME_OFF = 0xe04f;
+  public static final int ICON_VOLUME_OFF = 0xe04f;
 
   /** An icon showing an artist symbol (a stylized person with a musical note). */
-  @UnstableApi public static final int ICON_ARTIST = 0xe01a;
+  public static final int ICON_ARTIST = 0xe01a;
 
   /** An icon showing an album symbol (a stylized LP record). */
-  @UnstableApi public static final int ICON_ALBUM = 0xe019;
+  public static final int ICON_ALBUM = 0xe019;
 
   /** An icon showing a radio symbol (left and right facing sound waves). */
-  @UnstableApi public static final int ICON_RADIO = 0xe51e;
+  public static final int ICON_RADIO = 0xe51e;
 
   /** An icon showing an signal symbol (a vertical mast with circular sounds waves). */
-  @UnstableApi public static final int ICON_SIGNAL = 0xf048;
+  public static final int ICON_SIGNAL = 0xf048;
 
   /**
    * An icon showing an feed symbol (a dot in the bottom-left with multiple concentric quarter
    * circles).
    */
-  @UnstableApi public static final int ICON_FEED = 0xe0e5;
+  public static final int ICON_FEED = 0xe0e5;
 
   // TODO: b/332877990 - Stabilize these constants and other slot APIs
   /**
@@ -461,6 +472,41 @@ public final class CommandButton {
   /** A slot in a playback control UI for additional actions that don't fit into other slots. */
   @UnstableApi public static final int SLOT_OVERFLOW = 6;
 
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    PARAMETER_TYPE_NULL,
+    PARAMETER_TYPE_LONG,
+    PARAMETER_TYPE_INT,
+    PARAMETER_TYPE_BOOLEAN,
+    PARAMETER_TYPE_FLOAT,
+    PARAMETER_TYPE_RATING,
+    PARAMETER_TYPE_MEDIA_ITEM,
+    PARAMETER_TYPE_MEDIA_METADATA,
+    PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS,
+  })
+  private @interface ParameterType {}
+
+  private static final int PARAMETER_TYPE_NULL = 0;
+  private static final int PARAMETER_TYPE_LONG = 1;
+  private static final int PARAMETER_TYPE_INT = 2;
+  private static final int PARAMETER_TYPE_BOOLEAN = 3;
+  private static final int PARAMETER_TYPE_FLOAT = 4;
+  private static final int PARAMETER_TYPE_RATING = 5;
+  private static final int PARAMETER_TYPE_MEDIA_ITEM = 6;
+  private static final int PARAMETER_TYPE_MEDIA_METADATA = 7;
+  private static final int PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS = 8;
+
+  private static final String INCORRECT_PARAMETER_TYPE_MESSAGE = "Parameter has incorrect type.";
+
+  private static final String CUSTOM_COMMAND_PARAMETER_EXTRAS_KEY =
+      "androidx.media3.session.CUSTOM_COMMAND_PARAMETER";
+  private static final String CUSTOM_COMMAND_PLAYER_COMMAND_PREFIX =
+      "androidx.media3.session.PLAYER_COMMAND_";
+  private static final String CUSTOM_COMMAND_SESSION_COMMAND_PREFIX =
+      "androidx.media3.session.SESSION_COMMAND_";
+
   /** A builder for {@link CommandButton}. */
   public static final class Builder {
 
@@ -474,12 +520,14 @@ public final class CommandButton {
     private Bundle extras;
     private boolean enabled;
     @Nullable private ImmutableIntArray slots;
+    @Nullable private Object parameter;
 
     /**
-     * [will be deprecated] Use {@link #Builder(int)} instead to define the {@link Icon} for this
-     * button. A separate resource id via {@link #setIconResId(int)} is no longer required unless
-     * for {@link #ICON_UNDEFINED}.
+     * @deprecated Use {@link #Builder(int)} instead to define the {@link Icon} for this button. A
+     *     separate resource id via {@link #setIconResId(int)} is no longer required unless for
+     *     {@link #ICON_UNDEFINED}.
      */
+    @Deprecated
     public Builder() {
       this(ICON_UNDEFINED);
     }
@@ -489,7 +537,6 @@ public final class CommandButton {
      *
      * @param icon The {@link Icon} that should be shown for this button.
      */
-    @UnstableApi
     public Builder(@Icon int icon) {
       this(icon, getIconResIdForIconConstant(icon));
     }
@@ -512,6 +559,10 @@ public final class CommandButton {
      *
      * <p>Cannot set this if a player command is already set via {@link #setPlayerCommand(int)}.
      *
+     * <p>The controller can execute the action associated with this command. See {@link
+     * #executeAction(MediaController)} for a list of supported actions. If the action requires an
+     * additional parameter, use {@link #setSessionCommand(SessionCommand, Object)} instead.
+     *
      * @param sessionCommand The {@link SessionCommand}.
      * @return This builder for chaining.
      */
@@ -523,6 +574,38 @@ public final class CommandButton {
           "playerCommands is already set. Only one of sessionCommand and playerCommand should be"
               + " set.");
       this.sessionCommand = sessionCommand;
+      this.parameter = null;
+      return this;
+    }
+
+    /**
+     * Sets the {@link SessionCommand} that is required to be {@linkplain
+     * MediaController#isSessionCommandAvailable available} when the button is clicked.
+     *
+     * <p>Cannot set this if a player command is already set via {@link #setPlayerCommand(int)}.
+     *
+     * <p>The controller can execute the action associated with this command. See {@link
+     * #executeAction(MediaController)} for a list of supported actions. If the action requires no
+     * additional parameter, use {@link #setSessionCommand(SessionCommand)} instead.
+     *
+     * @param sessionCommand The {@link SessionCommand}.
+     * @param parameter The parameter required to execute the action associated with this command.
+     *     See {@link #executeAction(MediaController)} for a list of supported actions and parameter
+     *     types.
+     * @return This builder for chaining.
+     */
+    @CanIgnoreReturnValue
+    @UnstableApi
+    public Builder setSessionCommand(SessionCommand sessionCommand, @Nullable Object parameter) {
+      checkNotNull(sessionCommand, "sessionCommand should not be null.");
+      checkArgument(
+          playerCommand == Player.COMMAND_INVALID,
+          "playerCommands is already set. Only one of sessionCommand and playerCommand should be"
+              + " set.");
+      this.sessionCommand = sessionCommand;
+      this.parameter =
+          verifyParameterType(
+              parameter, getParameterTypeForSessionCommand(sessionCommand.commandCode));
       return this;
     }
 
@@ -532,6 +615,10 @@ public final class CommandButton {
      *
      * <p>Cannot set this if a session command is already set via {@link
      * #setSessionCommand(SessionCommand)}.
+     *
+     * <p>The controller can execute the action associated with this command. See {@link
+     * #executeAction(MediaController)} for a list of supported actions. If the action requires an
+     * additional parameter, use {@link #setPlayerCommand(int, Object)} instead.
      *
      * @param playerCommand The {@link Player.Command}.
      * @return This builder for chaining.
@@ -543,27 +630,61 @@ public final class CommandButton {
           "sessionCommand is already set. Only one of sessionCommand and playerCommand should be"
               + " set.");
       this.playerCommand = playerCommand;
+      this.parameter = null;
       return this;
     }
 
     /**
-     * [will be deprecated] The icon should be defined with the constructor {@link Icon} parameter
-     * in {@link #Builder(int)} instead. Only in case the existing list of icons is not sufficient,
-     * use {@link #ICON_UNDEFINED} and set a separate resource id with {@link #setCustomIconResId}.
+     * Sets the {@link Player.Command} that is required to be {@linkplain
+     * MediaController#isCommandAvailable available} when the button is clicked.
+     *
+     * <p>Cannot set this if a session command is already set via {@link
+     * #setSessionCommand(SessionCommand)}.
+     *
+     * <p>The controller can execute the action associated with this command. See {@link
+     * #executeAction(MediaController)} for a list of supported actions. If the action requires no
+     * additional parameter, use {@link #setPlayerCommand(int)} instead.
+     *
+     * @param playerCommand The {@link Player.Command}.
+     * @param parameter The parameter required to execute the action associated with this command.
+     *     See {@link #executeAction(MediaController)} for a list of supported actions and parameter
+     *     types.
+     * @return This builder for chaining.
      */
+    @UnstableApi
+    @CanIgnoreReturnValue
+    public Builder setPlayerCommand(@Player.Command int playerCommand, @Nullable Object parameter) {
+      checkArgument(
+          sessionCommand == null,
+          "sessionCommand is already set. Only one of sessionCommand and playerCommand should be"
+              + " set.");
+      this.playerCommand = playerCommand;
+      this.parameter =
+          verifyParameterType(parameter, getParameterTypeForPlayerCommand(playerCommand));
+      return this;
+    }
+
+    /**
+     * @deprecated The icon should be defined with the constructor {@link Icon} parameter in {@link
+     *     #Builder(int)} instead. If the existing list of icons is not sufficient, use {@link
+     *     #ICON_UNDEFINED} for the constructor {@link Icon} parameter, and set a separate resource
+     *     id with {@link #setCustomIconResId}.
+     */
+    @Deprecated
     @CanIgnoreReturnValue
     public Builder setIconResId(@DrawableRes int resId) {
       return setCustomIconResId(resId);
     }
 
     /**
-     * Sets the resource id of an icon that is used when the predefined {@link Icon} is not
-     * available or set to {@link #ICON_UNDEFINED}.
+     * Sets the fallback resource ID of an icon.
+     *
+     * <p>This is used when either the predefined {@link #icon} is not available, or it's set to
+     * {@link #ICON_UNDEFINED}.
      *
      * @param resId The resource id of a custom icon.
      * @return This builder for chaining.
      */
-    @UnstableApi
     @CanIgnoreReturnValue
     public Builder setCustomIconResId(@DrawableRes int resId) {
       iconResId = resId;
@@ -571,22 +692,22 @@ public final class CommandButton {
     }
 
     /**
-     * Sets a {@linkplain ContentResolver#SCHEME_CONTENT content} or {@linkplain
+     * Sets a fallback {@linkplain ContentResolver#SCHEME_CONTENT content} or {@linkplain
      * ContentResolver#SCHEME_ANDROID_RESOURCE resource} {@link Uri} for the icon of this button.
      *
-     * <p>Note that this {@link Uri} may be used when the predefined {@link Icon} is not available
-     * or set to {@link #ICON_UNDEFINED}. It can be used in addition to {@link #setCustomIconResId}
-     * for consumers that are capable of loading the content or resource {@link Uri}.
+     * <p>Note that this {@link Uri} may be used when either the predefined {@link
+     * CommandButton#icon} is not available, or it's set to {@link #ICON_UNDEFINED}. It can be used
+     * in addition to {@link #setCustomIconResId} for consumers that are capable of loading the
+     * content or resource {@link Uri}.
      *
      * @param uri The uri to an icon.
      * @return This builder for chaining.
      */
-    @UnstableApi
     @CanIgnoreReturnValue
     public Builder setIconUri(Uri uri) {
       checkArgument(
-          Objects.equal(uri.getScheme(), ContentResolver.SCHEME_CONTENT)
-              || Objects.equal(uri.getScheme(), ContentResolver.SCHEME_ANDROID_RESOURCE),
+          Objects.equals(uri.getScheme(), ContentResolver.SCHEME_CONTENT)
+              || Objects.equals(uri.getScheme(), ContentResolver.SCHEME_ANDROID_RESOURCE),
           "Only content or resource Uris are supported for CommandButton");
       this.iconUri = uri;
       return this;
@@ -690,7 +811,390 @@ public final class CommandButton {
           displayName,
           extras,
           enabled,
-          slots);
+          slots,
+          parameter);
+    }
+  }
+
+  /**
+   * Constraints for displaying a list of {@link CommandButton} instances with utilities to resolve
+   * these constraints for a given list of buttons.
+   */
+  @UnstableApi
+  public static final class DisplayConstraints {
+
+    /** A builder for {@link DisplayConstraints}. */
+    public static final class Builder {
+
+      private final SparseIntArray maxButtonsPerSlot;
+      private final SparseArray<Player.@NullableType Commands> allowedPlayerCommandsPerSlot;
+      private final SparseArray<@NullableType SessionCommands> allowedSessionCommandsPerSlot;
+      private final SparseBooleanArray areCustomCommandsAllowedPerSlot;
+      private boolean buildCalled;
+
+      /** Creates the builder. */
+      public Builder() {
+        maxButtonsPerSlot = new SparseIntArray();
+        maxButtonsPerSlot.put(SLOT_CENTRAL, 1);
+        maxButtonsPerSlot.put(SLOT_BACK, 1);
+        maxButtonsPerSlot.put(SLOT_FORWARD, 1);
+        maxButtonsPerSlot.put(SLOT_OVERFLOW, Integer.MAX_VALUE);
+        allowedPlayerCommandsPerSlot = new SparseArray<>();
+        allowedSessionCommandsPerSlot = new SparseArray<>();
+        areCustomCommandsAllowedPerSlot = new SparseBooleanArray();
+      }
+
+      /**
+       * Sets the maximum number of buttons that can be displayed in a slot.
+       *
+       * <p>The default values are:
+       *
+       * <ul>
+       *   <li>{@link #SLOT_CENTRAL}, {@link #SLOT_BACK}, {@link #SLOT_FORWARD}: 1
+       *   <li>{@link #SLOT_BACK_SECONDARY}, {@link #SLOT_FORWARD_SECONDARY}: 0
+       *   <li>{@link #SLOT_OVERFLOW}: {@link Integer#MAX_VALUE}.
+       * </ul>
+       *
+       * @param slot The {@link Slot}.
+       * @param maxButtons The maximum number of buttons that can be displayed in this slot.
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setMaxButtonsForSlot(@Slot int slot, int maxButtons) {
+        checkArgument(maxButtons >= 0);
+        maxButtonsPerSlot.put(slot, maxButtons);
+        return this;
+      }
+
+      /**
+       * Sets the allowed {@link Player.Commands} for buttons in the given slot.
+       *
+       * <p>The default value ({@code null}) does not restrict the allowed {@link Player.Commands}.
+       *
+       * @param slot The {@link Slot}.
+       * @param allowedPlayerCommands The allowed {@link Player.Commands} for buttons in this slot,
+       *     or null to allow all {@link Player.Commands} .
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setAllowedPlayerCommandsForSlot(
+          @Slot int slot, @Nullable Player.Commands allowedPlayerCommands) {
+        allowedPlayerCommandsPerSlot.put(slot, allowedPlayerCommands);
+        return this;
+      }
+
+      /**
+       * Sets the allowed non-custom {@link SessionCommands} for buttons in the given slot.
+       *
+       * <p>The default value ({@code null}) does not restrict the allowed {@link SessionCommands}.
+       *
+       * <p>This setting has no effect on whether {@linkplain SessionCommand#COMMAND_CODE_CUSTOM
+       * custom session commands} are allowed. Use {@link #setAllowCustomCommandsForSlot} instead.
+       *
+       * @param slot The {@link Slot}.
+       * @param allowedSessionCommands The allowed {@link SessionCommands} for buttons in this slot,
+       *     or null to allow all {@link SessionCommands}.
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setAllowedSessionCommandsForSlot(
+          @Slot int slot, @Nullable SessionCommands allowedSessionCommands) {
+        allowedSessionCommandsPerSlot.put(slot, allowedSessionCommands);
+        return this;
+      }
+
+      /**
+       * Sets whether {@linkplain SessionCommand#COMMAND_CODE_CUSTOM custom session commands} are
+       * allowed for buttons in the given slot.
+       *
+       * <p>The default value is {@code true}.
+       *
+       * @param slot The {@link Slot}.
+       * @param allowCustomCommands Whether {@linkplain SessionCommand#COMMAND_CODE_CUSTOM custom
+       *     session commands} are allowed for buttons in this slot.
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setAllowCustomCommandsForSlot(@Slot int slot, boolean allowCustomCommands) {
+        areCustomCommandsAllowedPerSlot.put(slot, allowCustomCommands);
+        return this;
+      }
+
+      /** Builds the display constraints. */
+      public DisplayConstraints build() {
+        checkState(!buildCalled);
+        buildCalled = true;
+        return new DisplayConstraints(this);
+      }
+    }
+
+    private final SparseIntArray maxButtonsPerSlot;
+    private final SparseArray<Player.@NullableType Commands> allowedPlayerCommandsPerSlot;
+    private final SparseArray<@NullableType SessionCommands> allowedSessionCommandsPerSlot;
+    private final SparseBooleanArray areCustomCommandsAllowedPerSlot;
+
+    private DisplayConstraints(Builder builder) {
+      this.maxButtonsPerSlot = builder.maxButtonsPerSlot;
+      this.allowedPlayerCommandsPerSlot = builder.allowedPlayerCommandsPerSlot;
+      this.allowedSessionCommandsPerSlot = builder.allowedSessionCommandsPerSlot;
+      this.areCustomCommandsAllowedPerSlot = builder.areCustomCommandsAllowedPerSlot;
+    }
+
+    /**
+     * Resolves a list of {@linkplain MediaController#getMediaButtonPreferences media button
+     * preferences} according to these display constraints and returns the list of buttons to be
+     * displayed.
+     *
+     * <p>Note that the result of this resolution can change whenever the {@code
+     * mediaButtonPreferences} change, or the {@code player} reports any of the following listener
+     * events:
+     *
+     * <ul>
+     *   <li>{@link Player#EVENT_AVAILABLE_COMMANDS_CHANGED}
+     *   <li>{@link Player#EVENT_PLAY_WHEN_READY_CHANGED}
+     *   <li>{@link Player#EVENT_PLAYBACK_STATE_CHANGED}
+     *   <li>{@link Player#EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED}
+     *   <li>{@link Player#EVENT_PLAYBACK_STATE_CHANGED}
+     *   <li>{@link Player#EVENT_SEEK_BACK_INCREMENT_CHANGED}
+     *   <li>{@link Player#EVENT_SEEK_FORWARD_INCREMENT_CHANGED}
+     * </ul>
+     *
+     * @param mediaButtonPreferences The list of {@linkplain
+     *     MediaController#getMediaButtonPreferences media button preferences}.
+     * @param player The {@link Player} used to determine default buttons for empty slots.
+     * @return The resolved list of {@linkplain CommandButton buttons} to be displayed. Each button
+     *     will have a single {@linkplain CommandButton#slots slot} defined.
+     */
+    public ImmutableList<CommandButton> resolve(
+        List<CommandButton> mediaButtonPreferences, Player player) {
+      SparseIntArray availableButtonsPerSlot = maxButtonsPerSlot.clone();
+      ImmutableList.Builder<CommandButton> resolvedButtons = ImmutableList.builder();
+      @Nullable CommandButton firstBackButton = null;
+      @Nullable CommandButton firstForwardButton = null;
+      for (int i = 0; i < mediaButtonPreferences.size(); i++) {
+        CommandButton button = mediaButtonPreferences.get(i);
+        for (int j = 0; j < button.slots.length(); j++) {
+          @Slot int slot = button.slots.get(j);
+          if (!reserveSlotForButton(button, slot, availableButtonsPerSlot)) {
+            continue;
+          }
+          resolvedButtons.add(button.copyWithSlots(ImmutableIntArray.of(slot)));
+          if (firstForwardButton == null && slot == SLOT_FORWARD) {
+            firstForwardButton = button;
+          } else if (firstBackButton == null && slot == SLOT_BACK) {
+            firstBackButton = button;
+          }
+          break;
+        }
+      }
+      Player.Commands availableCommands = player.getAvailableCommands();
+      boolean centralSlotEmpty =
+          maxButtonsPerSlot.get(SLOT_CENTRAL) == availableButtonsPerSlot.get(SLOT_CENTRAL);
+      if (centralSlotEmpty) {
+        CommandButton defaultCentralButton =
+            createButton(
+                Util.shouldShowPlayButton(player) ? ICON_PLAY : ICON_PAUSE,
+                Player.COMMAND_PLAY_PAUSE,
+                availableCommands);
+        if (reserveSlotForButton(defaultCentralButton, SLOT_CENTRAL, availableButtonsPerSlot)) {
+          resolvedButtons.add(defaultCentralButton);
+        }
+      }
+      boolean backSlotEmpty = firstBackButton == null && maxButtonsPerSlot.get(SLOT_BACK) > 0;
+      boolean forwardSlotEmpty =
+          firstForwardButton == null && maxButtonsPerSlot.get(SLOT_FORWARD) > 0;
+      if (backSlotEmpty && forwardSlotEmpty) {
+        @Player.Command
+        int firstAvailableCommand =
+            getFirstAvailableOrFirstCommand(
+                availableCommands,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_BACK,
+                Player.COMMAND_SEEK_FORWARD);
+        CommandButton button =
+            createButton(
+                getIconForPlayerCommand(firstAvailableCommand, player),
+                firstAvailableCommand,
+                availableCommands);
+        @Slot int buttonSlot = button.slots.get(0);
+        if (reserveSlotForButton(button, buttonSlot, availableButtonsPerSlot)) {
+          resolvedButtons.add(button);
+        }
+        @Slot int oppositeSlot = buttonSlot == SLOT_BACK ? SLOT_FORWARD : SLOT_BACK;
+        CommandButton oppositeButton = createOppositeButton(button, oppositeSlot, player);
+        if (reserveSlotForButton(oppositeButton, oppositeSlot, availableButtonsPerSlot)) {
+          resolvedButtons.add(oppositeButton);
+        }
+      } else if (backSlotEmpty) {
+        CommandButton oppositeButton = createOppositeButton(firstForwardButton, SLOT_BACK, player);
+        if (reserveSlotForButton(oppositeButton, SLOT_BACK, availableButtonsPerSlot)) {
+          resolvedButtons.add(oppositeButton);
+        }
+      } else if (forwardSlotEmpty) {
+        CommandButton oppositeButton = createOppositeButton(firstBackButton, SLOT_FORWARD, player);
+        if (reserveSlotForButton(oppositeButton, SLOT_FORWARD, availableButtonsPerSlot)) {
+          resolvedButtons.add(oppositeButton);
+        }
+      }
+      return resolvedButtons.build();
+    }
+
+    private boolean reserveSlotForButton(
+        CommandButton button, @Slot int slot, SparseIntArray availableButtonsPerSlot) {
+      if (availableButtonsPerSlot.get(slot) == 0) {
+        return false;
+      }
+      boolean canReserveSlot;
+      if (button.playerCommand != Player.COMMAND_INVALID) {
+        @Nullable Player.Commands allowedCommands = allowedPlayerCommandsPerSlot.get(slot);
+        canReserveSlot = allowedCommands == null || allowedCommands.contains(button.playerCommand);
+      } else if (checkNotNull(button.sessionCommand).commandCode == COMMAND_CODE_CUSTOM) {
+        canReserveSlot = areCustomCommandsAllowedPerSlot.get(slot, /* valueIfKeyNotFound= */ true);
+      } else {
+        @Nullable SessionCommands allowedCommands = allowedSessionCommandsPerSlot.get(slot);
+        canReserveSlot = allowedCommands == null || allowedCommands.contains(button.sessionCommand);
+      }
+      if (canReserveSlot) {
+        availableButtonsPerSlot.put(slot, availableButtonsPerSlot.get(slot) - 1);
+      }
+      return canReserveSlot;
+    }
+
+    private static CommandButton createOppositeButton(
+        @Nullable CommandButton button, @Slot int targetSlot, Player player) {
+      Player.Commands availablePlayerCommands = player.getAvailableCommands();
+      @Player.Command
+      int oppositePlayerCommand =
+          getOppositePlayerCommand(button, targetSlot, availablePlayerCommands);
+      @Icon int oppositeIcon = getOppositeIcon(button);
+      if (oppositeIcon == ICON_UNDEFINED) {
+        oppositeIcon = getIconForPlayerCommand(oppositePlayerCommand, player);
+      }
+      return createButton(oppositeIcon, oppositePlayerCommand, availablePlayerCommands);
+    }
+
+    private static CommandButton createButton(
+        @Icon int icon,
+        @Player.Command int playerCommand,
+        Player.Commands availablePlayerCommands) {
+      return new CommandButton.Builder(icon)
+          .setPlayerCommand(playerCommand)
+          .setEnabled(availablePlayerCommands.contains(playerCommand))
+          .build();
+    }
+
+    private static @Player.Command int getFirstAvailableOrFirstCommand(
+        Player.Commands availableCommands, @Player.Command int... commands) {
+      for (int command : commands) {
+        if (availableCommands.contains(command)) {
+          return command;
+        }
+      }
+      return commands[0];
+    }
+
+    private static @Player.Command int getOppositePlayerCommand(
+        @Nullable CommandButton button,
+        @Slot int targetSlot,
+        Player.Commands availablePlayerCommands) {
+      if (button != null) {
+        switch (button.playerCommand) {
+          case Player.COMMAND_SEEK_TO_PREVIOUS:
+            return Player.COMMAND_SEEK_TO_NEXT;
+          case Player.COMMAND_SEEK_TO_NEXT:
+            return Player.COMMAND_SEEK_TO_PREVIOUS;
+          case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
+            return Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM;
+          case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
+            return Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM;
+          case Player.COMMAND_SEEK_BACK:
+            return Player.COMMAND_SEEK_FORWARD;
+          case Player.COMMAND_SEEK_FORWARD:
+            return Player.COMMAND_SEEK_BACK;
+          default:
+            // Fall through.
+        }
+      }
+      if (targetSlot == SLOT_BACK) {
+        return getFirstAvailableOrFirstCommand(
+            availablePlayerCommands,
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            Player.COMMAND_SEEK_BACK);
+      } else {
+        return getFirstAvailableOrFirstCommand(
+            availablePlayerCommands,
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_FORWARD);
+      }
+    }
+
+    private static @Icon int getOppositeIcon(@Nullable CommandButton button) {
+      if (button == null) {
+        return ICON_UNDEFINED;
+      }
+      switch (button.icon) {
+        case ICON_PREVIOUS:
+          return ICON_NEXT;
+        case ICON_REWIND:
+          return ICON_FAST_FORWARD;
+        case ICON_SKIP_BACK:
+          return ICON_SKIP_FORWARD;
+        case ICON_NEXT:
+          return ICON_PREVIOUS;
+        case ICON_FAST_FORWARD:
+          return ICON_REWIND;
+        case ICON_SKIP_FORWARD:
+          return ICON_SKIP_BACK;
+        default:
+          // Intentionally don't match numbered SKIP_BACK/FORWARD icons to let
+          // getIconForPlayerCommand determine the best matching icon based on actual skip amount.
+          return ICON_UNDEFINED;
+      }
+    }
+
+    private static @Icon int getIconForPlayerCommand(
+        @Player.Command int playerCommand, Player player) {
+      switch (playerCommand) {
+        case Player.COMMAND_SEEK_TO_PREVIOUS:
+        case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
+          return ICON_PREVIOUS;
+        case Player.COMMAND_SEEK_TO_NEXT:
+        case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
+          return ICON_NEXT;
+        case Player.COMMAND_SEEK_BACK:
+          long seekBackIncrement = player.getSeekBackIncrement();
+          if (seekBackIncrement >= 2500 && seekBackIncrement < 7500) {
+            return ICON_SKIP_BACK_5;
+          } else if (seekBackIncrement >= 7500 && seekBackIncrement < 12500) {
+            return ICON_SKIP_BACK_10;
+          } else if (seekBackIncrement >= 12500 && seekBackIncrement < 20000) {
+            return ICON_SKIP_BACK_15;
+          } else if (seekBackIncrement >= 20000 && seekBackIncrement < 40000) {
+            return ICON_SKIP_BACK_30;
+          } else {
+            return ICON_SKIP_BACK;
+          }
+        case Player.COMMAND_SEEK_FORWARD:
+          long seekForwardIncrement = player.getSeekForwardIncrement();
+          if (seekForwardIncrement >= 2500 && seekForwardIncrement < 7500) {
+            return ICON_SKIP_FORWARD_5;
+          } else if (seekForwardIncrement >= 7500 && seekForwardIncrement < 12500) {
+            return ICON_SKIP_FORWARD_10;
+          } else if (seekForwardIncrement >= 12500 && seekForwardIncrement < 20000) {
+            return ICON_SKIP_FORWARD_15;
+          } else if (seekForwardIncrement >= 20000 && seekForwardIncrement < 40000) {
+            return ICON_SKIP_FORWARD_30;
+          } else {
+            return ICON_SKIP_FORWARD;
+          }
+        default:
+          throw new UnsupportedOperationException();
+      }
     }
   }
 
@@ -704,24 +1208,31 @@ public final class CommandButton {
   public final @Player.Command int playerCommand;
 
   /** The {@link Icon} of the button. */
-  @UnstableApi public final @Icon int icon;
+  public final @Icon int icon;
 
   /**
-   * The icon resource id of the button that is used when the predefined {@link #icon} is not
-   * available or set to {@link #ICON_UNDEFINED}. Can be {@code 0} if not needed.
+   * The fallback icon resource ID of the button.
+   *
+   * <p>This is used when either the predefined {@link #icon} is not available, or it's set to
+   * {@link #ICON_UNDEFINED}.
+   *
+   * <p>Can be {@code 0} if not needed.
    */
   @DrawableRes public final int iconResId;
 
   /**
-   * The {@linkplain ContentResolver#SCHEME_CONTENT content} or {@linkplain
-   * ContentResolver#SCHEME_ANDROID_RESOURCE resource} {@link Uri} for the icon of the button that
-   * is used when the predefined {@link #icon} is not available or set to {@link #ICON_UNDEFINED}.
-   * Can be {@code null}.
+   * The fallback {@linkplain ContentResolver#SCHEME_CONTENT content} or {@linkplain
+   * ContentResolver#SCHEME_ANDROID_RESOURCE resource} {@link Uri} for the icon of the button.
+   *
+   * <p>This is used when either the predefined {@link #icon} is not available, or it's set to
+   * {@link #ICON_UNDEFINED}.
+   *
+   * <p>Can be {@code null}.
    *
    * <p>Note that this value can be used in addition to {@link #iconResId} for consumers that are
    * capable of loading the content or resource {@link Uri}.
    */
-  @UnstableApi @Nullable public final Uri iconUri;
+  @Nullable public final Uri iconUri;
 
   /**
    * The display name of the button. Can be empty if the command is predefined and a custom name
@@ -733,7 +1244,7 @@ public final class CommandButton {
    * The extra {@link Bundle} of the button. It's private information between session and
    * controller.
    */
-  @UnstableApi public final Bundle extras;
+  public final Bundle extras;
 
   /**
    * The allowed {@link Slot} positions for this button.
@@ -757,6 +1268,12 @@ public final class CommandButton {
    */
   public final boolean isEnabled;
 
+  /**
+   * The optional parameter needed to execute the action associated with this button via {@link
+   * #executeAction(MediaController)}.
+   */
+  @UnstableApi @Nullable public final Object parameter;
+
   private CommandButton(
       @Nullable SessionCommand sessionCommand,
       @Player.Command int playerCommand,
@@ -766,7 +1283,8 @@ public final class CommandButton {
       CharSequence displayName,
       Bundle extras,
       boolean enabled,
-      ImmutableIntArray slots) {
+      ImmutableIntArray slots,
+      @Nullable Object parameter) {
     this.sessionCommand = sessionCommand;
     this.playerCommand = playerCommand;
     this.icon = icon;
@@ -776,6 +1294,251 @@ public final class CommandButton {
     this.extras = new Bundle(extras);
     this.isEnabled = enabled;
     this.slots = slots;
+    this.parameter = parameter;
+  }
+
+  /**
+   * Executes the intended action of the command button by calling the appropriate {@link
+   * MediaController} method.
+   *
+   * <p>The following player and session commands are supported. Whether the command button has a
+   * configuration that can be executed can also be checked with {@link #canExecuteAction()}.
+   *
+   * <p>If {@link #playerCommand} is set, the following commands are supported:
+   *
+   * <ul>
+   *   <li>{@link Player#COMMAND_PLAY_PAUSE}: Calls {@link
+   *       MediaController#setPlayWhenReady(boolean)} with {@code !controller.getPlayWhenReady()},
+   *       or with {@link #parameter} if provided via {@link Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_PREPARE}: Calls {@link MediaController#prepare()}.
+   *   <li>{@link Player#COMMAND_STOP}: Calls {@link MediaController#stop()}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_PREVIOUS}: Calls {@link MediaController#seekToPrevious()}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_NEXT}: Calls {@link MediaController#seekToNext()}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM}: Calls {@link
+   *       MediaController#seekToPreviousMediaItem()}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_NEXT_MEDIA_ITEM}: Calls {@link
+   *       MediaController#seekToNextMediaItem()}.
+   *   <li>{@link Player#COMMAND_SEEK_BACK}: Calls {@link MediaController#seekBack()}.
+   *   <li>{@link Player#COMMAND_SEEK_FORWARD}: Calls {@link MediaController#seekForward()}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_DEFAULT_POSITION}: Calls {@link
+   *       MediaController#seekToDefaultPosition()}.
+   *   <li>{@link Player#COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM}: Calls {@link
+   *       MediaController#seekTo(long)} with {@link #parameter} if provided via {@link
+   *       Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SEEK_TO_MEDIA_ITEM}: Calls {@link
+   *       MediaController#seekToDefaultPosition(int)} with {@link #parameter} if provided via
+   *       {@link Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_SPEED_AND_PITCH}: Calls {@link
+   *       MediaController#setPlaybackSpeed(float)} with {@link #parameter} if provided via {@link
+   *       Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_SHUFFLE_MODE}: Calls {@link
+   *       MediaController#setShuffleModeEnabled(boolean)} with {@code
+   *       !controller.getShuffleModeEnabled()}, or with {@link #parameter} if provided via {@link
+   *       Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_REPEAT_MODE}: Calls {@link MediaController#setRepeatMode(int)}
+   *       with {@link #parameter} if provided via {@link Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_MEDIA_ITEM}: Calls {@link
+   *       MediaController#setMediaItem(MediaItem)} with {@link #parameter} if provided via {@link
+   *       Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_PLAYLIST_METADATA}: Calls {@link
+   *       MediaController#setPlaylistMetadata(MediaMetadata)} with {@link #parameter} if provided
+   *       via {@link Builder#setPlayerCommand(int, Object)}.
+   *   <li>{@link Player#COMMAND_SET_VOLUME}: Calls {@link MediaController#setVolume(float)} with
+   *       {@link #parameter} if provided via {@link Builder#setPlayerCommand(int, Object)}, or
+   *       calls {@link MediaController#mute()}/{@link MediaController#unmute()} otherwise.
+   *   <li>{@link Player#COMMAND_SET_TRACK_SELECTION_PARAMETERS}: Calls {@link
+   *       MediaController#setTrackSelectionParameters(TrackSelectionParameters)} with {@link
+   *       #parameter} if provided via {@link Builder#setPlayerCommand(int, Object)}.
+   * </ul>
+   *
+   * <p>If {@link #sessionCommand} is set, the following commands are supported:
+   *
+   * <ul>
+   *   <li>If {@code sessionCommand.commandCode} is {@link SessionCommand#COMMAND_CODE_CUSTOM},
+   *       calls {@link MediaController#sendCustomCommand(SessionCommand, Bundle)} with {@link
+   *       #sessionCommand} and {@link #extras}.
+   *   <li>If {@code sessionCommand.commandCode} is {@link
+   *       SessionCommand#COMMAND_CODE_SESSION_SET_RATING}, calls {@link
+   *       MediaController#setRating(Rating)} with {@link #parameter} if it is provided via {@link
+   *       Builder#setSessionCommand(SessionCommand, Object)}.
+   * </ul>
+   *
+   * <p>Will do nothing if {@link #isEnabled} is {@code false}.
+   */
+  @UnstableApi
+  public void executeAction(MediaController controller) {
+    if (!isEnabled) {
+      return;
+    }
+    if (sessionCommand != null) {
+      switch (sessionCommand.commandCode) {
+        case COMMAND_CODE_CUSTOM:
+          ListenableFuture<SessionResult> unused =
+              controller.sendCustomCommand(checkNotNull(sessionCommand), extras);
+          break;
+        case COMMAND_CODE_SESSION_SET_RATING:
+          if (parameter != null) {
+            unused = controller.setRating((Rating) parameter);
+          }
+          break;
+        default:
+          // Unsupported
+          break;
+      }
+    } else {
+      executePlayerAction(/* player= */ controller);
+    }
+  }
+
+  /* package */ void executePlayerAction(Player player) {
+    if (!isEnabled) {
+      return;
+    }
+    switch (playerCommand) {
+      case Player.COMMAND_PLAY_PAUSE:
+        if (parameter != null) {
+          player.setPlayWhenReady((Boolean) parameter);
+        } else {
+          player.setPlayWhenReady(!player.getPlayWhenReady());
+        }
+        break;
+      case Player.COMMAND_PREPARE:
+        player.prepare();
+        break;
+      case Player.COMMAND_STOP:
+        player.stop();
+        break;
+      case Player.COMMAND_SEEK_TO_PREVIOUS:
+        player.seekToPrevious();
+        break;
+      case Player.COMMAND_SEEK_TO_NEXT:
+        player.seekToNext();
+        break;
+      case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
+        player.seekToPreviousMediaItem();
+        break;
+      case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
+        player.seekToNextMediaItem();
+        break;
+      case Player.COMMAND_SEEK_BACK:
+        player.seekBack();
+        break;
+      case Player.COMMAND_SEEK_FORWARD:
+        player.seekForward();
+        break;
+      case Player.COMMAND_SEEK_TO_DEFAULT_POSITION:
+        player.seekToDefaultPosition();
+        break;
+      case Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM:
+        if (parameter != null) {
+          player.seekTo((Long) parameter);
+        }
+        break;
+      case Player.COMMAND_SEEK_TO_MEDIA_ITEM:
+        if (parameter != null) {
+          player.seekToDefaultPosition((Integer) parameter);
+        }
+        break;
+      case Player.COMMAND_SET_SPEED_AND_PITCH:
+        if (parameter != null) {
+          player.setPlaybackSpeed((Float) parameter);
+        }
+        break;
+      case Player.COMMAND_SET_SHUFFLE_MODE:
+        if (parameter != null) {
+          player.setShuffleModeEnabled((Boolean) parameter);
+        } else {
+          player.setShuffleModeEnabled(!player.getShuffleModeEnabled());
+        }
+        break;
+      case Player.COMMAND_SET_REPEAT_MODE:
+        if (parameter != null) {
+          player.setRepeatMode((Integer) parameter);
+        }
+        break;
+      case Player.COMMAND_SET_MEDIA_ITEM:
+        if (parameter != null) {
+          player.setMediaItem((MediaItem) parameter);
+        }
+        break;
+      case Player.COMMAND_SET_PLAYLIST_METADATA:
+        if (parameter != null) {
+          player.setPlaylistMetadata((MediaMetadata) parameter);
+        }
+        break;
+      case Player.COMMAND_SET_VOLUME:
+        if (parameter != null) {
+          player.setVolume((Float) parameter);
+        } else if (player.getVolume() == 0) {
+          player.unmute();
+        } else {
+          player.mute();
+        }
+        break;
+      case Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS:
+        if (parameter != null) {
+          player.setTrackSelectionParameters((TrackSelectionParameters) parameter);
+        }
+        break;
+      default:
+        // Unsupported.
+        break;
+    }
+  }
+
+  /* package */ boolean isPlayRequestPlayerAction(Player player) {
+    if (playerCommand != Player.COMMAND_PLAY_PAUSE) {
+      return false;
+    }
+    return parameter == null ? !player.getPlayWhenReady() : (Boolean) parameter;
+  }
+
+  /**
+   * Returns whether the command button has a configuration that allows to execute the associated
+   * action via a {@link MediaController}. See {@link #executeAction(MediaController)} for a list of
+   * valid configurations.
+   *
+   * @return Whether {@link #executeAction(MediaController)} is successful assuming the associated
+   *     {@link Player.Command} or {@link SessionCommand} is available.
+   */
+  @UnstableApi
+  public boolean canExecuteAction() {
+    if (sessionCommand != null) {
+      switch (sessionCommand.commandCode) {
+        case COMMAND_CODE_CUSTOM:
+          return true;
+        case COMMAND_CODE_SESSION_SET_RATING:
+          return parameter != null;
+        default:
+          return false;
+      }
+    } else {
+      switch (playerCommand) {
+        case Player.COMMAND_PLAY_PAUSE:
+        case Player.COMMAND_PREPARE:
+        case Player.COMMAND_STOP:
+        case Player.COMMAND_SEEK_TO_PREVIOUS:
+        case Player.COMMAND_SEEK_TO_NEXT:
+        case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
+        case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
+        case Player.COMMAND_SEEK_BACK:
+        case Player.COMMAND_SEEK_FORWARD:
+        case Player.COMMAND_SEEK_TO_DEFAULT_POSITION:
+        case Player.COMMAND_SET_SHUFFLE_MODE:
+        case Player.COMMAND_SET_VOLUME:
+          return true;
+        case Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM:
+        case Player.COMMAND_SEEK_TO_MEDIA_ITEM:
+        case Player.COMMAND_SET_SPEED_AND_PITCH:
+        case Player.COMMAND_SET_REPEAT_MODE:
+        case Player.COMMAND_SET_MEDIA_ITEM:
+        case Player.COMMAND_SET_PLAYLIST_METADATA:
+        case Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS:
+          return parameter != null;
+        default:
+          return false;
+      }
+    }
   }
 
   /** Returns a copy with the new {@link #isEnabled} flag. */
@@ -796,7 +1559,27 @@ public final class CommandButton {
         displayName,
         new Bundle(extras),
         isEnabled,
-        slots);
+        slots,
+        parameter);
+  }
+
+  /** Returns a copy with the new {@link #slots} value. */
+  @CheckReturnValue
+  /* package */ CommandButton copyWithSlots(ImmutableIntArray slots) {
+    if (this.slots.equals(slots)) {
+      return this;
+    }
+    return new CommandButton(
+        sessionCommand,
+        playerCommand,
+        icon,
+        iconResId,
+        iconUri,
+        displayName,
+        new Bundle(extras),
+        isEnabled,
+        slots,
+        parameter);
   }
 
   /** Checks the given command button for equality while ignoring {@link #extras}. */
@@ -809,20 +1592,58 @@ public final class CommandButton {
       return false;
     }
     CommandButton button = (CommandButton) obj;
-    return Objects.equal(sessionCommand, button.sessionCommand)
+    return Objects.equals(sessionCommand, button.sessionCommand)
         && playerCommand == button.playerCommand
         && icon == button.icon
         && iconResId == button.iconResId
-        && Objects.equal(iconUri, button.iconUri)
+        && Objects.equals(iconUri, button.iconUri)
         && TextUtils.equals(displayName, button.displayName)
         && isEnabled == button.isEnabled
-        && slots.equals(button.slots);
+        && slots.equals(button.slots)
+        && Objects.equals(parameter, button.parameter);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(
-        sessionCommand, playerCommand, icon, iconResId, displayName, isEnabled, iconUri, slots);
+    return Objects.hash(
+        sessionCommand,
+        playerCommand,
+        icon,
+        iconResId,
+        displayName,
+        isEnabled,
+        iconUri,
+        slots,
+        parameter);
+  }
+
+  private CommandButton convertToPredefinedCustomCommandButton(@Slot int slot) {
+    if (sessionCommand != null && sessionCommand.commandCode == COMMAND_CODE_CUSTOM) {
+      return copyWithSlots(ImmutableIntArray.of(slot));
+    }
+    Bundle customCommandExtras = Bundle.EMPTY;
+    if (parameter != null) {
+      customCommandExtras = new Bundle();
+      writeParameterToBundle(customCommandExtras, CUSTOM_COMMAND_PARAMETER_EXTRAS_KEY);
+    }
+    String customCommandName;
+    if (sessionCommand != null) {
+      customCommandName = CUSTOM_COMMAND_SESSION_COMMAND_PREFIX + sessionCommand.commandCode;
+    } else {
+      customCommandName = CUSTOM_COMMAND_PLAYER_COMMAND_PREFIX + playerCommand;
+    }
+    SessionCommand customCommand = new SessionCommand(customCommandName, customCommandExtras);
+    return new CommandButton(
+        customCommand,
+        Player.COMMAND_INVALID,
+        icon,
+        iconResId,
+        iconUri,
+        displayName,
+        extras,
+        isEnabled,
+        ImmutableIntArray.of(slot),
+        /* parameter= */ null);
   }
 
   /**
@@ -870,6 +1691,7 @@ public final class CommandButton {
   private static final String FIELD_ICON_URI = Util.intToStringMaxRadix(6);
   private static final String FIELD_ICON = Util.intToStringMaxRadix(7);
   private static final String FIELD_SLOTS = Util.intToStringMaxRadix(8);
+  private static final String FIELD_PARAMETER = Util.intToStringMaxRadix(9);
 
   @UnstableApi
   public Bundle toBundle() {
@@ -901,6 +1723,9 @@ public final class CommandButton {
     if (slots.length() != 1 || slots.get(0) != SLOT_OVERFLOW) {
       bundle.putIntArray(FIELD_SLOTS, slots.toArray());
     }
+    if (parameter != null) {
+      writeParameterToBundle(bundle, FIELD_PARAMETER);
+    }
     return bundle;
   }
 
@@ -925,8 +1750,8 @@ public final class CommandButton {
         bundle.getInt(FIELD_PLAYER_COMMAND, /* defaultValue= */ Player.COMMAND_INVALID);
     int iconResId = bundle.getInt(FIELD_ICON_RES_ID, /* defaultValue= */ 0);
     CharSequence displayName = bundle.getCharSequence(FIELD_DISPLAY_NAME, /* defaultValue= */ "");
-    @Nullable Bundle extras = bundle.getBundle(FIELD_EXTRAS);
-    // Before sessionInterfaceVersion == 3, the session expected this value to be meaningless and we
+    @Nullable Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS));
+    // Before interfaceVersion == 3, the session expected this value to be meaningless and we
     // can only assume it was meant to be true.
     boolean enabled =
         sessionInterfaceVersion < 3 || bundle.getBoolean(FIELD_ENABLED, /* defaultValue= */ true);
@@ -937,14 +1762,24 @@ public final class CommandButton {
     int[] slots = bundle.getIntArray(FIELD_SLOTS);
     Builder builder = new Builder(icon, iconResId);
     if (sessionCommand != null) {
-      builder.setSessionCommand(sessionCommand);
+      @Nullable
+      Object parameter =
+          getParameterFromBundle(
+              bundle,
+              FIELD_PARAMETER,
+              getParameterTypeForSessionCommand(sessionCommand.commandCode));
+      builder.setSessionCommand(sessionCommand, parameter);
     }
     if (playerCommand != Player.COMMAND_INVALID) {
-      builder.setPlayerCommand(playerCommand);
+      @Nullable
+      Object parameter =
+          getParameterFromBundle(
+              bundle, FIELD_PARAMETER, getParameterTypeForPlayerCommand(playerCommand));
+      builder.setPlayerCommand(playerCommand, parameter);
     }
     if (iconUri != null
-        && (Objects.equal(iconUri.getScheme(), ContentResolver.SCHEME_CONTENT)
-            || Objects.equal(iconUri.getScheme(), ContentResolver.SCHEME_ANDROID_RESOURCE))) {
+        && (Objects.equals(iconUri.getScheme(), ContentResolver.SCHEME_CONTENT)
+            || Objects.equals(iconUri.getScheme(), ContentResolver.SCHEME_ANDROID_RESOURCE))) {
       builder.setIconUri(iconUri);
     }
     return builder
@@ -1151,6 +1986,337 @@ public final class CommandButton {
       return SLOT_FORWARD;
     } else {
       return SLOT_OVERFLOW;
+    }
+  }
+
+  /**
+   * Converts a list of buttons defined as {@linkplain MediaSession#getMediaButtonPreferences media
+   * button preferences} to the list of buttons for a {@linkplain MediaSession#getCustomLayout
+   * custom layout} according to the implicit button placement rules applied for custom layouts.
+   *
+   * @param mediaButtonPreferences The list of buttons as media button preferences.
+   * @param backSlotAllowed Whether the custom layout can put a button into {@link #SLOT_BACK}.
+   * @param forwardSlotAllowed Whether the custom layout can put a button into {@link
+   *     #SLOT_FORWARD}.
+   * @return A list of buttons compatible with the placement rules of custom layouts. The buttons
+   *     will have their intended slots assigned as the only option.
+   */
+  /* package */ static ImmutableList<CommandButton> getCustomLayoutFromMediaButtonPreferences(
+      List<CommandButton> mediaButtonPreferences,
+      boolean backSlotAllowed,
+      boolean forwardSlotAllowed) {
+    if (mediaButtonPreferences.isEmpty()) {
+      return ImmutableList.of();
+    }
+    int backButtonIndex = C.INDEX_UNSET;
+    int forwardButtonIndex = C.INDEX_UNSET;
+    for (int i = 0; i < mediaButtonPreferences.size(); i++) {
+      CommandButton button = mediaButtonPreferences.get(i);
+      if (!button.isEnabled || !button.canExecuteAction()) {
+        continue;
+      }
+      for (int s = 0; s < button.slots.length(); s++) {
+        @Slot int slot = button.slots.get(s);
+        if (slot == SLOT_OVERFLOW) {
+          // Will go into overflow.
+          break;
+        } else if (backSlotAllowed && backButtonIndex == C.INDEX_UNSET && slot == SLOT_BACK) {
+          backButtonIndex = i;
+          break;
+        } else if (forwardSlotAllowed
+            && forwardButtonIndex == C.INDEX_UNSET
+            && slot == SLOT_FORWARD) {
+          forwardButtonIndex = i;
+          break;
+        }
+      }
+    }
+    ImmutableList.Builder<CommandButton> customLayout = ImmutableList.builder();
+    if (backButtonIndex != C.INDEX_UNSET) {
+      customLayout.add(
+          mediaButtonPreferences
+              .get(backButtonIndex)
+              .convertToPredefinedCustomCommandButton(SLOT_BACK));
+    }
+    if (forwardButtonIndex != C.INDEX_UNSET) {
+      customLayout.add(
+          mediaButtonPreferences
+              .get(forwardButtonIndex)
+              .convertToPredefinedCustomCommandButton(SLOT_FORWARD));
+    }
+    for (int i = 0; i < mediaButtonPreferences.size(); i++) {
+      CommandButton button = mediaButtonPreferences.get(i);
+      if (!button.isEnabled || !button.canExecuteAction()) {
+        continue;
+      }
+      if (i != backButtonIndex && i != forwardButtonIndex && button.slots.contains(SLOT_OVERFLOW)) {
+        customLayout.add(button.convertToPredefinedCustomCommandButton(SLOT_OVERFLOW));
+      }
+    }
+    return customLayout.build();
+  }
+
+  /**
+   * Returns whether the provided list of buttons contains a button for a given {@link Slot}. This
+   * method assumes the slots have been resolved and there is only a single slot per button.
+   */
+  /* package */ static boolean containsButtonForSlot(List<CommandButton> buttons, @Slot int slot) {
+    for (int i = 0; i < buttons.size(); i++) {
+      if (buttons.get(i).slots.get(0) == slot) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Converts a list of buttons defined according to the implicit button placement rules for
+   * {@linkplain MediaSession#getCustomLayout custom layouts} to {@linkplain
+   * MediaSession#getMediaButtonPreferences media button preferences}.
+   *
+   * @param customLayout A list of buttons compatible with the placement rules of custom layouts.
+   * @param availablePlayerCommands The available {@link Player.Commands}.
+   * @param reservationExtras A {@link Bundle} with extras that may contain slot reservations via
+   *     {@link MediaConstants#EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT} or {@link
+   *     MediaConstants#EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV}. The bundle contents will not be
+   *     modified.
+   * @return The list of buttons as media button preferences.
+   */
+  /* package */ static ImmutableList<CommandButton> getMediaButtonPreferencesFromCustomLayout(
+      List<CommandButton> customLayout,
+      Player.Commands availablePlayerCommands,
+      Bundle reservationExtras) {
+    if (customLayout.isEmpty()) {
+      return ImmutableList.of();
+    }
+    boolean hasDefaultBackCommand =
+        availablePlayerCommands.containsAny(
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM);
+    boolean hasDefaultForwardCommand =
+        availablePlayerCommands.containsAny(
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
+    boolean hasBackSlotReservation =
+        reservationExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, /* defaultValue= */ false);
+    boolean hasForwardSlotReservation =
+        reservationExtras.getBoolean(
+            MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, /* defaultValue= */ false);
+    int backButtonIndex = (hasDefaultBackCommand || hasBackSlotReservation) ? C.INDEX_UNSET : 0;
+    int forwardButtonIndex =
+        (hasDefaultForwardCommand || hasForwardSlotReservation)
+            ? C.INDEX_UNSET
+            : (backButtonIndex == 0 ? 1 : 0);
+    ImmutableList.Builder<CommandButton> mediaButtonPreferences = ImmutableList.builder();
+    for (int i = 0; i < customLayout.size(); i++) {
+      CommandButton button = customLayout.get(i);
+      if (i == backButtonIndex) {
+        if (forwardButtonIndex == C.INDEX_UNSET) {
+          mediaButtonPreferences.add(
+              button.copyWithSlots(ImmutableIntArray.of(SLOT_BACK, SLOT_OVERFLOW)));
+        } else {
+          mediaButtonPreferences.add(
+              button.copyWithSlots(ImmutableIntArray.of(SLOT_BACK, SLOT_FORWARD, SLOT_OVERFLOW)));
+        }
+      } else if (i == forwardButtonIndex) {
+        mediaButtonPreferences.add(
+            button.copyWithSlots(ImmutableIntArray.of(SLOT_FORWARD, SLOT_OVERFLOW)));
+      } else {
+        mediaButtonPreferences.add(button.copyWithSlots(ImmutableIntArray.of(SLOT_OVERFLOW)));
+      }
+    }
+    return mediaButtonPreferences.build();
+  }
+
+  /* package */ static boolean isPredefinedCustomCommandButtonCode(String customCommandCode) {
+    return isPredefinedPlayerCustomCommandButtonCode(customCommandCode)
+        || isPredefinedSessionCustomCommandButtonCode(customCommandCode);
+  }
+
+  /* package */ static CommandButton convertFromPredefinedCustomCommand(
+      SessionCommand customCommand) {
+    if (isPredefinedPlayerCustomCommandButtonCode(customCommand.customAction)) {
+      @Player.Command
+      int playerCommand =
+          getPredefinedCustomCommandCode(
+              customCommand.customAction, CUSTOM_COMMAND_PLAYER_COMMAND_PREFIX);
+      @Nullable
+      Object parameter =
+          getParameterFromBundle(
+              customCommand.customExtras,
+              CUSTOM_COMMAND_PARAMETER_EXTRAS_KEY,
+              getParameterTypeForPlayerCommand(playerCommand));
+      return new CommandButton.Builder(ICON_UNDEFINED)
+          .setPlayerCommand(playerCommand, parameter)
+          .build();
+    } else {
+      @SessionCommand.CommandCode
+      int sessionCommand =
+          getPredefinedCustomCommandCode(
+              customCommand.customAction, CUSTOM_COMMAND_SESSION_COMMAND_PREFIX);
+      @Nullable
+      Object parameter =
+          getParameterFromBundle(
+              customCommand.customExtras,
+              CUSTOM_COMMAND_PARAMETER_EXTRAS_KEY,
+              getParameterTypeForSessionCommand(sessionCommand));
+      return new CommandButton.Builder(ICON_UNDEFINED)
+          .setSessionCommand(new SessionCommand(sessionCommand), parameter)
+          .build();
+    }
+  }
+
+  private static boolean isPredefinedPlayerCustomCommandButtonCode(String customCommandCode) {
+    return customCommandCode.startsWith(CUSTOM_COMMAND_PLAYER_COMMAND_PREFIX);
+  }
+
+  private static boolean isPredefinedSessionCustomCommandButtonCode(String customCommandCode) {
+    return customCommandCode.startsWith(CUSTOM_COMMAND_SESSION_COMMAND_PREFIX);
+  }
+
+  private static int getPredefinedCustomCommandCode(String customCommandCode, String prefix) {
+    return Integer.parseInt(customCommandCode.substring(prefix.length()));
+  }
+
+  private static @ParameterType int getParameterTypeForSessionCommand(
+      @SessionCommand.CommandCode int sessionCommandCode) {
+    return sessionCommandCode == COMMAND_CODE_SESSION_SET_RATING
+        ? PARAMETER_TYPE_RATING
+        : PARAMETER_TYPE_NULL;
+  }
+
+  private static @ParameterType int getParameterTypeForPlayerCommand(
+      @Player.Command int playerCommand) {
+    switch (playerCommand) {
+      case Player.COMMAND_PLAY_PAUSE:
+      case Player.COMMAND_SET_SHUFFLE_MODE:
+        return PARAMETER_TYPE_BOOLEAN;
+      case Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM:
+        return PARAMETER_TYPE_LONG;
+      case Player.COMMAND_SEEK_TO_MEDIA_ITEM:
+      case Player.COMMAND_SET_REPEAT_MODE:
+        return PARAMETER_TYPE_INT;
+      case Player.COMMAND_SET_SPEED_AND_PITCH:
+      case Player.COMMAND_SET_VOLUME:
+        return PARAMETER_TYPE_FLOAT;
+      case Player.COMMAND_SET_MEDIA_ITEM:
+        return PARAMETER_TYPE_MEDIA_ITEM;
+      case Player.COMMAND_SET_PLAYLIST_METADATA:
+        return PARAMETER_TYPE_MEDIA_METADATA;
+      case Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS:
+        return PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS;
+      default:
+        return PARAMETER_TYPE_NULL;
+    }
+  }
+
+  @Nullable
+  private static Object verifyParameterType(
+      @Nullable Object parameter, @ParameterType int parameterType) {
+    if (parameter == null) {
+      return null;
+    }
+    switch (parameterType) {
+      case PARAMETER_TYPE_LONG:
+        if (parameter instanceof Integer) {
+          parameter = ((Integer) parameter).longValue();
+        }
+        checkArgument(parameter instanceof Long, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_INT:
+        checkArgument(parameter instanceof Integer, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_BOOLEAN:
+        checkArgument(parameter instanceof Boolean, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_FLOAT:
+        if (parameter instanceof Double) {
+          parameter = ((Double) parameter).floatValue();
+        }
+        checkArgument(parameter instanceof Float, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_RATING:
+        checkArgument(parameter instanceof Rating, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_MEDIA_ITEM:
+        checkArgument(parameter instanceof MediaItem, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_MEDIA_METADATA:
+        checkArgument(parameter instanceof MediaMetadata, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS:
+        checkArgument(
+            parameter instanceof TrackSelectionParameters, INCORRECT_PARAMETER_TYPE_MESSAGE);
+        return parameter;
+      case PARAMETER_TYPE_NULL:
+      default:
+        return null;
+    }
+  }
+
+  @RequiresNonNull("parameter")
+  private void writeParameterToBundle(Bundle bundle, String bundleKey) {
+    @ParameterType
+    int parameterType =
+        sessionCommand != null
+            ? getParameterTypeForSessionCommand(sessionCommand.commandCode)
+            : getParameterTypeForPlayerCommand(playerCommand);
+    switch (parameterType) {
+      case PARAMETER_TYPE_LONG:
+        bundle.putLong(bundleKey, (long) parameter);
+        break;
+      case PARAMETER_TYPE_INT:
+        bundle.putInt(bundleKey, (int) parameter);
+        break;
+      case PARAMETER_TYPE_BOOLEAN:
+        bundle.putBoolean(bundleKey, (boolean) parameter);
+        break;
+      case PARAMETER_TYPE_FLOAT:
+        bundle.putFloat(bundleKey, (float) parameter);
+        break;
+      case PARAMETER_TYPE_RATING:
+        bundle.putBundle(bundleKey, ((Rating) parameter).toBundle());
+        break;
+      case PARAMETER_TYPE_MEDIA_ITEM:
+        bundle.putBundle(bundleKey, ((MediaItem) parameter).toBundle());
+        break;
+      case PARAMETER_TYPE_MEDIA_METADATA:
+        bundle.putBundle(bundleKey, ((MediaMetadata) parameter).toBundle());
+        break;
+      case PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS:
+        bundle.putBundle(bundleKey, ((TrackSelectionParameters) parameter).toBundle());
+        break;
+      case PARAMETER_TYPE_NULL:
+      default:
+        // Do nothing.
+    }
+  }
+
+  @Nullable
+  private static Object getParameterFromBundle(
+      Bundle bundle, String bundleKey, @ParameterType int parameterType) {
+    if (!bundle.containsKey(bundleKey)) {
+      return null;
+    }
+    switch (parameterType) {
+      case PARAMETER_TYPE_LONG:
+        return bundle.getLong(bundleKey);
+      case PARAMETER_TYPE_INT:
+        return bundle.getInt(bundleKey);
+      case PARAMETER_TYPE_BOOLEAN:
+        return bundle.getBoolean(bundleKey);
+      case PARAMETER_TYPE_FLOAT:
+        return bundle.getFloat(bundleKey);
+      case PARAMETER_TYPE_RATING:
+        return Rating.fromBundle(checkNotNull(bundle.getBundle(bundleKey)));
+      case PARAMETER_TYPE_MEDIA_ITEM:
+        return MediaItem.fromBundle(checkNotNull(bundle.getBundle(bundleKey)));
+      case PARAMETER_TYPE_MEDIA_METADATA:
+        return MediaMetadata.fromBundle(checkNotNull(bundle.getBundle(bundleKey)));
+      case PARAMETER_TYPE_TRACK_SELECTION_PARAMETERS:
+        return TrackSelectionParameters.fromBundle(checkNotNull(bundle.getBundle(bundleKey)));
+      case PARAMETER_TYPE_NULL:
+      default:
+        return null;
     }
   }
 }

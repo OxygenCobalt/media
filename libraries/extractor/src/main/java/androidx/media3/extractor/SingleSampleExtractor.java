@@ -16,8 +16,8 @@
 package androidx.media3.extractor;
 
 import static androidx.media3.common.C.BUFFER_FLAG_KEY_FRAME;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
@@ -138,7 +138,11 @@ public final class SingleSampleExtractor implements Extractor {
   @RequiresNonNull("this.extractorOutput")
   private void outputImageTrackAndSeekMap(String sampleMimeType) {
     trackOutput = extractorOutput.track(IMAGE_TRACK_ID, C.TRACK_TYPE_IMAGE);
-    trackOutput.format(new Format.Builder().setSampleMimeType(sampleMimeType).build());
+    trackOutput.format(
+        new Format.Builder()
+            .setContainerMimeType(sampleMimeType)
+            .setSampleMimeType(sampleMimeType)
+            .build());
     extractorOutput.endTracks();
     extractorOutput.seekMap(new SingleSampleSeekMap(/* durationUs= */ C.TIME_UNSET));
     state = STATE_READING;

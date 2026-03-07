@@ -15,6 +15,7 @@
  */
 package androidx.media3.common;
 
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
@@ -36,6 +37,7 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.Objects;
 
 /** Thrown when a non locally recoverable playback failure occurs. */
 public class PlaybackException extends Exception {
@@ -91,6 +93,7 @@ public class PlaybackException extends Exception {
         ERROR_CODE_DECODING_FAILED,
         ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
         ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
         ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
         ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
         ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED,
@@ -272,9 +275,8 @@ public class PlaybackException extends Exception {
   /** Caused by trying to decode content whose format is not supported. */
   public static final int ERROR_CODE_DECODING_FORMAT_UNSUPPORTED = 4005;
 
-  // TODO: b/322943860 - Stabilize error code and add to IntDef
   /** Caused by higher priority task reclaiming resources needed for decoding. */
-  @UnstableApi public static final int ERROR_CODE_DECODING_RESOURCES_RECLAIMED = 4006;
+  public static final int ERROR_CODE_DECODING_RESOURCES_RECLAIMED = 4006;
 
   // AudioTrack errors (5xxx).
 
@@ -539,7 +541,8 @@ public class PlaybackException extends Exception {
    * Returns whether the error data associated to this exception equals the error data associated to
    * {@code other}.
    *
-   * <p>Note that this method does not compare the exceptions' stacktraces.
+   * <p>Note that this method does not compare the exceptions' stack traces and {@linkplain
+   * #extras}.
    */
   @CallSuper
   public boolean errorInfoEquals(@Nullable PlaybackException other) {
@@ -553,18 +556,32 @@ public class PlaybackException extends Exception {
     @Nullable Throwable thisCause = getCause();
     @Nullable Throwable thatCause = other.getCause();
     if (thisCause != null && thatCause != null) {
-      if (!Util.areEqual(thisCause.getMessage(), thatCause.getMessage())) {
+      if (!Objects.equals(thisCause.getMessage(), thatCause.getMessage())) {
         return false;
       }
-      if (!Util.areEqual(thisCause.getClass(), thatCause.getClass())) {
+      if (!Objects.equals(thisCause.getClass(), thatCause.getClass())) {
         return false;
       }
     } else if (thisCause != null || thatCause != null) {
       return false;
     }
     return errorCode == other.errorCode
-        && Util.areEqual(getMessage(), other.getMessage())
+        && Objects.equals(getMessage(), other.getMessage())
         && timestampMs == other.timestampMs;
+  }
+
+  /**
+   * Returns true if both {@link PlaybackException} instances have {@linkplain
+   * PlaybackException#errorInfoEquals(PlaybackException) the same error info} or both are null.
+   */
+  @UnstableApi
+  public static boolean areErrorInfosEqual(
+      @Nullable PlaybackException playbackException1,
+      @Nullable PlaybackException playbackException2) {
+    if (playbackException1 != null) {
+      return playbackException1.errorInfoEquals(playbackException2);
+    }
+    return playbackException2 == null;
   }
 
   private static final String FIELD_INT_ERROR_CODE = Util.intToStringMaxRadix(0);
@@ -620,7 +637,7 @@ public class PlaybackException extends Exception {
   }
 
   private static Bundle getExtrasFromBundle(Bundle bundle) {
-    Bundle extras = bundle.getBundle(FIELD_BUNDLE_EXTRAS);
+    Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_BUNDLE_EXTRAS));
     return extras != null ? extras : Bundle.EMPTY;
   }
 

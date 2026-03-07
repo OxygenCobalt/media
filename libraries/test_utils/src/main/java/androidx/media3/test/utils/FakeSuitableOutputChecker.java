@@ -16,19 +16,18 @@
 package androidx.media3.test.utils;
 
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 
+import android.content.Context;
+import android.os.Looper;
 import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
 import androidx.annotation.RestrictTo;
-import androidx.media3.common.util.UnstableApi;
+import androidx.media3.common.util.Clock;
 import androidx.media3.exoplayer.SuitableOutputChecker;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /** Fake implementation for {@link SuitableOutputChecker}. */
 @RestrictTo(LIBRARY_GROUP)
-@UnstableApi
-@RequiresApi(35)
 public final class FakeSuitableOutputChecker implements SuitableOutputChecker {
 
   /** Builder for {@link FakeSuitableOutputChecker} instance. */
@@ -66,7 +65,12 @@ public final class FakeSuitableOutputChecker implements SuitableOutputChecker {
   }
 
   @Override
-  public void enable(Callback callback) {
+  public void enable(
+      Callback callback,
+      Context context,
+      Looper callbackLooper,
+      Looper backgroundLooper,
+      Clock clock) {
     this.callback = callback;
   }
 
@@ -77,7 +81,7 @@ public final class FakeSuitableOutputChecker implements SuitableOutputChecker {
 
   @Override
   public boolean isSelectedOutputSuitableForPlayback() {
-    checkStateNotNull(callback, "SuitableOutputChecker is not enabled");
+    checkNotNull(callback, "SuitableOutputChecker is not enabled");
     return isSelectedOutputSuitableForPlayback;
   }
 

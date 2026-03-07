@@ -16,6 +16,7 @@
 package androidx.media3.test.session.common;
 
 import static android.content.Context.KEYGUARD_SERVICE;
+import static android.os.Build.VERSION.SDK_INT;
 import static java.lang.Math.min;
 
 import android.app.Activity;
@@ -28,13 +29,11 @@ import android.text.TextUtils;
 import android.view.WindowManager;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
-import androidx.media3.common.Player;
-import androidx.media3.common.util.Util;
-import com.google.common.collect.ImmutableList;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Locale;
+import java.util.Objects;
 
 /** Provides utility methods for testing purpose. */
 public class TestUtils {
@@ -94,7 +93,7 @@ public class TestUtils {
       return false;
     }
     for (String key : b.keySet()) {
-      if (!Util.areEqual(a.get(key), b.get(key))) {
+      if (!Objects.equals(a.get(key), b.get(key))) {
         return false;
       }
     }
@@ -119,7 +118,7 @@ public class TestUtils {
 
   @UiThread
   static void setKeepScreenOn(Activity activity) {
-    if (Util.SDK_INT >= 27) {
+    if (SDK_INT >= 27) {
       activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
       activity.setTurnScreenOn(true);
       activity.setShowWhenLocked(true);
@@ -135,34 +134,6 @@ public class TestUtils {
                   | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                   | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
     }
-  }
-
-  /**
-   * Returns an {@link ImmutableList} with the {@linkplain Player.Event Events} contained in {@code
-   * events}. The contents of the list are in matching order with the {@linkplain Player.Event
-   * Events} returned by {@link Player.Events#get(int)}.
-   */
-  // TODO(b/254265256): Move this method off test-session-common.
-  public static ImmutableList<@Player.Event Integer> getEventsAsList(Player.Events events) {
-    ImmutableList.Builder<@Player.Event Integer> list = new ImmutableList.Builder<>();
-    for (int i = 0; i < events.size(); i++) {
-      list.add(events.get(i));
-    }
-    return list.build();
-  }
-
-  /**
-   * Returns an {@link ImmutableList} with the {@linkplain Player.Command Commands} contained in
-   * {@code commands}. The contents of the list are in matching order with the {@linkplain
-   * Player.Command Commands} returned by {@link Player.Commands#get(int)}.
-   */
-  // TODO(b/254265256): Move this method off test-session-common.
-  public static ImmutableList<@Player.Command Integer> getCommandsAsList(Player.Commands commands) {
-    ImmutableList.Builder<@Player.Command Integer> list = new ImmutableList.Builder<>();
-    for (int i = 0; i < commands.size(); i++) {
-      list.add(commands.get(i));
-    }
-    return list.build();
   }
 
   /** Returns the bytes of a scaled asset file. */

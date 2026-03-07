@@ -15,12 +15,20 @@
  */
 package androidx.media3.container;
 
+import static androidx.media3.container.NalUnitUtil.H264_NAL_UNIT_TYPE_SEI;
+import static androidx.media3.container.NalUnitUtil.H265_NAL_UNIT_TYPE_PREFIX_SEI;
+import static androidx.media3.container.NalUnitUtil.isDependedOn;
+import static androidx.media3.container.NalUnitUtil.isNalUnitSei;
+import static androidx.media3.container.NalUnitUtil.numberOfBytesInNalUnitHeader;
 import static androidx.media3.test.utils.TestUtil.createByteArray;
 import static com.google.common.truth.Truth.assertThat;
 
+import androidx.media3.common.Format;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.Util;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
+import com.google.common.primitives.UnsignedBytes;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import org.junit.Test;
@@ -218,6 +226,7 @@ public final class NalUnitUtilTest {
         NalUnitUtil.parseH265SpsNalUnit(
             H265_SPS_TEST_DATA, /* nalOffset= */ 0, H265_SPS_TEST_DATA.length, vpsData);
     assertThat(spsData.nalHeader.layerId).isEqualTo(0);
+    assertThat(spsData.maxSubLayersMinus1).isEqualTo(0);
     assertThat(spsData.profileTierLevel.generalProfileIdc).isEqualTo(2);
     assertThat(spsData.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(4);
     assertThat(spsData.profileTierLevel.generalLevelIdc).isEqualTo(153);
@@ -270,6 +279,7 @@ public final class NalUnitUtilTest {
             H265_SPS_TEST_DATA_2VIEWS_VIEW_0.length,
             vpsData);
     assertThat(spsDataView0.nalHeader.layerId).isEqualTo(0);
+    assertThat(spsDataView0.maxSubLayersMinus1).isEqualTo(0);
     assertThat(spsDataView0.profileTierLevel.generalProfileIdc).isEqualTo(1);
     assertThat(spsDataView0.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(6);
     assertThat(spsDataView0.profileTierLevel.generalLevelIdc).isEqualTo(120);
@@ -289,6 +299,7 @@ public final class NalUnitUtilTest {
             H265_SPS_TEST_DATA_2VIEWS_VIEW_1.length,
             vpsData);
     assertThat(spsDataView1.nalHeader.layerId).isEqualTo(1);
+    assertThat(spsDataView1.maxSubLayersMinus1).isEqualTo(7);
     assertThat(spsDataView1.profileTierLevel.generalProfileIdc).isEqualTo(6);
     assertThat(spsDataView1.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(64);
     assertThat(spsDataView1.profileTierLevel.generalLevelIdc).isEqualTo(120);
@@ -351,6 +362,7 @@ public final class NalUnitUtilTest {
             H265_SPS_TEST_DATA_2VIEWS_HDR_VIEW_0.length,
             vpsData);
     assertThat(spsDataView0.nalHeader.layerId).isEqualTo(0);
+    assertThat(spsDataView0.maxSubLayersMinus1).isEqualTo(0);
     assertThat(spsDataView0.profileTierLevel.generalProfileIdc).isEqualTo(2);
     assertThat(spsDataView0.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(4);
     assertThat(spsDataView0.profileTierLevel.generalLevelIdc).isEqualTo(153);
@@ -367,6 +379,7 @@ public final class NalUnitUtilTest {
             H265_SPS_TEST_DATA_2VIEWS_HDR_VIEW_1.length,
             vpsData);
     assertThat(spsDataView1.nalHeader.layerId).isEqualTo(1);
+    assertThat(spsDataView1.maxSubLayersMinus1).isEqualTo(7);
     assertThat(spsDataView1.profileTierLevel.generalProfileIdc).isEqualTo(6);
     assertThat(spsDataView1.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(68);
     assertThat(spsDataView1.profileTierLevel.generalLevelIdc).isEqualTo(153);
@@ -403,6 +416,57 @@ public final class NalUnitUtilTest {
   }
 
   @Test
+  public void isNalUnitSei_h264() {
+    Format h264Format = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H264).build();
+    assertThat(isNalUnitSei(h264Format, UnsignedBytes.checkedCast(H264_NAL_UNIT_TYPE_SEI | 0xE0)))
+        .isTrue();
+    assertThat(
+            isNalUnitSei(
+                h264Format, UnsignedBytes.checkedCast(H265_NAL_UNIT_TYPE_PREFIX_SEI | 0xE0)))
+        .isFalse();
+  }
+
+  @Test
+  public void isNalUnitSei_h265() {
+    Format h264Format = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_H265).build();
+    assertThat(
+            isNalUnitSei(
+                h264Format, UnsignedBytes.checkedCast(H265_NAL_UNIT_TYPE_PREFIX_SEI << 1 | 0x81)))
+        .isTrue();
+    assertThat(
+            isNalUnitSei(h264Format, UnsignedBytes.checkedCast(H264_NAL_UNIT_TYPE_SEI << 1 | 0x81)))
+        .isFalse();
+  }
+
+  @Test
+  public void isNalUnitSei_dolbyVisionWithH264NalUnits() {
+    Format dolbyVisionWithH264NalUnits =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvav.09")
+            .build();
+    assertThat(
+            isNalUnitSei(
+                dolbyVisionWithH264NalUnits,
+                UnsignedBytes.checkedCast(H264_NAL_UNIT_TYPE_SEI | 0xE0)))
+        .isTrue();
+  }
+
+  @Test
+  public void isNalUnitSei_dolbyVisionWithH265NalUnits() {
+    Format dolbyVisionWithH265NalUnits =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.05.01")
+            .build();
+    assertThat(
+            isNalUnitSei(
+                dolbyVisionWithH265NalUnits,
+                UnsignedBytes.checkedCast(H265_NAL_UNIT_TYPE_PREFIX_SEI << 1 | 0x81)))
+        .isTrue();
+  }
+
+  @Test
   public void discardToSps() {
     assertDiscardToSpsMatchesExpected("", "");
     assertDiscardToSpsMatchesExpected("00", "");
@@ -436,6 +500,7 @@ public final class NalUnitUtilTest {
         NalUnitUtil.parseH265SpsNalUnitPayload(
             spsNalUnitPayload, 0, spsNalUnitPayload.length, nalHeader, null);
 
+    assertThat(spsData.maxSubLayersMinus1).isEqualTo(0);
     assertThat(spsData.profileTierLevel.constraintBytes).isEqualTo(new int[] {144, 0, 0, 0, 0, 0});
     assertThat(spsData.profileTierLevel.generalLevelIdc).isEqualTo(150);
     assertThat(spsData.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(4);
@@ -468,6 +533,7 @@ public final class NalUnitUtilTest {
         NalUnitUtil.parseH265SpsNalUnitPayload(
             spsNalUnitPayload, 0, spsNalUnitPayload.length, nalHeader, null);
 
+    assertThat(spsData.maxSubLayersMinus1).isEqualTo(0);
     assertThat(spsData.profileTierLevel.constraintBytes).isEqualTo(new int[] {0, 0, 0, 0, 0, 0});
     assertThat(spsData.profileTierLevel.generalLevelIdc).isEqualTo(150);
     assertThat(spsData.profileTierLevel.generalProfileCompatibilityFlags).isEqualTo(6);
@@ -485,6 +551,20 @@ public final class NalUnitUtilTest {
     assertThat(spsData.colorRange).isEqualTo(2);
     assertThat(spsData.colorTransfer).isEqualTo(6);
     assertThat(spsData.maxNumReorderPics).isEqualTo(0);
+  }
+
+  @Test
+  public void numberOfBytesInNalUnitHeader_vp8_returnsZero() {
+    Format vp8Video = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_VP8).build();
+
+    assertThat(numberOfBytesInNalUnitHeader(vp8Video)).isEqualTo(0);
+  }
+
+  @Test
+  public void isDependedOn_vp8_returnsTrue() {
+    Format vp8Video = new Format.Builder().setSampleMimeType(MimeTypes.VIDEO_VP8).build();
+
+    assertThat(isDependedOn(new byte[0], /* offset= */ 0, /* length= */ 0, vp8Video)).isTrue();
   }
 
   private static byte[] buildTestData() {

@@ -15,15 +15,13 @@
  */
 package androidx.media3.decoder.midi;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
-import androidx.media3.common.DataReader;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
@@ -33,6 +31,7 @@ import androidx.media3.common.util.Util;
 import androidx.media3.extractor.Extractor;
 import androidx.media3.extractor.ExtractorInput;
 import androidx.media3.extractor.ExtractorOutput;
+import androidx.media3.extractor.ForwardingTrackOutput;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.SeekMap;
 import androidx.media3.extractor.SeekPoint;
@@ -123,6 +122,7 @@ public final class MidiExtractor implements Extractor, SeekMap {
     trackOutput.format(
         new Format.Builder()
             .setCodecs(MimeTypes.AUDIO_MIDI)
+            .setContainerMimeType(MimeTypes.AUDIO_MIDI)
             .setSampleMimeType(MimeTypes.AUDIO_EXOPLAYER_MIDI)
             .build());
     output.endTracks();
@@ -216,8 +216,7 @@ public final class MidiExtractor implements Extractor, SeekMap {
             outputEmptySample();
           } else { // Event time is sooner than the maximum threshold.
             currentTimestampUs = nextCommandTimestampUs;
-            nextChunk.outputFrontSample(
-                checkStateNotNull(trackOutput), /* skipNoteEvents= */ false);
+            nextChunk.outputFrontSample(checkNotNull(trackOutput), /* skipNoteEvents= */ false);
             nextChunk.populateFrontTrackEvent();
           }
 
@@ -338,7 +337,7 @@ public final class MidiExtractor implements Extractor, SeekMap {
   }
 
   private void outputEmptySample() {
-    checkStateNotNull(trackOutput)
+    checkNotNull(trackOutput)
         .sampleMetadata(
             currentTimestampUs,
             /* flags= */ 0,
@@ -353,7 +352,7 @@ public final class MidiExtractor implements Extractor, SeekMap {
       long nextTimestampUs = nextChunk.peekNextTimestampUs();
 
       if (nextTimestampUs != C.TIME_UNSET && nextTimestampUs < seekTimeUs) {
-        nextChunk.outputFrontSample(checkStateNotNull(trackOutput), /* skipNoteEvents= */ true);
+        nextChunk.outputFrontSample(checkNotNull(trackOutput), /* skipNoteEvents= */ true);
         nextChunk.populateFrontTrackEvent();
         trackPriorityQueue.add(nextChunk);
       }
@@ -368,29 +367,11 @@ public final class MidiExtractor implements Extractor, SeekMap {
    * to the beginning of the MIDI input and output all non Note-On and Note-Off events to the {@link
    * MidiDecoder}.
    */
-  private static final class SingleKeyFrameTrackOutput implements TrackOutput {
-    private final TrackOutput trackOutput;
+  private static final class SingleKeyFrameTrackOutput extends ForwardingTrackOutput {
     private int outputSampleCount;
 
     private SingleKeyFrameTrackOutput(TrackOutput trackOutput) {
-      this.trackOutput = trackOutput;
-    }
-
-    @Override
-    public void format(Format format) {
-      trackOutput.format(format);
-    }
-
-    @Override
-    public int sampleData(
-        DataReader input, int length, boolean allowEndOfInput, @SampleDataPart int sampleDataPart)
-        throws IOException {
-      return trackOutput.sampleData(input, length, allowEndOfInput, sampleDataPart);
-    }
-
-    @Override
-    public void sampleData(ParsableByteArray data, int length, @SampleDataPart int sampleDataPart) {
-      trackOutput.sampleData(data, length, sampleDataPart);
+      super(trackOutput);
     }
 
     @Override
@@ -405,7 +386,7 @@ public final class MidiExtractor implements Extractor, SeekMap {
       if (outputSampleCount == 0) {
         flags |= C.BUFFER_FLAG_KEY_FRAME;
       }
-      trackOutput.sampleMetadata(timeUs, flags, size, offset, cryptoData);
+      super.sampleMetadata(timeUs, flags, size, offset, cryptoData);
       outputSampleCount++;
     }
 

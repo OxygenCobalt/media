@@ -15,8 +15,11 @@
  */
 package androidx.media3.muxer;
 
-import static androidx.media3.common.util.Assertions.checkState;
+import static androidx.media3.muxer.Boxes.getDolbyVisionProfileAndLevel;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
+import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
@@ -33,18 +36,18 @@ import java.nio.ByteBuffer;
    * <p>An {@link IllegalStateException} is thrown if the NAL units are invalid. The NAL units are
    * identified as per ITU-T H264 spec:Annex B.2.
    *
-   * <p>The input buffer must have position set to 0 and the position remains unchanged after
-   * calling this method.
+   * <p>The input buffer position remains unchanged after calling this method.
    */
   public static ImmutableList<ByteBuffer> findNalUnits(ByteBuffer input) {
     if (input.remaining() == 0) {
       return ImmutableList.of();
     }
+    input = input.asReadOnlyBuffer();
 
     // The algorithm always searches for 0x000001 start code but it will work for 0x00000001 start
     // code as well because the first 0 will be considered as a leading 0 and will be skipped.
 
-    int nalStartCodeIndex = skipLeadingZerosAndFindNalStartCodeIndex(input, /* currentIndex= */ 0);
+    int nalStartCodeIndex = skipLeadingZerosAndFindNalStartCodeIndex(input, input.position());
 
     int nalStartIndex = nalStartCodeIndex + THREE_BYTE_NAL_START_CODE_SIZE;
     boolean readingNalUnit = true;
@@ -69,7 +72,6 @@ import java.nio.ByteBuffer;
       }
     }
 
-    input.rewind();
     return nalUnits.build();
   }
 
@@ -103,7 +105,16 @@ import java.nio.ByteBuffer;
    * Returns whether the sample of the given MIME type will contain NAL units in Annex-B format
    * (ISO/IEC 14496-10 Annex B, which uses start codes to delineate NAL units).
    */
-  public static boolean doesSampleContainAnnexBNalUnits(String sampleMimeType) {
+  public static boolean doesSampleContainAnnexBNalUnits(Format format) {
+    String sampleMimeType = format.sampleMimeType;
+    checkNotNull(sampleMimeType);
+    if (sampleMimeType.equals(MimeTypes.VIDEO_DOLBY_VISION)) {
+      // Dolby vision with AV1 profile does not contain Nal units.
+      int profile = checkNotNull(getDolbyVisionProfileAndLevel(format)).first;
+      // Dolby vision with Profile 10 is equivalent to DolbyVisionProfileDvav110 of framework
+      // media codec constants.
+      return profile != 10;
+    }
     return sampleMimeType.equals(MimeTypes.VIDEO_H264)
         || sampleMimeType.equals(MimeTypes.VIDEO_H265);
   }

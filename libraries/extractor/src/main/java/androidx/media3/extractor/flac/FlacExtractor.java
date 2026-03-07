@@ -16,6 +16,7 @@
 package androidx.media3.extractor.flac;
 
 import static androidx.media3.common.util.Util.castNonNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
@@ -23,8 +24,9 @@ import static java.lang.annotation.ElementType.TYPE_USE;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.Metadata;
-import androidx.media3.common.util.Assertions;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.Extractor;
@@ -49,7 +51,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 /**
  * Extracts data from FLAC container format.
  *
- * <p>The format specification can be found at https://xiph.org/flac/format.html.
+ * <p>The format is specified in RFC 9639.
  */
 @UnstableApi
 public final class FlacExtractor implements Extractor {
@@ -57,6 +59,7 @@ public final class FlacExtractor implements Extractor {
   /** Factory for {@link FlacExtractor} instances. */
   public static final ExtractorsFactory FACTORY = () -> new Extractor[] {new FlacExtractor()};
 
+  // LINT.IfChange
   /*
    * Flags in the two FLAC extractors should be kept in sync. If we ever change this then
    * DefaultExtractorsFactory will need modifying, because it currently assumes this is the case.
@@ -78,6 +81,8 @@ public final class FlacExtractor implements Extractor {
    * required.
    */
   public static final int FLAG_DISABLE_ID3_METADATA = 1;
+
+  // LINT.ThenChange(../../../../../../../../decoder_flac/src/main/java/androidx/media3/decoder/flac/FlacExtractor.java)
 
   /** Parser state. */
   @Documented
@@ -228,10 +233,12 @@ public final class FlacExtractor implements Extractor {
       flacStreamMetadata = castNonNull(metadataHolder.flacStreamMetadata);
     }
 
-    Assertions.checkNotNull(flacStreamMetadata);
+    checkNotNull(flacStreamMetadata);
     minFrameSize = max(flacStreamMetadata.minFrameSize, FlacConstants.MIN_FRAME_HEADER_SIZE);
+    Format format = flacStreamMetadata.getFormat(streamMarkerAndInfoBlock, id3Metadata);
     castNonNull(trackOutput)
-        .format(flacStreamMetadata.getFormat(streamMarkerAndInfoBlock, id3Metadata));
+        .format(format.buildUpon().setContainerMimeType(MimeTypes.AUDIO_FLAC).build());
+    castNonNull(trackOutput).durationUs(flacStreamMetadata.getDurationUs());
 
     state = STATE_GET_FRAME_START_MARKER;
   }
@@ -249,8 +256,8 @@ public final class FlacExtractor implements Extractor {
 
   private @ReadResult int readFrames(ExtractorInput input, PositionHolder seekPosition)
       throws IOException {
-    Assertions.checkNotNull(trackOutput);
-    Assertions.checkNotNull(flacStreamMetadata);
+    checkNotNull(trackOutput);
+    checkNotNull(flacStreamMetadata);
 
     // Handle pending binary search seek if necessary.
     if (binarySearchSeeker != null && binarySearchSeeker.isSeeking()) {
@@ -303,9 +310,13 @@ public final class FlacExtractor implements Extractor {
       currentFrameFirstSampleNumber = nextFrameFirstSampleNumber;
     }
 
-    if (buffer.bytesLeft() < FlacConstants.MAX_FRAME_HEADER_SIZE) {
-      // The next frame header may not fit in the rest of the buffer, so put the trailing bytes at
-      // the start of the buffer, and reset the position and limit.
+    int remainingBufferCapacity = buffer.getData().length - buffer.limit();
+    if (buffer.bytesLeft() < FlacConstants.MAX_FRAME_HEADER_SIZE
+        && remainingBufferCapacity < FlacConstants.MAX_FRAME_HEADER_SIZE) {
+      // We're running out of bytes to read before buffer.limit, and the next frame header may not
+      // fit in the rest of buffer.data beyond buffer.limit, so we move the bytes between
+      // buffer.position and buffer.limit to the start of buffer.data, and reset the position and
+      // limit.
       int bytesLeft = buffer.bytesLeft();
       System.arraycopy(
           buffer.getData(), buffer.getPosition(), buffer.getData(), /* destPos= */ 0, bytesLeft);
@@ -317,8 +328,9 @@ public final class FlacExtractor implements Extractor {
   }
 
   private SeekMap getSeekMap(long firstFramePosition, long streamLength) {
-    Assertions.checkNotNull(flacStreamMetadata);
-    if (flacStreamMetadata.seekTable != null) {
+    checkNotNull(flacStreamMetadata);
+    if (flacStreamMetadata.seekTable != null
+        && flacStreamMetadata.seekTable.pointSampleNumbers.length > 0) {
       return new FlacSeekTableSeekMap(flacStreamMetadata, firstFramePosition);
     } else if (streamLength != C.LENGTH_UNSET && flacStreamMetadata.totalSamples > 0) {
       binarySearchSeeker =
@@ -344,7 +356,7 @@ public final class FlacExtractor implements Extractor {
    *     the search was not successful.
    */
   private long findFrame(ParsableByteArray data, boolean foundEndOfInput) {
-    Assertions.checkNotNull(flacStreamMetadata);
+    checkNotNull(flacStreamMetadata);
 
     int frameOffset = data.getPosition();
     while (frameOffset <= data.limit() - FlacConstants.MAX_FRAME_HEADER_SIZE) {

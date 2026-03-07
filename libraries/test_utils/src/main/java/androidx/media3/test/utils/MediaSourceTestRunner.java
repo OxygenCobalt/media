@@ -15,7 +15,8 @@
  */
 package androidx.media3.test.utils;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -28,7 +29,6 @@ import android.util.Pair;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Timeline;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -42,13 +42,17 @@ import androidx.media3.exoplayer.source.MediaSource.MediaSourceCaller;
 import androidx.media3.exoplayer.source.MediaSourceEventListener;
 import androidx.media3.exoplayer.upstream.Allocator;
 import androidx.media3.exoplayer.upstream.DefaultAllocator;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingDeque;
 import org.checkerframework.dataflow.qual.SideEffectFree;
 
@@ -93,26 +97,35 @@ public class MediaSourceTestRunner {
    * @param runnable The {@link Runnable} to run.
    */
   public void runOnPlaybackThread(final Runnable runnable) {
-    Throwable[] throwable = new Throwable[1];
-    CountDownLatch finishedLatch = new CountDownLatch(1);
+    ListenableFuture<Void> result =
+        asyncRunOnPlaybackThread(
+            () -> {
+              runnable.run();
+              return null;
+            });
+    try {
+      result.get();
+    } catch (InterruptedException | ExecutionException e) {
+      Util.sneakyThrow(e);
+    }
+  }
+
+  /**
+   * Runs the provided {@link Callable} on the playback thread and returns a future of the result.
+   *
+   * @param callable The {@link Callable} to run.
+   */
+  public <T> ListenableFuture<T> asyncRunOnPlaybackThread(Callable<T> callable) {
+    SettableFuture<T> result = SettableFuture.create();
     playbackHandler.post(
         () -> {
           try {
-            runnable.run();
+            result.set(callable.call());
           } catch (Throwable e) {
-            throwable[0] = e;
-          } finally {
-            finishedLatch.countDown();
+            result.setException(e);
           }
         });
-    try {
-      assertThat(finishedLatch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
-    } catch (InterruptedException e) {
-      Util.sneakyThrow(e);
-    }
-    if (throwable[0] != null) {
-      Util.sneakyThrow(throwable[0]);
-    }
+    return result;
   }
 
   /**
@@ -347,13 +360,13 @@ public class MediaSourceTestRunner {
     playbackThread.quit();
   }
 
-  private class MediaSourceListener implements MediaSourceCaller, MediaSourceEventListener {
+  public class MediaSourceListener implements MediaSourceCaller, MediaSourceEventListener {
 
     // MediaSourceCaller methods.
 
     @Override
     public void onSourceInfoRefreshed(MediaSource source, Timeline timeline) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
       timelines.addLast(timeline);
     }
 
@@ -364,8 +377,9 @@ public class MediaSourceTestRunner {
         int windowIndex,
         @Nullable MediaPeriodId mediaPeriodId,
         LoadEventInfo loadEventInfo,
-        MediaLoadData mediaLoadData) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+        MediaLoadData mediaLoadData,
+        int retryCount) {
+      checkState(Looper.myLooper() == playbackThread.getLooper());
     }
 
     @Override
@@ -374,7 +388,7 @@ public class MediaSourceTestRunner {
         @Nullable MediaPeriodId mediaPeriodId,
         LoadEventInfo loadEventInfo,
         MediaLoadData mediaLoadData) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
       completedLoads.add(Pair.create(windowIndex, mediaPeriodId));
     }
 
@@ -384,7 +398,7 @@ public class MediaSourceTestRunner {
         @Nullable MediaPeriodId mediaPeriodId,
         LoadEventInfo loadEventInfo,
         MediaLoadData mediaLoadData) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
     }
 
     @Override
@@ -395,19 +409,19 @@ public class MediaSourceTestRunner {
         MediaLoadData mediaLoadData,
         IOException error,
         boolean wasCanceled) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
     }
 
     @Override
     public void onUpstreamDiscarded(
         int windowIndex, @Nullable MediaPeriodId mediaPeriodId, MediaLoadData mediaLoadData) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
     }
 
     @Override
     public void onDownstreamFormatChanged(
         int windowIndex, @Nullable MediaPeriodId mediaPeriodId, MediaLoadData mediaLoadData) {
-      Assertions.checkState(Looper.myLooper() == playbackThread.getLooper());
+      checkState(Looper.myLooper() == playbackThread.getLooper());
     }
   }
 }

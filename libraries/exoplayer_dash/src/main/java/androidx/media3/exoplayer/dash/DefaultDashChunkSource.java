@@ -15,8 +15,7 @@
  */
 package androidx.media3.exoplayer.dash;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -91,10 +90,10 @@ public class DefaultDashChunkSource implements DashChunkSource {
 
     /**
      * Equivalent to {@link #Factory(ChunkExtractor.Factory, DataSource.Factory, int) new
-     * Factory(BundledChunkExtractor.FACTORY, dataSourceFactory, maxSegmentsPerLoad)}.
+     * Factory(new BundledChunkExtractor.Factory(), dataSourceFactory, maxSegmentsPerLoad)}.
      */
     public Factory(DataSource.Factory dataSourceFactory, int maxSegmentsPerLoad) {
-      this(BundledChunkExtractor.FACTORY, dataSourceFactory, maxSegmentsPerLoad);
+      this(new BundledChunkExtractor.Factory(), dataSourceFactory, maxSegmentsPerLoad);
     }
 
     /**
@@ -127,6 +126,15 @@ public class DefaultDashChunkSource implements DashChunkSource {
         boolean parseSubtitlesDuringExtraction) {
       chunkExtractorFactory.experimentalParseSubtitlesDuringExtraction(
           parseSubtitlesDuringExtraction);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    @Override
+    public Factory experimentalSetCodecsToParseWithinGopSampleDependencies(
+        @C.VideoCodecFlags int codecsToParseWithinGopSampleDependencies) {
+      chunkExtractorFactory.experimentalSetCodecsToParseWithinGopSampleDependencies(
+          codecsToParseWithinGopSampleDependencies);
       return this;
     }
 
@@ -421,15 +429,13 @@ public class DefaultDashChunkSource implements DashChunkSource {
     CmcdData.Factory cmcdDataFactory =
         cmcdConfiguration == null
             ? null
-            : new CmcdData.Factory(
-                cmcdConfiguration,
-                trackSelection,
-                max(0, bufferedDurationUs),
-                /* playbackRate= */ loadingInfo.playbackSpeed,
-                /* streamingFormat= */ CmcdData.Factory.STREAMING_FORMAT_DASH,
-                /* isLive= */ manifest.dynamic,
-                /* didRebuffer= */ loadingInfo.rebufferedSince(lastChunkRequestRealtimeMs),
-                /* isBufferEmpty= */ queue.isEmpty());
+            : new CmcdData.Factory(cmcdConfiguration, CmcdData.STREAMING_FORMAT_DASH)
+                .setTrackSelection(trackSelection)
+                .setBufferedDurationUs(max(0, bufferedDurationUs))
+                .setPlaybackRate(loadingInfo.playbackSpeed)
+                .setIsLive(manifest.dynamic)
+                .setDidRebuffer(loadingInfo.rebufferedSince(lastChunkRequestRealtimeMs))
+                .setIsBufferEmpty(queue.isEmpty());
     lastChunkRequestRealtimeMs = SystemClock.elapsedRealtime();
 
     RepresentationHolder representationHolder = updateSelectedBaseUrl(selectedTrackIndex);
@@ -546,8 +552,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
       // where it does we should ignore it.
       if (representationHolder.segmentIndex == null) {
         @Nullable
-        ChunkIndex chunkIndex =
-            checkStateNotNull(representationHolder.chunkExtractor).getChunkIndex();
+        ChunkIndex chunkIndex = checkNotNull(representationHolder.chunkExtractor).getChunkIndex();
         if (chunkIndex != null) {
           representationHolders[trackIndex] =
               representationHolder.copyWithNewSegmentIndex(
@@ -715,7 +720,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
    *     indexUri} is not {@code null}.
    * @param indexUri The URI pointing to index data. Can be {@code null} if {@code
    *     initializationUri} is not {@code null}.
-   * @param cmcdDataFactory The {@link CmcdData.Factory} for generating CMCD data.
+   * @param cmcdDataFactory The {@link CmcdData.Factory} for generating {@link CmcdData}.
    */
   @RequiresNonNull("#1.chunkExtractor")
   protected Chunk newInitializationChunk(
@@ -749,7 +754,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
             /* httpRequestHeaders= */ ImmutableMap.of());
     if (cmcdDataFactory != null) {
       CmcdData cmcdData =
-          cmcdDataFactory.setObjectType(CmcdData.Factory.OBJECT_TYPE_INIT_SEGMENT).createCmcdData();
+          cmcdDataFactory.setObjectType(CmcdData.OBJECT_TYPE_INIT_SEGMENT).createCmcdData();
       dataSpec = cmcdData.addToDataSpec(dataSpec);
     }
 
@@ -795,9 +800,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
               flags,
               /* httpRequestHeaders= */ ImmutableMap.of());
       if (cmcdDataFactory != null) {
-        cmcdDataFactory
-            .setChunkDurationUs(endTimeUs - startTimeUs)
-            .setObjectType(CmcdData.Factory.getObjectType(trackSelection));
+        cmcdDataFactory.setChunkDurationUs(endTimeUs - startTimeUs);
         @Nullable
         Pair<String, String> nextObjectAndRangeRequest =
             getNextObjectAndRangeRequest(firstSegmentNum, segmentUri, representationHolder);
@@ -854,9 +857,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
               flags,
               /* httpRequestHeaders= */ ImmutableMap.of());
       if (cmcdDataFactory != null) {
-        cmcdDataFactory
-            .setChunkDurationUs(endTimeUs - startTimeUs)
-            .setObjectType(CmcdData.Factory.getObjectType(trackSelection));
+        cmcdDataFactory.setChunkDurationUs(endTimeUs - startTimeUs);
         @Nullable
         Pair<String, String> nextObjectAndRangeRequest =
             getNextObjectAndRangeRequest(firstSegmentNum, segmentUri, representationHolder);
@@ -1044,7 +1045,7 @@ public class DefaultDashChunkSource implements DashChunkSource {
             newIndex);
       }
 
-      checkStateNotNull(newIndex);
+      checkNotNull(newIndex);
 
       long oldIndexFirstSegmentNum = oldIndex.getFirstSegmentNum();
       long oldIndexStartTimeUs = oldIndex.getTimeUs(oldIndexFirstSegmentNum);
@@ -1106,47 +1107,45 @@ public class DefaultDashChunkSource implements DashChunkSource {
     }
 
     public long getFirstSegmentNum() {
-      return checkStateNotNull(segmentIndex).getFirstSegmentNum() + segmentNumShift;
+      return checkNotNull(segmentIndex).getFirstSegmentNum() + segmentNumShift;
     }
 
     public long getFirstAvailableSegmentNum(long nowUnixTimeUs) {
-      return checkStateNotNull(segmentIndex)
-              .getFirstAvailableSegmentNum(periodDurationUs, nowUnixTimeUs)
+      return checkNotNull(segmentIndex).getFirstAvailableSegmentNum(periodDurationUs, nowUnixTimeUs)
           + segmentNumShift;
     }
 
     public long getSegmentCount() {
-      return checkStateNotNull(segmentIndex).getSegmentCount(periodDurationUs);
+      return checkNotNull(segmentIndex).getSegmentCount(periodDurationUs);
     }
 
     public long getSegmentStartTimeUs(long segmentNum) {
-      return checkStateNotNull(segmentIndex).getTimeUs(segmentNum - segmentNumShift);
+      return checkNotNull(segmentIndex).getTimeUs(segmentNum - segmentNumShift);
     }
 
     public long getSegmentEndTimeUs(long segmentNum) {
       return getSegmentStartTimeUs(segmentNum)
-          + checkStateNotNull(segmentIndex)
+          + checkNotNull(segmentIndex)
               .getDurationUs(segmentNum - segmentNumShift, periodDurationUs);
     }
 
     public long getSegmentNum(long positionUs) {
-      return checkStateNotNull(segmentIndex).getSegmentNum(positionUs, periodDurationUs)
+      return checkNotNull(segmentIndex).getSegmentNum(positionUs, periodDurationUs)
           + segmentNumShift;
     }
 
     public RangedUri getSegmentUrl(long segmentNum) {
-      return checkStateNotNull(segmentIndex).getSegmentUrl(segmentNum - segmentNumShift);
+      return checkNotNull(segmentIndex).getSegmentUrl(segmentNum - segmentNumShift);
     }
 
     public long getLastAvailableSegmentNum(long nowUnixTimeUs) {
       return getFirstAvailableSegmentNum(nowUnixTimeUs)
-          + checkStateNotNull(segmentIndex)
-              .getAvailableSegmentCount(periodDurationUs, nowUnixTimeUs)
+          + checkNotNull(segmentIndex).getAvailableSegmentCount(periodDurationUs, nowUnixTimeUs)
           - 1;
     }
 
     public boolean isSegmentAvailableAtFullNetworkSpeed(long segmentNum, long nowPeriodTimeUs) {
-      if (checkStateNotNull(segmentIndex).isExplicit()) {
+      if (checkNotNull(segmentIndex).isExplicit()) {
         // We don't support segment availability for explicit indices (internal ref: b/172894901).
         // Hence, also assume all segments in explicit indices are always available at full network
         // speed even if they end in the future.

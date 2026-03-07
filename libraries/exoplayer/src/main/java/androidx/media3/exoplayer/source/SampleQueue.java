@@ -15,11 +15,11 @@
  */
 package androidx.media3.exoplayer.source;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.exoplayer.source.SampleStream.FLAG_OMIT_SAMPLE_DATA;
 import static androidx.media3.exoplayer.source.SampleStream.FLAG_PEEK;
 import static androidx.media3.exoplayer.source.SampleStream.FLAG_REQUIRE_FORMAT;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.max;
 
 import android.os.Looper;
@@ -32,12 +32,10 @@ import androidx.media3.common.DataReader;
 import androidx.media3.common.DrmInitData;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.common.util.Util;
 import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.decoder.DecoderInputBuffer.InsufficientCapacityException;
 import androidx.media3.exoplayer.FormatHolder;
@@ -51,6 +49,7 @@ import androidx.media3.exoplayer.source.SampleStream.ReadFlags;
 import androidx.media3.exoplayer.upstream.Allocator;
 import androidx.media3.extractor.TrackOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /** A queue of media samples. */
 @UnstableApi
@@ -136,9 +135,7 @@ public class SampleQueue implements TrackOutput {
       DrmSessionManager drmSessionManager,
       DrmSessionEventListener.EventDispatcher drmEventDispatcher) {
     return new SampleQueue(
-        allocator,
-        Assertions.checkNotNull(drmSessionManager),
-        Assertions.checkNotNull(drmEventDispatcher));
+        allocator, checkNotNull(drmSessionManager), checkNotNull(drmEventDispatcher));
   }
 
   /**
@@ -154,9 +151,7 @@ public class SampleQueue implements TrackOutput {
       DrmSessionEventListener.EventDispatcher drmEventDispatcher) {
     drmSessionManager.setPlayer(playbackLooper, PlayerId.UNSET);
     return new SampleQueue(
-        allocator,
-        Assertions.checkNotNull(drmSessionManager),
-        Assertions.checkNotNull(drmEventDispatcher));
+        allocator, checkNotNull(drmSessionManager), checkNotNull(drmEventDispatcher));
   }
 
   protected SampleQueue(
@@ -301,7 +296,7 @@ public class SampleQueue implements TrackOutput {
   public void maybeThrowError() throws IOException {
     // TODO: Avoid throwing if the DRM error is not preventing a read operation.
     if (currentDrmSession != null && currentDrmSession.getState() == DrmSession.STATE_ERROR) {
-      throw Assertions.checkNotNull(currentDrmSession.getError());
+      throw checkNotNull(currentDrmSession.getError());
     }
   }
 
@@ -616,7 +611,7 @@ public class SampleQueue implements TrackOutput {
       int offset,
       @Nullable CryptoData cryptoData) {
     if (upstreamFormatAdjustmentRequired) {
-      format(Assertions.checkStateNotNull(unadjustedUpstreamFormat));
+      format(checkNotNull(unadjustedUpstreamFormat));
     }
 
     boolean isKeyframe = (flags & C.BUFFER_FLAG_KEY_FRAME) != 0;
@@ -707,7 +702,7 @@ public class SampleQueue implements TrackOutput {
         buffer.timeUs = C.TIME_END_OF_SOURCE;
         return C.RESULT_BUFFER_READ;
       } else if (upstreamFormat != null && (formatRequired || upstreamFormat != downstreamFormat)) {
-        onFormatResult(Assertions.checkNotNull(upstreamFormat), formatHolder);
+        onFormatResult(checkNotNull(upstreamFormat), formatHolder);
         return C.RESULT_FORMAT_READ;
       } else {
         return C.RESULT_NOTHING_READ;
@@ -740,7 +735,7 @@ public class SampleQueue implements TrackOutput {
 
   private synchronized boolean setUpstreamFormat(Format format) {
     upstreamFormatRequired = false;
-    if (Util.areEqual(format, upstreamFormat)) {
+    if (Objects.equals(format, upstreamFormat)) {
       // The format is unchanged. If format and upstreamFormat are different objects, we keep the
       // current upstreamFormat so we can detect format changes on the read side using cheap
       // referential quality.
@@ -930,7 +925,7 @@ public class SampleQueue implements TrackOutput {
       // This sample queue is not expected to handle DRM. Nothing to do.
       return;
     }
-    if (!isFirstFormat && Util.areEqual(oldDrmInitData, newDrmInitData)) {
+    if (!isFirstFormat && Objects.equals(oldDrmInitData, newDrmInitData)) {
       // Nothing to do.
       return;
     }

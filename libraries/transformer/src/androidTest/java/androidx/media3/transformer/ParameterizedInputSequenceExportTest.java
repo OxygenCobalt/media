@@ -16,20 +16,23 @@
  */
 package androidx.media3.transformer;
 
-import static androidx.media3.transformer.AndroidTestUtil.BT601_MP4_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.JPG_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.PNG_ASSET;
+import static androidx.media3.test.utils.AssetInfo.BT601_MP4_ASSET;
+import static androidx.media3.test.utils.AssetInfo.JPG_ASSET;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET;
+import static androidx.media3.test.utils.AssetInfo.PNG_ASSET;
 import static androidx.media3.transformer.ParameterizedAndroidTestUtil.assumeSequenceFormatsSupported;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.content.Context;
+import androidx.media3.common.C;
+import androidx.media3.common.util.Log;
 import androidx.media3.effect.Presentation;
 import androidx.media3.transformer.ParameterizedAndroidTestUtil.SdrImageItemConfig;
 import androidx.media3.transformer.ParameterizedAndroidTestUtil.SequenceConfig;
 import androidx.media3.transformer.ParameterizedAndroidTestUtil.VideoItemConfig;
 import androidx.test.core.app.ApplicationProvider;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import org.junit.Rule;
 import org.junit.Test;
@@ -47,6 +50,8 @@ import org.junit.runners.Parameterized.Parameters;
 /** Parameterized end-to-end test for exporting a {@link EditedMediaItemSequence}. */
 @RunWith(Parameterized.class)
 public final class ParameterizedInputSequenceExportTest {
+  private static final String TAG = "ParameterizedTest";
+
   private static final SdrImageItemConfig PNG_ITEM =
       new SdrImageItemConfig(PNG_ASSET, /* frameCount= */ 34);
   private static final SdrImageItemConfig JPG_ITEM =
@@ -64,35 +69,70 @@ public final class ParameterizedInputSequenceExportTest {
               /* audioProcessors= */ ImmutableList.of(),
               ImmutableList.of(Presentation.createForHeight(360))));
 
-  @Parameters(name = "{0}")
+  @Parameters
   public static ImmutableList<SequenceConfig> params() {
     return ImmutableList.of(
-        new SequenceConfig(PNG_ITEM, PNG_ITEM),
-        new SequenceConfig(PNG_ITEM, JPG_ITEM),
-        new SequenceConfig(PNG_ITEM, BT601_ITEM),
-        new SequenceConfig(PNG_ITEM, BT709_ITEM),
-        new SequenceConfig(JPG_ITEM, PNG_ITEM),
-        new SequenceConfig(JPG_ITEM, JPG_ITEM),
-        new SequenceConfig(JPG_ITEM, BT601_ITEM),
-        new SequenceConfig(JPG_ITEM, BT709_ITEM),
-        new SequenceConfig(BT601_ITEM, PNG_ITEM),
-        new SequenceConfig(BT601_ITEM, JPG_ITEM),
-        new SequenceConfig(BT601_ITEM, BT601_ITEM),
-        new SequenceConfig(BT601_ITEM, BT709_ITEM),
-        new SequenceConfig(BT709_ITEM, PNG_ITEM),
-        new SequenceConfig(BT709_ITEM, JPG_ITEM),
-        new SequenceConfig(BT709_ITEM, BT601_ITEM),
-        new SequenceConfig(BT709_ITEM, BT709_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), PNG_ITEM, PNG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), PNG_ITEM, JPG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), PNG_ITEM, BT601_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), PNG_ITEM, BT709_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), JPG_ITEM, PNG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), JPG_ITEM, JPG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), JPG_ITEM, BT601_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), JPG_ITEM, BT709_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT601_ITEM, PNG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT601_ITEM, JPG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT601_ITEM, BT601_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT601_ITEM, BT709_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT709_ITEM, PNG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT709_ITEM, JPG_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT709_ITEM, BT601_ITEM),
+        new SequenceConfig(ImmutableSet.of(C.TRACK_TYPE_VIDEO), BT709_ITEM, BT709_ITEM),
         new SequenceConfig(
-            BT709_ITEM, BT709_ITEM, PNG_ITEM, JPG_ITEM, BT709_ITEM, PNG_ITEM, BT709_ITEM),
+            ImmutableSet.of(C.TRACK_TYPE_VIDEO),
+            BT709_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            JPG_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            BT709_ITEM),
         new SequenceConfig(
-            PNG_ITEM, BT709_ITEM, BT709_ITEM, PNG_ITEM, PNG_ITEM, BT709_ITEM, PNG_ITEM),
+            ImmutableSet.of(C.TRACK_TYPE_VIDEO),
+            PNG_ITEM,
+            BT709_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            PNG_ITEM,
+            BT709_ITEM,
+            PNG_ITEM),
         new SequenceConfig(
-            PNG_ITEM, BT709_ITEM, BT601_ITEM, PNG_ITEM, PNG_ITEM, BT601_ITEM, PNG_ITEM),
+            ImmutableSet.of(C.TRACK_TYPE_VIDEO),
+            PNG_ITEM,
+            BT709_ITEM,
+            BT601_ITEM,
+            PNG_ITEM,
+            PNG_ITEM,
+            BT601_ITEM,
+            PNG_ITEM),
         new SequenceConfig(
-            PNG_ITEM, JPG_ITEM, BT709_ITEM, BT601_ITEM, BT709_ITEM, PNG_ITEM, BT601_ITEM),
+            ImmutableSet.of(C.TRACK_TYPE_VIDEO),
+            PNG_ITEM,
+            JPG_ITEM,
+            BT709_ITEM,
+            BT601_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            BT601_ITEM),
         new SequenceConfig(
-            BT601_ITEM, BT709_ITEM, PNG_ITEM, JPG_ITEM, BT709_ITEM, PNG_ITEM, BT601_ITEM));
+            ImmutableSet.of(C.TRACK_TYPE_VIDEO),
+            BT601_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            JPG_ITEM,
+            BT709_ITEM,
+            PNG_ITEM,
+            BT601_ITEM));
   }
 
   @Rule public final TestName testName = new TestName();
@@ -103,9 +143,11 @@ public final class ParameterizedInputSequenceExportTest {
   public void export_completesWithCorrectFrameCount() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
     String testId = testName.getMethodName();
+    Log.w(TAG, sequence.toString());
     assumeSequenceFormatsSupported(context, testId, sequence);
     Transformer transformer =
         new Transformer.Builder(context)
+            .experimentalSetMaxFramesInEncoder(16)
             .setEncoderFactory(
                 new DefaultEncoderFactory.Builder(context).setEnableFallback(false).build())
             .build();
@@ -123,9 +165,11 @@ public final class ParameterizedInputSequenceExportTest {
   public void export_withCompositionEffect_completesWithCorrectFrameCount() throws Exception {
     Context context = ApplicationProvider.getApplicationContext();
     String testId = testName.getMethodName();
+    Log.w(TAG, sequence.toString());
     assumeSequenceFormatsSupported(context, testId, sequence);
     Transformer transformer =
         new Transformer.Builder(context)
+            .experimentalSetMaxFramesInEncoder(16)
             .setEncoderFactory(
                 new DefaultEncoderFactory.Builder(context).setEnableFallback(false).build())
             .build();

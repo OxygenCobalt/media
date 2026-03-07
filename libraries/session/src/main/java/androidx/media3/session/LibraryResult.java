@@ -15,14 +15,15 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotEmpty;
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.core.app.BundleCompat;
@@ -242,6 +243,7 @@ public final class LibraryResult<V> {
    *
    * @param errorCode The error code.
    */
+  @SuppressLint("WrongConstant") // Setting Code on SessionError.Code.
   public static <V> LibraryResult<V> ofError(@Code int errorCode) {
     return ofError(new SessionError(errorCode, SessionError.DEFAULT_ERROR_MESSAGE, Bundle.EMPTY));
   }
@@ -258,6 +260,7 @@ public final class LibraryResult<V> {
    * @param errorCode The error code.
    * @param params The optional parameters to describe the error.
    */
+  @SuppressLint("WrongConstant") // Setting Code on SessionError.Code.
   public static <V> LibraryResult<V> ofError(@Code int errorCode, @Nullable LibraryParams params) {
     return new LibraryResult<>(
         /* resultCode= */ errorCode,
@@ -274,6 +277,7 @@ public final class LibraryResult<V> {
    *
    * @param sessionError The {@link SessionError}.
    */
+  @SuppressLint("WrongConstant") // Setting Code on SessionError.Code.
   @UnstableApi
   public static <V> LibraryResult<V> ofError(SessionError sessionError) {
     return new LibraryResult<>(
@@ -293,6 +297,7 @@ public final class LibraryResult<V> {
    * @param sessionError The {@link SessionError}.
    * @param params The {@link LibraryParams} sent by the browser.
    */
+  @SuppressLint("WrongConstant") // Setting Code on SessionError.Code.
   @UnstableApi
   public static <V> LibraryResult<V> ofError(SessionError sessionError, LibraryParams params) {
     return new LibraryResult<>(
@@ -320,7 +325,7 @@ public final class LibraryResult<V> {
   }
 
   private static void verifyMediaItem(MediaItem item) {
-    checkNotEmpty(item.mediaId, "mediaId must not be empty");
+    checkArgument(!TextUtils.isEmpty(item.mediaId), "mediaId must not be empty");
     checkArgument(item.mediaMetadata.isBrowsable != null, "mediaMetadata must specify isBrowsable");
     checkArgument(item.mediaMetadata.isPlayable != null, "mediaMetadata must specify isPlayable");
   }

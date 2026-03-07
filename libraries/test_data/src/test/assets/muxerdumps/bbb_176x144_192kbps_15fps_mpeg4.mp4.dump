@@ -9,10 +9,12 @@ numberOfTracks = 1
 track 0:
   total output bytes = 45694
   sample count = 15
+  track duration = 1000000
   format 0:
     averageBitrate = 365552
     peakBitrate = 365552
     id = 1
+    containerMimeType = video/mp4
     sampleMimeType = video/mp4v-es
     maxInputSize = 9256
     width = 176
@@ -21,7 +23,8 @@ track 0:
     colorInfo:
       lumaBitdepth = 8
       chromaBitdepth = 8
-    metadata = entries=[Mp4Timestamp: creation time=100000000, modification time=500000000, timescale=10000]
+    language = und
+    metadata = entries=[Mp4Timestamp: creation time=100000000, modification time=500000000, timescale=10000, ThumbnailMetadata: presentationTimeUs=0]
     initializationData:
       data = length 47, hash DC4DD041
   sample 0:

@@ -14,7 +14,6 @@
 
 apply from: '../../constants.gradle'
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
 
 android {
     namespace 'androidx.media3.demo.main'
@@ -24,6 +23,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+        coreLibraryDesugaringEnabled true
     }
 
     defaultConfig {
@@ -71,6 +71,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:" + desugarJdkLibsVersion
     compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
     implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
     implementation 'androidx.appcompat:appcompat:' + androidxAppCompatVersion
@@ -90,6 +91,7 @@ dependencies {
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-iamf')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-vp9')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-midi')
+    withDecoderExtensionsImplementation project(modulePrefix + 'lib-decoder-mpegh')
     withDecoderExtensionsImplementation project(modulePrefix + 'lib-datasource-rtmp')
 }
 

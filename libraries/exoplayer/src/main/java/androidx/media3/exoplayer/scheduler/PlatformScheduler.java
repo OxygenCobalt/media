@@ -15,7 +15,8 @@
  */
 package androidx.media3.exoplayer.scheduler;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static android.os.Build.VERSION.SDK_INT;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
@@ -55,7 +56,7 @@ public final class PlatformScheduler implements Scheduler {
           | Requirements.NETWORK_UNMETERED
           | Requirements.DEVICE_IDLE
           | Requirements.DEVICE_CHARGING
-          | (Util.SDK_INT >= 26 ? Requirements.DEVICE_STORAGE_NOT_LOW : 0);
+          | (SDK_INT >= 26 ? Requirements.DEVICE_STORAGE_NOT_LOW : 0);
 
   private final int jobId;
   private final ComponentName jobServiceComponentName;
@@ -120,7 +121,7 @@ public final class PlatformScheduler implements Scheduler {
     }
     builder.setRequiresDeviceIdle(requirements.isIdleRequired());
     builder.setRequiresCharging(requirements.isChargingRequired());
-    if (Util.SDK_INT >= 26 && requirements.isStorageNotLowRequired()) {
+    if (SDK_INT >= 26 && requirements.isStorageNotLowRequired()) {
       builder.setRequiresStorageNotLow(true);
     }
     builder.setPersisted(true);

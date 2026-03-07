@@ -17,10 +17,11 @@
 
 package androidx.media3.transformer;
 
-import static androidx.media3.transformer.AndroidTestUtil.JPG_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.JPG_ULTRA_HDR_ASSET;
+import static android.os.Build.VERSION.SDK_INT;
+import static androidx.media3.test.utils.AssetInfo.JPG_ASSET;
+import static androidx.media3.test.utils.AssetInfo.JPG_ULTRA_HDR_ASSET;
+import static androidx.media3.test.utils.FormatSupportAssumptions.assumeFormatsSupported;
 import static androidx.media3.transformer.AndroidTestUtil.assertSdrColors;
-import static androidx.media3.transformer.AndroidTestUtil.assumeFormatsSupported;
 import static androidx.media3.transformer.Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL;
 import static androidx.media3.transformer.SequenceEffectTestUtil.NO_EFFECT;
 import static androidx.media3.transformer.SequenceEffectTestUtil.oneFrameFromImage;
@@ -33,7 +34,6 @@ import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.BitmapLoader;
-import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSourceBitmapLoader;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -77,7 +77,7 @@ public final class TransformerUltraHdrTest {
   @Test
   public void exportUltraHdrImage_withUltraHdrEnabledOnUnsupportedApiLevel_fallbackToExportSdr()
       throws Exception {
-    assumeTrue(Util.SDK_INT < 34);
+    assumeTrue(SDK_INT < 34);
     assumeFormatsSupported(
         context,
         testId,
@@ -190,7 +190,7 @@ public final class TransformerUltraHdrTest {
           final BitmapLoader bitmapLoader;
 
           {
-            bitmapLoader = new DataSourceBitmapLoader(context);
+            bitmapLoader = new DataSourceBitmapLoader.Builder(context).build();
           }
 
           @Override

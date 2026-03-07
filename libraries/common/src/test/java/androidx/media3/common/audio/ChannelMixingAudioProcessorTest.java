@@ -15,11 +15,14 @@
  */
 package androidx.media3.common.audio;
 
+import static androidx.media3.test.utils.TestUtil.createByteBuffer;
+import static androidx.media3.test.utils.TestUtil.createFloatArray;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import androidx.media3.common.C;
 import androidx.media3.common.audio.AudioProcessor.AudioFormat;
+import androidx.media3.common.audio.AudioProcessor.StreamMetadata;
 import androidx.media3.common.audio.AudioProcessor.UnhandledAudioFormatException;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import java.nio.ByteBuffer;
@@ -34,6 +37,8 @@ public final class ChannelMixingAudioProcessorTest {
 
   private static final AudioFormat AUDIO_FORMAT_48KHZ_STEREO_16BIT =
       new AudioFormat(/* sampleRate= */ 48000, /* channelCount= */ 2, C.ENCODING_PCM_16BIT);
+  private static final AudioFormat AUDIO_FORMAT_48KHZ_STEREO_PCM =
+      new AudioFormat(/* sampleRate= */ 48000, /* channelCount= */ 2, C.ENCODING_PCM_FLOAT);
 
   private ChannelMixingAudioProcessor audioProcessor;
 
@@ -41,9 +46,11 @@ public final class ChannelMixingAudioProcessorTest {
   public void setUp() {
     audioProcessor = new ChannelMixingAudioProcessor();
     audioProcessor.putChannelMixingMatrix(
-        ChannelMixingMatrix.create(/* inputChannelCount= */ 2, /* outputChannelCount= */ 1));
+        ChannelMixingMatrix.createForConstantGain(
+            /* inputChannelCount= */ 2, /* outputChannelCount= */ 1));
     audioProcessor.putChannelMixingMatrix(
-        ChannelMixingMatrix.create(/* inputChannelCount= */ 1, /* outputChannelCount= */ 2));
+        ChannelMixingMatrix.createForConstantGain(
+            /* inputChannelCount= */ 1, /* outputChannelCount= */ 2));
   }
 
   @Test
@@ -102,7 +109,8 @@ public final class ChannelMixingAudioProcessorTest {
   @Test
   public void configureWithIdentityMatrix_isActiveReturnsFalse() throws Exception {
     audioProcessor.putChannelMixingMatrix(
-        ChannelMixingMatrix.create(/* inputChannelCount= */ 2, /* outputChannelCount= */ 2));
+        ChannelMixingMatrix.createForConstantGain(
+            /* inputChannelCount= */ 2, /* outputChannelCount= */ 2));
 
     audioProcessor.configure(AUDIO_FORMAT_48KHZ_STEREO_16BIT);
     assertThat(audioProcessor.isActive()).isFalse();
@@ -133,7 +141,8 @@ public final class ChannelMixingAudioProcessorTest {
   @Test
   public void scaledMixingMatrix_queueInput_outputIsScaled() throws Exception {
     audioProcessor.putChannelMixingMatrix(
-        ChannelMixingMatrix.create(/* inputChannelCount= */ 2, /* outputChannelCount= */ 2)
+        ChannelMixingMatrix.createForConstantGain(
+                /* inputChannelCount= */ 2, /* outputChannelCount= */ 2)
             .scaleBy(0.5f));
 
     audioProcessor.configure(AUDIO_FORMAT_48KHZ_STEREO_16BIT);
@@ -153,6 +162,14 @@ public final class ChannelMixingAudioProcessorTest {
     audioProcessor.queueInput(getByteBufferFromShortValues(32767, 32767, 0, 0, 32767, 0));
 
     assertThat(audioProcessor.getOutput()).isEqualTo(getByteBufferFromShortValues(32767, 0, 16383));
+  }
+
+  @Test
+  public void queueInput_withFloatPCMSamples_mixesOutput() throws Exception {
+    audioProcessor.configure(AUDIO_FORMAT_48KHZ_STEREO_PCM);
+    audioProcessor.flush(StreamMetadata.DEFAULT);
+    audioProcessor.queueInput(createByteBuffer(new float[] {0.75f, 0.25f, 0.25f, 0.75f}));
+    assertThat(createFloatArray(audioProcessor.getOutput())).isEqualTo(new float[] {0.5f, 0.5f});
   }
 
   private static ByteBuffer getByteBufferFromShortValues(int... values) {

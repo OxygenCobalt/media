@@ -17,6 +17,7 @@ package androidx.media3.extractor.ts;
 
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_DATA_ALIGNMENT_INDICATOR;
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_RANDOM_ACCESS_INDICATOR;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
@@ -26,7 +27,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.ParsableBitArray;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
@@ -60,6 +60,7 @@ public final class MpeghReader implements ElementaryStreamReader {
   private static final int MIN_MHAS_PACKET_HEADER_SIZE = 2;
   private static final int MAX_MHAS_PACKET_HEADER_SIZE = 15;
 
+  private final String containerMimeType;
   private final ParsableByteArray headerScratchBytes;
   private final ParsableBitArray headerScratchBits;
   private final ParsableByteArray dataScratchBytes;
@@ -89,8 +90,13 @@ public final class MpeghReader implements ElementaryStreamReader {
   private long mainStreamLabel;
   private boolean configFound;
 
-  /** Constructs a new reader for MPEG-H elementary streams. */
-  public MpeghReader() {
+  /**
+   * Constructs a new reader for MPEG-H elementary streams.
+   *
+   * @param containerMimeType The MIME type of the container holding the stream.
+   */
+  public MpeghReader(String containerMimeType) {
+    this.containerMimeType = containerMimeType;
     state = STATE_FINDING_SYNC;
     headerScratchBytes =
         new ParsableByteArray(new byte[MAX_MHAS_PACKET_HEADER_SIZE], MIN_MHAS_PACKET_HEADER_SIZE);
@@ -153,7 +159,8 @@ public final class MpeghReader implements ElementaryStreamReader {
 
   @Override
   public void consume(ParsableByteArray data) throws ParserException {
-    Assertions.checkStateNotNull(output); // Asserts that createTracks has been called.
+    // Asserts that createTracks has been called.
+    checkNotNull(output);
 
     while (data.bytesLeft() > 0) {
       switch (state) {
@@ -344,6 +351,7 @@ public final class MpeghReader implements ElementaryStreamReader {
       Format format =
           new Format.Builder()
               .setId(formatId)
+              .setContainerMimeType(containerMimeType)
               .setSampleMimeType(MimeTypes.AUDIO_MPEGH_MHM1)
               .setSampleRate(samplingRate)
               .setCodecs(codecs)

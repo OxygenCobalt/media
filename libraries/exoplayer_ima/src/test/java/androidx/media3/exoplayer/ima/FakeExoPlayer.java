@@ -15,7 +15,7 @@
  */
 package androidx.media3.exoplayer.ima;
 
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.os.Looper;
 import androidx.media3.common.C;
@@ -211,11 +211,6 @@ import androidx.media3.test.utils.StubExoPlayer;
   // ExoPlayer methods. Other methods are unsupported.
 
   @Override
-  public AudioComponent getAudioComponent() {
-    return null;
-  }
-
-  @Override
   public Looper getApplicationLooper() {
     return Looper.getMainLooper();
   }
@@ -272,7 +267,7 @@ import androidx.media3.test.utils.StubExoPlayer;
 
   @Override
   public TrackSelectionParameters getTrackSelectionParameters() {
-    return TrackSelectionParameters.DEFAULT_WITHOUT_CONTEXT;
+    return TrackSelectionParameters.DEFAULT;
   }
 
   @Override
