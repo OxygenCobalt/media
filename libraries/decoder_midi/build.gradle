@@ -34,11 +34,6 @@ dependencies {
     // Jsyn v17.2.0
     implementation 'com.github.philburk:jsyn:3f6b44b853bccc0d2e3027104d575fcc5ccb6d4e'
     compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
-    testImplementation 'androidx.test:core:' + androidxTestCoreVersion
-    testImplementation 'androidx.test.ext:junit:' + androidxTestJUnitVersion
-    testImplementation project(modulePrefix + 'test-utils')
-    testImplementation project(modulePrefix + 'test-data')
-    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }
 
 ext {

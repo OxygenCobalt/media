@@ -66,6 +66,4 @@ dependencies {
     implementation project(modulePrefix + 'lib-session')
     implementation project(modulePrefix + 'lib-datasource')
 
-    testImplementation project(modulePrefix + 'test-utils')
-    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }

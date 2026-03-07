@@ -42,13 +42,6 @@ dependencies {
     implementation 'androidx.collection:collection:' + androidxCollectionVersion
     implementation 'androidx.media:media:' + androidxMediaVersion
     implementation 'androidx.core:core:' + androidxCoreVersion
-    testImplementation 'com.squareup.okhttp3:mockwebserver:' + okhttpVersion
-    testImplementation project(modulePrefix + 'test-data')
-    testImplementation project(modulePrefix + 'test-utils')
-    testImplementation project(modulePrefix + 'test-utils-robolectric')
-    testImplementation project(modulePrefix + 'lib-exoplayer')
-    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
-    testImplementation 'com.google.testparameterinjector:test-parameter-injector:' + testParameterInjectorVersion
 }
 
 ext {

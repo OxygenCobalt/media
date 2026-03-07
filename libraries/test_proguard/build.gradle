@@ -72,7 +72,4 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:' + androidxAppCompatVersion
     implementation 'com.google.guava:guava:' + guavaVersion
     compileOnly 'org.jetbrains.kotlin:kotlin-annotations-jvm:' + kotlinAnnotationsVersion
-    androidTestImplementation 'androidx.test:core:' + androidxTestCoreVersion
-    androidTestImplementation 'androidx.test.ext:junit:' + androidxTestJUnitVersion
-    androidTestImplementation 'androidx.test:runner:' + androidxTestRunnerVersion
 }

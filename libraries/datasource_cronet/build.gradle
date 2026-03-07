@@ -31,16 +31,8 @@ dependencies {
     compileOnly 'com.google.errorprone:error_prone_annotations:' + errorProneVersion
     compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
     compileOnly 'org.jetbrains.kotlin:kotlin-annotations-jvm:' + kotlinAnnotationsVersion
-    androidTestImplementation 'androidx.test:rules:' + androidxTestRulesVersion
-    androidTestImplementation 'androidx.test:runner:' + androidxTestRunnerVersion
-    androidTestImplementation 'com.linkedin.dexmaker:dexmaker-mockito:' + dexmakerVersion
     // Instrumentation tests assume that an app-packaged version of cronet is
     // available.
-    androidTestImplementation 'org.chromium.net:cronet-embedded:108.5359.79'
-    androidTestImplementation project(modulePrefix + 'test-utils')
-    testImplementation project(modulePrefix + 'test-utils')
-    testImplementation 'com.squareup.okhttp3:mockwebserver:' + okhttpVersion
-    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }
 
 ext {

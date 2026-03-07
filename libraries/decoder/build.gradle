@@ -33,10 +33,6 @@ dependencies {
     api project(modulePrefix + 'lib-common')
     implementation 'androidx.annotation:annotation:' + androidxAnnotationVersion
     compileOnly 'org.checkerframework:checker-qual:' + checkerframeworkVersion
-    testImplementation 'androidx.test:core:' + androidxTestCoreVersion
-    testImplementation 'androidx.test.ext:junit:' + androidxTestJUnitVersion
-    testImplementation 'com.google.truth:truth:' + truthVersion
-    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 }
 
 ext {
