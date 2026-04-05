@@ -15,7 +15,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 apply from: "$gradle.ext.androidxMediaSettingsDir/common_library_config.gradle"
-apply plugin: 'kotlin-android'
 
 android {
     namespace 'androidx.media3.exoplayer'
