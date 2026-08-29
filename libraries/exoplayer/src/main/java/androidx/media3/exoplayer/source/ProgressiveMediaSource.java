@@ -96,6 +96,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     private int singleTrackId;
     @Nullable private Format singleTrackFormat;
     private boolean loadOnlySelectedTracks;
+    private boolean experimentalEnableHagcPlayback;
 
     /**
      * Creates a new factory for {@link ProgressiveMediaSource}s.
@@ -186,6 +187,19 @@ public final class ProgressiveMediaSource extends BaseMediaSource
       this.drmSessionManagerProvider = drmSessionManagerProvider;
       this.loadErrorHandlingPolicy = loadErrorHandlingPolicy;
       this.continueLoadingCheckIntervalBytes = continueLoadingCheckIntervalBytes;
+      this.experimentalEnableHagcPlayback = true;
+    }
+
+    /**
+     * Sets whether to enable experimental HAGC (ST 2094-50) metadata playback support.
+     *
+     * @param enableHagcPlayback Whether experimental HAGC metadata playback is enabled.
+     * @return This factory, for convenience.
+     */
+    @CanIgnoreReturnValue
+    public Factory setExperimentalEnableHagcPlayback(boolean enableHagcPlayback) {
+      this.experimentalEnableHagcPlayback = enableHagcPlayback;
+      return this;
     }
 
     @CanIgnoreReturnValue
@@ -303,6 +317,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
           loadErrorHandlingPolicy,
           continueLoadingCheckIntervalBytes,
           loadOnlySelectedTracks,
+          experimentalEnableHagcPlayback,
           singleTrackId,
           singleTrackFormat,
           downloadExecutorSupplier);
@@ -315,7 +330,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
   }
 
   /**
-   * The default number of bytes that should be loaded between each each invocation of {@link
+   * The default number of bytes that should be loaded between each invocation of {@link
    * MediaPeriod.Callback#onContinueLoadingRequested(SequenceableLoader)}.
    */
   public static final int DEFAULT_LOADING_CHECK_INTERVAL_BYTES = 1024 * 1024;
@@ -326,6 +341,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
   private final LoadErrorHandlingPolicy loadableLoadErrorHandlingPolicy;
   private final int continueLoadingCheckIntervalBytes;
   private final boolean loadOnlySelectedTracks;
+  private final boolean experimentalEnableHagcPlayback;
 
   /**
    * The ID passed to {@link Factory#enableLazyLoadingWithSingleTrack(int, Format)}. Only valid if
@@ -345,6 +361,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
   private long timelineDurationUs;
   private boolean timelineIsSeekable;
   private boolean timelineIsLive;
+  private boolean hasSeenNonEstimatedSeekMap;
   @Nullable private TransferListener transferListener;
 
   @GuardedBy("this")
@@ -360,6 +377,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
       LoadErrorHandlingPolicy loadableLoadErrorHandlingPolicy,
       int continueLoadingCheckIntervalBytes,
       boolean loadOnlySelectedTracks,
+      boolean experimentalEnableHagcPlayback,
       int singleTrackId,
       @Nullable Format singleTrackFormat,
       @Nullable Supplier<ReleasableExecutor> downloadExecutorSupplier) {
@@ -370,6 +388,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     this.loadableLoadErrorHandlingPolicy = loadableLoadErrorHandlingPolicy;
     this.continueLoadingCheckIntervalBytes = continueLoadingCheckIntervalBytes;
     this.loadOnlySelectedTracks = loadOnlySelectedTracks;
+    this.experimentalEnableHagcPlayback = experimentalEnableHagcPlayback;
     this.singleTrackFormat = singleTrackFormat;
     this.singleTrackId = singleTrackId;
     this.timelineIsPlaceholder = true;
@@ -431,6 +450,7 @@ public final class ProgressiveMediaSource extends BaseMediaSource
         localConfiguration.customCacheKey,
         continueLoadingCheckIntervalBytes,
         loadOnlySelectedTracks,
+        experimentalEnableHagcPlayback,
         singleTrackId,
         singleTrackFormat,
         Util.msToUs(localConfiguration.imageDurationMs),
@@ -469,6 +489,12 @@ public final class ProgressiveMediaSource extends BaseMediaSource
 
   @Override
   public void onSourceInfoRefreshed(long durationUs, SeekMap seekMap, boolean isLive) {
+    if (hasSeenNonEstimatedSeekMap && seekMap.isEstimated()) {
+      // If we've seen a non-estimated seekMap and the new seekMap is estimated, then we are
+      // receiving the out-of-date source info from the period, and we should suppress it.
+      return;
+    }
+    hasSeenNonEstimatedSeekMap = !seekMap.isEstimated();
     // If we already have the duration from a previous source info refresh, use it.
     durationUs = durationUs == C.TIME_UNSET ? timelineDurationUs : durationUs;
     boolean isSeekable = seekMap.isSeekable();

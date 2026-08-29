@@ -16,7 +16,7 @@
 
 # LINT.IfChange
 cmake_minimum_required(VERSION 3.21.0 FATAL_ERROR)
-# LINT.ThenChange(../../../build.gradle)
+# LINT.ThenChange(../../../build.gradle.kts)
 
 # Enable C++11 features.
 set(CMAKE_CXX_STANDARD 11)
@@ -59,6 +59,3 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
     target_link_options(ffmpegJNI PRIVATE "-Wl,-Bsymbolic")
 endif()
 
-# Enable 16 KB ELF alignment.
-target_link_options(ffmpegJNI
-                    PRIVATE "-Wl,-z,max-page-size=16384")

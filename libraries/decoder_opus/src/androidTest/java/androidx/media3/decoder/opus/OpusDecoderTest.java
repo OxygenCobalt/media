@@ -16,7 +16,6 @@
 package androidx.media3.decoder.opus;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assume.assumeTrue;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -106,7 +105,7 @@ public final class OpusDecoderTest {
 
   @Test
   public void decode_removesPreSkipFromOutput() throws OpusDecoderException {
-    assumeTrue(OpusLibrary.isAvailable());
+    assertThat(OpusLibrary.isAvailable()).isTrue();
     OpusDecoder decoder =
         new OpusDecoder(
             /* numInputBuffers= */ 0,
@@ -124,9 +123,8 @@ public final class OpusDecoderTest {
   }
 
   @Test
-  public void decode_whenDiscardPaddingDisabled_returnsDiscardPadding()
-      throws OpusDecoderException {
-    assumeTrue(OpusLibrary.isAvailable());
+  public void decode_withPaddingInSupplementalData_removesPadding() throws OpusDecoderException {
+    assertThat(OpusLibrary.isAvailable()).isTrue();
     OpusDecoder decoder =
         new OpusDecoder(
             /* numInputBuffers= */ 0,
@@ -135,28 +133,6 @@ public final class OpusDecoderTest {
             createInitializationData(/* preSkipNanos= */ 0),
             /* cryptoConfig= */ null,
             /* outputFloat= */ false);
-    DecoderInputBuffer input =
-        createInputBuffer(
-            decoder,
-            ENCODED_DATA,
-            /* supplementalData= */ buildNativeOrderByteArray(DISCARD_PADDING_NANOS));
-    SimpleDecoderOutputBuffer output = decoder.createOutputBuffer();
-    assertThat(decoder.decode(input, output, false)).isNull();
-    assertThat(output.data.remaining()).isEqualTo(DECODED_DATA_SIZE);
-  }
-
-  @Test
-  public void decode_whenDiscardPaddingEnabled_removesDiscardPadding() throws OpusDecoderException {
-    assumeTrue(OpusLibrary.isAvailable());
-    OpusDecoder decoder =
-        new OpusDecoder(
-            /* numInputBuffers= */ 0,
-            /* numOutputBuffers= */ 0,
-            /* initialInputBufferSize= */ 0,
-            createInitializationData(/* preSkipNanos= */ 0),
-            /* cryptoConfig= */ null,
-            /* outputFloat= */ false);
-    decoder.experimentalSetDiscardPaddingEnabled(true);
     DecoderInputBuffer input =
         createInputBuffer(
             decoder,

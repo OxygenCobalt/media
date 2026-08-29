@@ -60,6 +60,16 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
   public static final FramePredicate NO_FRAMES_PREDICATE =
       (majorVersion, id0, id1, id2, id3) -> false;
 
+  /** A predicate that indicates artwork frames should not be decoded. */
+  public static final FramePredicate NO_ARTWORK_PREDICATE =
+      (majorVersion, id0, id1, id2, id3) -> {
+        if (majorVersion == 2) {
+          return !(id0 == 'P' && id1 == 'I' && id2 == 'C');
+        } else {
+          return !(id0 == 'A' && id1 == 'P' && id2 == 'I' && id3 == 'C');
+        }
+      };
+
   private static final String TAG = "Id3Decoder";
 
   /** The first three bytes of a well formed ID3 tag header. */
@@ -372,7 +382,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
       frameSize = removeUnsynchronization(id3Data, frameSize);
     }
 
-    Id3Frame frame = null;
+    @Nullable Id3Frame frame = null;
     Throwable error = null;
     try {
       if (frameId0 == 'T'
@@ -647,6 +657,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     return new CommentFrame(language, description, text);
   }
 
+  @Nullable
   private static ChapterFrame decodeChapterFrame(
       ParsableByteArray id3Data,
       int frameSize,
@@ -666,6 +677,9 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
 
     int startTime = id3Data.readInt();
     int endTime = id3Data.readInt();
+    if (startTime > endTime) {
+      return null;
+    }
     long startOffset = id3Data.readUnsignedInt();
     if (startOffset == 0xFFFFFFFFL) {
       startOffset = C.INDEX_UNSET;
