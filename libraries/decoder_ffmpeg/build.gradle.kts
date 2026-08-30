@@ -52,7 +52,6 @@ val assembleFfmpeg =
       } else {
         val ndkDir = androidComponents.sdkComponents.ndkDirectory.get().asFile
         commandLine(
-          "sh",
           jniDir.resolve("build_ffmpeg.sh"),
           project.file("src/main"),
           ndkDir,
