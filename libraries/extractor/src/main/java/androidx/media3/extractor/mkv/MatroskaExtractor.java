@@ -37,6 +37,7 @@ import androidx.media3.common.Label;
 import androidx.media3.common.Metadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
+import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.ParsableByteArray;
@@ -109,7 +110,7 @@ public class MatroskaExtractor implements Extractor {
   @Target(TYPE_USE)
   @IntDef(
       flag = true,
-      value = {FLAG_DISABLE_SEEK_FOR_CUES, FLAG_EMIT_RAW_SUBTITLE_DATA})
+      value = {FLAG_DISABLE_SEEK_FOR_CUES, FLAG_EMIT_RAW_SUBTITLE_DATA, FLAG_DISABLE_HAGC_METADATA})
   public @interface Flags {}
 
   /**
@@ -127,6 +128,9 @@ public class MatroskaExtractor implements Extractor {
    * transcoded to {@link MimeTypes#APPLICATION_MEDIA3_CUES} during extraction.
    */
   public static final int FLAG_EMIT_RAW_SUBTITLE_DATA = 1 << 1; // 2
+
+  /** Flag to disable parsing of HAGC (ST 2094-50) metadata. */
+  public static final int FLAG_DISABLE_HAGC_METADATA = 1 << 2; // 4
 
   /**
    * @deprecated Use {@link #newFactory(SubtitleParser.Factory)} instead.
@@ -453,6 +457,7 @@ public class MatroskaExtractor implements Extractor {
   private final SparseArray<Track> tracks;
   private final LongSparseArray<ChapterEntry> chapters;
   private final boolean seekForCuesEnabled;
+  private final boolean parseHagcMetadata;
   private final boolean parseSubtitlesDuringExtraction;
   private final SubtitleParser.Factory subtitleParserFactory;
 
@@ -586,6 +591,7 @@ public class MatroskaExtractor implements Extractor {
     this.perTrackCues = new SparseArray<>();
     seekForCuesEnabled = (flags & FLAG_DISABLE_SEEK_FOR_CUES) == 0;
     parseSubtitlesDuringExtraction = (flags & FLAG_EMIT_RAW_SUBTITLE_DATA) == 0;
+    parseHagcMetadata = (flags & FLAG_DISABLE_HAGC_METADATA) == 0;
     varintReader = new VarintReader();
     chapters = new LongSparseArray<>();
     tracks = new SparseArray<>();
@@ -852,18 +858,8 @@ public class MatroskaExtractor implements Extractor {
       case ID_CLUSTER:
         if (tracksContentPosition != C.INDEX_UNSET && !readTracks) {
           seekForTracks = true;
-        }
-        if (!sentSeekMap) {
-          // We need to build cues before parsing the cluster.
-          if (seekForCuesEnabled && cuesContentPosition != C.INDEX_UNSET) {
-            // We know where the Cues element is located. Seek to request it.
-            seekForCues = true;
-          } else {
-            // We don't know where the Cues element is located. It's most likely omitted. Allow
-            // playback, but disable seeking.
-            extractorOutput.seekMap(new SeekMap.Unseekable(durationUs));
-            sentSeekMap = true;
-          }
+        } else {
+          maybePrepareSeekMap();
         }
         break;
       case ID_BLOCK_GROUP:
@@ -1127,6 +1123,9 @@ public class MatroskaExtractor implements Extractor {
         }
 
         readTracks = true;
+        if (seekPositionAfterReadingTracks != C.INDEX_UNSET) {
+          maybePrepareSeekMap();
+        }
         if (maybeSendFormatsEarly) {
           maybeEndTracks();
         }
@@ -1719,6 +1718,12 @@ public class MatroskaExtractor implements Extractor {
         && CODEC_ID_VP9.equals(track.codecId)) {
       supplementalData.reset(contentSize);
       input.readFully(supplementalData.getData(), 0, contentSize);
+      if (!parseHagcMetadata) {
+        byte[] data = supplementalData.getData();
+        if (CodecSpecificDataUtil.isHagcMetadata(data, contentSize)) {
+          supplementalData.reset(0);
+        }
+      }
     } else {
       // Unhandled block additional data.
       input.skipFully(contentSize);
@@ -2287,6 +2292,22 @@ public class MatroskaExtractor implements Extractor {
   @EnsuresNonNull("extractorOutput")
   private void assertInitialized() {
     checkNotNull(extractorOutput);
+  }
+
+  private void maybePrepareSeekMap() {
+    if (sentSeekMap) {
+      return; // Already evaluated
+    }
+    // We need to build cues before parsing the cluster.
+    if (seekForCuesEnabled && cuesContentPosition != C.INDEX_UNSET) {
+      // We know where the Cues element is located. Seek to request it.
+      seekForCues = true;
+    } else {
+      // We don't know where the Cues element is located. It's most likely omitted. Allow
+      // playback, but disable seeking.
+      checkNotNull(extractorOutput).seekMap(new SeekMap.Unseekable(durationUs));
+      sentSeekMap = true;
+    }
   }
 
   private void maybeEndTracks() {

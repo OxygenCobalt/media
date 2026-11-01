@@ -97,7 +97,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     private int singleTrackId;
     @Nullable private Format singleTrackFormat;
     private boolean loadOnlySelectedTracks;
-    private boolean experimentalEnableHagcPlayback;
 
     /**
      * Creates a new factory for {@link ProgressiveMediaSource}s.
@@ -188,19 +187,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
       this.drmSessionManagerProvider = drmSessionManagerProvider;
       this.loadErrorHandlingPolicy = loadErrorHandlingPolicy;
       this.continueLoadingCheckIntervalBytes = continueLoadingCheckIntervalBytes;
-      this.experimentalEnableHagcPlayback = true;
-    }
-
-    /**
-     * Sets whether to enable experimental HAGC (ST 2094-50) metadata playback support.
-     *
-     * @param enableHagcPlayback Whether experimental HAGC metadata playback is enabled.
-     * @return This factory, for convenience.
-     */
-    @CanIgnoreReturnValue
-    public Factory setExperimentalEnableHagcPlayback(boolean enableHagcPlayback) {
-      this.experimentalEnableHagcPlayback = enableHagcPlayback;
-      return this;
     }
 
     @CanIgnoreReturnValue
@@ -318,7 +304,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
           loadErrorHandlingPolicy,
           continueLoadingCheckIntervalBytes,
           loadOnlySelectedTracks,
-          experimentalEnableHagcPlayback,
           singleTrackId,
           singleTrackFormat,
           downloadExecutorSupplier);
@@ -421,7 +406,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
   private final LoadErrorHandlingPolicy loadableLoadErrorHandlingPolicy;
   private final int continueLoadingCheckIntervalBytes;
   private final boolean loadOnlySelectedTracks;
-  private final boolean experimentalEnableHagcPlayback;
 
   /**
    * The ID passed to {@link Factory#enableLazyLoadingWithSingleTrack(int, Format)}. Only valid if
@@ -457,7 +441,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
       LoadErrorHandlingPolicy loadableLoadErrorHandlingPolicy,
       int continueLoadingCheckIntervalBytes,
       boolean loadOnlySelectedTracks,
-      boolean experimentalEnableHagcPlayback,
       int singleTrackId,
       @Nullable Format singleTrackFormat,
       @Nullable Supplier<ReleasableExecutor> downloadExecutorSupplier) {
@@ -468,7 +451,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     this.loadableLoadErrorHandlingPolicy = loadableLoadErrorHandlingPolicy;
     this.continueLoadingCheckIntervalBytes = continueLoadingCheckIntervalBytes;
     this.loadOnlySelectedTracks = loadOnlySelectedTracks;
-    this.experimentalEnableHagcPlayback = experimentalEnableHagcPlayback;
     this.singleTrackFormat = singleTrackFormat;
     this.singleTrackId = singleTrackId;
     this.timelineIsPlaceholder = true;
@@ -530,7 +512,6 @@ public final class ProgressiveMediaSource extends BaseMediaSource
         localConfiguration.customCacheKey,
         continueLoadingCheckIntervalBytes,
         loadOnlySelectedTracks,
-        experimentalEnableHagcPlayback,
         singleTrackId,
         singleTrackFormat,
         Util.msToUs(localConfiguration.imageDurationMs),
