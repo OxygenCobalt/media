@@ -19,8 +19,10 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.Timeline;
 import androidx.media3.exoplayer.source.ShuffleOrder;
+import androidx.media3.exoplayer.source.SinglePeriodTimeline;
 import androidx.media3.test.utils.FakeTimeline;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
@@ -31,6 +33,62 @@ import org.junit.runner.RunWith;
 /** Unit test for {@link PlaylistTimeline}. */
 @RunWith(AndroidJUnit4.class)
 public class PlaylistTimelineTest {
+
+  @Test
+  public void sourceRefresh_preservesOldSnapshotAndMatchesRebuiltTimeline() {
+    MediaSourceInfoHolder first = mock(MediaSourceInfoHolder.class);
+    MediaSourceInfoHolder second = mock(MediaSourceInfoHolder.class);
+    when(first.getUid()).thenReturn("first");
+    when(second.getUid()).thenReturn("second");
+    when(first.getTimeline()).thenReturn(singlePeriod(100));
+    when(second.getTimeline()).thenReturn(singlePeriod(200));
+    List<MediaSourceInfoHolder> holders = ImmutableList.of(first, second);
+    ShuffleOrder order = new ShuffleOrder.DefaultShuffleOrder(2, 0);
+    PlaylistTimeline original = new PlaylistTimeline(holders, order);
+    assertThat(original.copyWithUpdatedTimelines(holders, order)).isSameInstanceAs(original);
+
+    when(first.getTimeline()).thenReturn(singlePeriod(300));
+    PlaylistTimeline updated = original.copyWithUpdatedTimelines(holders, order);
+    PlaylistTimeline rebuilt = new PlaylistTimeline(holders, order);
+
+    assertThat(original.getWindow(0, new Timeline.Window()).durationUs).isEqualTo(100);
+    assertThat(updated.getWindow(0, new Timeline.Window()).durationUs).isEqualTo(300);
+    assertThat(updated.getUidOfPeriod(1)).isEqualTo(original.getUidOfPeriod(1));
+    assertThat(updated).isEqualTo(rebuilt);
+    assertThat(rebuilt).isEqualTo(updated);
+    assertThat(updated.hashCode()).isEqualTo(rebuilt.hashCode());
+
+    // A new but equal source timeline must not become an observable playlist change.
+    when(first.getTimeline()).thenReturn(singlePeriod(300));
+    PlaylistTimeline equivalent = updated.copyWithUpdatedTimelines(holders, order);
+    assertThat(equivalent).isEqualTo(updated);
+    assertThat(equivalent.hashCode()).isEqualTo(updated.hashCode());
+  }
+
+  @Test
+  public void sourceWindowCountChange_rebuildsOffsetsWithoutChangingUnaffectedUids() {
+    MediaSourceInfoHolder first = mock(MediaSourceInfoHolder.class);
+    MediaSourceInfoHolder second = mock(MediaSourceInfoHolder.class);
+    when(first.getUid()).thenReturn("first");
+    when(second.getUid()).thenReturn("second");
+    when(first.getTimeline()).thenReturn(singlePeriod(100));
+    when(second.getTimeline()).thenReturn(singlePeriod(200));
+    List<MediaSourceInfoHolder> holders = ImmutableList.of(first, second);
+    ShuffleOrder order = new ShuffleOrder.DefaultShuffleOrder(2, 0);
+    PlaylistTimeline original = new PlaylistTimeline(holders, order);
+
+    when(first.getTimeline()).thenReturn(new FakeTimeline(2));
+    PlaylistTimeline updated = original.copyWithUpdatedTimelines(holders, order);
+
+    assertThat(updated.getWindowCount()).isEqualTo(3);
+    assertThat(updated.getUidOfPeriod(2)).isEqualTo(original.getUidOfPeriod(1));
+    assertThat(updated).isEqualTo(new PlaylistTimeline(holders, order));
+    assertThat(original.getWindowCount()).isEqualTo(2);
+  }
+
+  private static Timeline singlePeriod(long durationUs) {
+    return new SinglePeriodTimeline(durationUs, true, false, false, null, MediaItem.EMPTY);
+  }
 
   @Test
   public void copyWithPlaceholderTimeline_equalTimelineExceptPlaceholderFlag() {

@@ -939,6 +939,10 @@ public interface ExoPlayer extends Player {
      * true, these initial preparations are triggered only when the player starts buffering the
      * media.
      *
+     * <p>With lazy preparation, factories supporting {@link
+     * MediaSource.Factory#createSourceDescriptor} also defer source construction until buffering
+     * and release sources after their last period, while retaining the full logical playlist.
+     *
      * @param useLazyPreparation Whether to use lazy preparation.
      * @return This builder.
      * @throws IllegalStateException If {@link #build()} has already been called.

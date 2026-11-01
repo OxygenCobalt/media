@@ -25,8 +25,10 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.ConditionVariable;
@@ -59,6 +61,48 @@ import org.junit.runner.RunWith;
 /** Unit test for {@link ProgressiveMediaSource}. */
 @RunWith(AndroidJUnit4.class)
 public class ProgressiveMediaSourceTest {
+
+  @Test
+  public void sourceDescriptor_recreatesIndependentSourcesWithUpdatedMetadata() {
+    ProgressiveMediaSource.Factory factory =
+        new ProgressiveMediaSource.Factory(
+            new DefaultDataSource.Factory(ApplicationProvider.getApplicationContext()));
+    MediaItem original = MediaItem.fromUri("content://test/song");
+    MediaSourceDescriptor descriptor = checkNotNull(factory.createSourceDescriptor(original));
+    MediaItem updated =
+        original
+            .buildUpon()
+            .setTag("updated tag")
+            .setMediaMetadata(new MediaMetadata.Builder().setTitle("Updated").build())
+            .build();
+    MediaSourceDescriptor updatedDescriptor = checkNotNull(descriptor.copyWithMediaItem(updated));
+
+    MediaSource first = updatedDescriptor.createMediaSource();
+    MediaSource second = updatedDescriptor.createMediaSource();
+
+    assertThat(first).isNotSameInstanceAs(second);
+    assertThat(first.getMediaItem()).isEqualTo(updated);
+    assertThat(second.getMediaItem()).isEqualTo(updated);
+    assertThat(descriptor.getMediaItem()).isEqualTo(original);
+    assertThat(descriptor.copyWithMediaItem(MediaItem.fromUri("content://test/other"))).isNull();
+  }
+
+  @Test
+  public void sourceDescriptor_remoteAndEncryptedMediaUseNormalSourcePath() {
+    ProgressiveMediaSource.Factory factory =
+        new ProgressiveMediaSource.Factory(
+            new DefaultDataSource.Factory(ApplicationProvider.getApplicationContext()));
+
+    assertThat(factory.createSourceDescriptor(MediaItem.fromUri("https://test/song"))).isNull();
+    assertThat(
+            factory.createSourceDescriptor(
+                new MediaItem.Builder()
+                    .setUri("content://test/encrypted")
+                    .setDrmConfiguration(
+                        new MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID).build())
+                    .build()))
+        .isNull();
+  }
 
   @Test
   public void canUpdateMediaItem_withIrrelevantFieldsChanged_returnsTrue() {

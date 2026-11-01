@@ -108,9 +108,9 @@ import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.image.ImageOutput;
 import androidx.media3.exoplayer.metadata.MetadataOutput;
-import androidx.media3.exoplayer.source.MaskingMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
+import androidx.media3.exoplayer.source.MediaSourceDescriptor;
 import androidx.media3.exoplayer.source.ShuffleOrder;
 import androidx.media3.exoplayer.source.TimelineWithUpdatedMediaItem;
 import androidx.media3.exoplayer.source.TrackGroupArray;
@@ -629,13 +629,21 @@ import java.util.function.IntConsumer;
   @Override
   public void setMediaItems(List<MediaItem> mediaItems, boolean resetPosition) {
     verifyApplicationThread();
-    setMediaSources(createMediaSources(mediaItems), resetPosition);
+    setMediaSourceHoldersInternal(
+        createMediaSourceHolders(mediaItems),
+        /* startWindowIndex= */ C.INDEX_UNSET,
+        /* startPositionMs= */ C.TIME_UNSET,
+        /* resetToDefaultPosition= */ resetPosition);
   }
 
   @Override
   public void setMediaItems(List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
     verifyApplicationThread();
-    setMediaSources(createMediaSources(mediaItems), startIndex, startPositionMs);
+    setMediaSourceHoldersInternal(
+        createMediaSourceHolders(mediaItems),
+        startIndex,
+        startPositionMs,
+        /* resetToDefaultPosition= */ false);
   }
 
   @Override
@@ -666,8 +674,8 @@ import java.util.function.IntConsumer;
   @Override
   public void setMediaSources(List<MediaSource> mediaSources, boolean resetPosition) {
     verifyApplicationThread();
-    setMediaSourcesInternal(
-        mediaSources,
+    setMediaSourceHoldersInternal(
+        createMediaSourceHoldersFromSources(mediaSources),
         /* startWindowIndex= */ C.INDEX_UNSET,
         /* startPositionMs= */ C.TIME_UNSET,
         /* resetToDefaultPosition= */ resetPosition);
@@ -677,14 +685,17 @@ import java.util.function.IntConsumer;
   public void setMediaSources(
       List<MediaSource> mediaSources, int startWindowIndex, long startPositionMs) {
     verifyApplicationThread();
-    setMediaSourcesInternal(
-        mediaSources, startWindowIndex, startPositionMs, /* resetToDefaultPosition= */ false);
+    setMediaSourceHoldersInternal(
+        createMediaSourceHoldersFromSources(mediaSources),
+        startWindowIndex,
+        startPositionMs,
+        /* resetToDefaultPosition= */ false);
   }
 
   @Override
   public void addMediaItems(int index, List<MediaItem> mediaItems) {
     verifyApplicationThread();
-    addMediaSources(index, createMediaSources(mediaItems));
+    addMediaSourceHolders(index, createMediaSourceHolders(mediaItems));
   }
 
   @Override
@@ -708,15 +719,23 @@ import java.util.function.IntConsumer;
   @Override
   public void addMediaSources(int index, List<MediaSource> mediaSources) {
     verifyApplicationThread();
+    addMediaSourceHolders(index, createMediaSourceHoldersFromSources(mediaSources));
+  }
+
+  private void addMediaSourceHolders(int index, List<MediaSourceList.MediaSourceHolder> holders) {
     checkArgument(index >= 0);
     index = min(index, mediaSourceHolderSnapshots.size());
     if (playbackInfo.timeline.isEmpty()) {
       // Handle initial items in a playlist as a set operation to ensure state changes and initial
       // position are updated correctly.
-      setMediaSources(mediaSources, /* resetPosition= */ maskingWindowIndex == C.INDEX_UNSET);
+      setMediaSourceHoldersInternal(
+          holders,
+          /* startWindowIndex= */ C.INDEX_UNSET,
+          /* startPositionMs= */ C.TIME_UNSET,
+          /* resetToDefaultPosition= */ maskingWindowIndex == C.INDEX_UNSET);
       return;
     }
-    PlaybackInfo newPlaybackInfo = addMediaSourcesInternal(playbackInfo, index, mediaSources);
+    PlaybackInfo newPlaybackInfo = addMediaSourcesInternal(playbackInfo, index, holders);
     updatePlaybackInfo(
         newPlaybackInfo,
         /* timelineChangeReason= */ TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
@@ -801,14 +820,18 @@ import java.util.function.IntConsumer;
       updateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems);
       return;
     }
-    List<MediaSource> mediaSources = createMediaSources(mediaItems);
+    List<MediaSourceList.MediaSourceHolder> holders = createMediaSourceHolders(mediaItems);
     if (playbackInfo.timeline.isEmpty()) {
       // Handle initial items in a playlist as a set operation to ensure state changes and initial
       // position are updated correctly.
-      setMediaSources(mediaSources, /* resetPosition= */ maskingWindowIndex == C.INDEX_UNSET);
+      setMediaSourceHoldersInternal(
+          holders,
+          /* startWindowIndex= */ C.INDEX_UNSET,
+          /* startPositionMs= */ C.TIME_UNSET,
+          /* resetToDefaultPosition= */ maskingWindowIndex == C.INDEX_UNSET);
       return;
     }
-    PlaybackInfo newPlaybackInfo = addMediaSourcesInternal(playbackInfo, toIndex, mediaSources);
+    PlaybackInfo newPlaybackInfo = addMediaSourcesInternal(playbackInfo, toIndex, holders);
     newPlaybackInfo = removeMediaItemsInternal(newPlaybackInfo, fromIndex, toIndex);
     boolean positionDiscontinuity =
         !newPlaybackInfo.periodId.periodUid.equals(playbackInfo.periodId.periodUid);
@@ -2217,12 +2240,30 @@ import java.util.function.IntConsumer;
         playbackInfo.timeline, playbackInfo.periodId, positionUs);
   }
 
-  private List<MediaSource> createMediaSources(List<MediaItem> mediaItems) {
-    List<MediaSource> mediaSources = new ArrayList<>();
+  private List<MediaSourceList.MediaSourceHolder> createMediaSourceHolders(
+      List<MediaItem> mediaItems) {
+    List<MediaSourceList.MediaSourceHolder> holders = new ArrayList<>(mediaItems.size());
     for (int i = 0; i < mediaItems.size(); i++) {
-      mediaSources.add(mediaSourceFactory.createMediaSource(mediaItems.get(i)));
+      MediaItem mediaItem = mediaItems.get(i);
+      @Nullable
+      MediaSourceDescriptor descriptor =
+          useLazyPreparation ? mediaSourceFactory.createSourceDescriptor(mediaItem) : null;
+      holders.add(
+          descriptor != null
+              ? new MediaSourceList.MediaSourceHolder(descriptor)
+              : new MediaSourceList.MediaSourceHolder(
+                  mediaSourceFactory.createMediaSource(mediaItem), useLazyPreparation));
     }
-    return mediaSources;
+    return holders;
+  }
+
+  private List<MediaSourceList.MediaSourceHolder> createMediaSourceHoldersFromSources(
+      List<MediaSource> mediaSources) {
+    List<MediaSourceList.MediaSourceHolder> holders = new ArrayList<>(mediaSources.size());
+    for (int i = 0; i < mediaSources.size(); i++) {
+      holders.add(new MediaSourceList.MediaSourceHolder(mediaSources.get(i), useLazyPreparation));
+    }
+    return holders;
   }
 
   private void handlePlaybackInfo(ExoPlayerImplInternal.PlaybackInfoUpdate playbackInfoUpdate) {
@@ -2239,7 +2280,7 @@ import java.util.function.IntConsumer;
         maskingWindowIndex = C.INDEX_UNSET;
         maskingWindowPositionMs = 0;
       }
-      if (!newTimeline.isEmpty()) {
+      if (!newTimeline.isEmpty() && newTimeline != playbackInfo.timeline) {
         List<Timeline> timelines = ((PlaylistTimeline) newTimeline).getChildTimelines();
         checkState(timelines.size() == mediaSourceHolderSnapshots.size());
         for (int i = 0; i < timelines.size(); i++) {
@@ -2615,16 +2656,15 @@ import java.util.function.IntConsumer;
     }
   }
 
-  private void setMediaSourcesInternal(
-      List<MediaSource> mediaSources,
+  private void setMediaSourceHoldersInternal(
+      List<MediaSourceList.MediaSourceHolder> holders,
       int startWindowIndex,
       long startPositionMs,
       boolean resetToDefaultPosition) {
     int currentWindowIndex = getCurrentWindowIndexInternal(playbackInfo);
     long currentPositionMs = getCurrentPosition();
     pendingOperationAcks++;
-    List<MediaSourceList.MediaSourceHolder> holders =
-        setMediaSourceHolders(mediaSources, startWindowIndex);
+    setMediaSourceHolders(holders, startWindowIndex);
     Timeline timeline = createMaskingTimeline();
     if (!timeline.isEmpty() && startWindowIndex >= timeline.getWindowCount()) {
       throw new IllegalSeekPositionException(timeline, startWindowIndex, startPositionMs);
@@ -2670,42 +2710,30 @@ import java.util.function.IntConsumer;
         /* repeatCurrentMediaItem= */ false);
   }
 
-  private List<MediaSourceList.MediaSourceHolder> setMediaSourceHolders(
-      List<MediaSource> mediaSources, int startIndex) {
+  private void setMediaSourceHolders(
+      List<MediaSourceList.MediaSourceHolder> holders, int startIndex) {
     mediaSourceHolderSnapshots.clear();
-    List<MediaSourceList.MediaSourceHolder> holders = new ArrayList<>();
-    for (int i = 0; i < mediaSources.size(); i++) {
-      MediaSourceList.MediaSourceHolder holder =
-          new MediaSourceList.MediaSourceHolder(mediaSources.get(i), useLazyPreparation);
-      holders.add(holder);
-      mediaSourceHolderSnapshots.add(
-          i, new MediaSourceHolderSnapshot(holder.uid, holder.mediaSource));
+    for (int i = 0; i < holders.size(); i++) {
+      mediaSourceHolderSnapshots.add(new MediaSourceHolderSnapshot(holders.get(i)));
     }
     shuffleOrder = shuffleOrder.cloneAndSet(/* insertionCount= */ holders.size(), startIndex);
-    return holders;
   }
 
-  private List<MediaSourceList.MediaSourceHolder> addMediaSourceHolders(
-      int index, List<MediaSource> mediaSources) {
-    List<MediaSourceList.MediaSourceHolder> holders = new ArrayList<>();
-    for (int i = 0; i < mediaSources.size(); i++) {
-      MediaSourceList.MediaSourceHolder holder =
-          new MediaSourceList.MediaSourceHolder(mediaSources.get(i), useLazyPreparation);
-      holders.add(holder);
-      mediaSourceHolderSnapshots.add(
-          i + index, new MediaSourceHolderSnapshot(holder.uid, holder.mediaSource));
+  private void addMediaSourceHolderSnapshots(
+      int index, List<MediaSourceList.MediaSourceHolder> holders) {
+    for (int i = 0; i < holders.size(); i++) {
+      mediaSourceHolderSnapshots.add(i + index, new MediaSourceHolderSnapshot(holders.get(i)));
     }
     shuffleOrder =
         shuffleOrder.cloneAndInsert(
             /* insertionIndex= */ index, /* insertionCount= */ holders.size());
-    return holders;
   }
 
   private PlaybackInfo addMediaSourcesInternal(
-      PlaybackInfo playbackInfo, int index, List<MediaSource> mediaSources) {
+      PlaybackInfo playbackInfo, int index, List<MediaSourceList.MediaSourceHolder> holders) {
     Timeline oldTimeline = playbackInfo.timeline;
     pendingOperationAcks++;
-    List<MediaSourceList.MediaSourceHolder> holders = addMediaSourceHolders(index, mediaSources);
+    addMediaSourceHolderSnapshots(index, holders);
     Timeline newTimeline = createMaskingTimeline();
     PlaybackInfo newPlaybackInfo =
         maskTimelineAndPosition(
@@ -2760,6 +2788,10 @@ import java.util.function.IntConsumer;
   }
 
   private Timeline createMaskingTimeline() {
+    if (playbackInfo.timeline instanceof PlaylistTimeline) {
+      return ((PlaylistTimeline) playbackInfo.timeline)
+          .copyWithUpdatedTimelines(mediaSourceHolderSnapshots, shuffleOrder);
+    }
     return new PlaylistTimeline(mediaSourceHolderSnapshots, shuffleOrder);
   }
 
@@ -3191,8 +3223,7 @@ import java.util.function.IntConsumer;
       return false;
     }
     for (int i = fromIndex; i < toIndex; i++) {
-      MediaSource mediaSource = mediaSourceHolderSnapshots.get(i).mediaSource;
-      if (!mediaSource.canUpdateMediaItem(mediaItems.get(i - fromIndex))) {
+      if (!mediaSourceHolderSnapshots.get(i).canUpdateMediaItem(mediaItems.get(i - fromIndex))) {
         return false;
       }
     }
@@ -3205,6 +3236,7 @@ import java.util.function.IntConsumer;
     internalPlayer.updateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems);
     for (int i = fromIndex; i < toIndex; i++) {
       MediaSourceHolderSnapshot snapshot = mediaSourceHolderSnapshots.get(i);
+      snapshot.updateDescriptor(mediaItems.get(i - fromIndex));
       snapshot.updateTimeline(
           TimelineWithUpdatedMediaItem.create(
               snapshot.getTimeline(), mediaItems.get(i - fromIndex)));
@@ -3329,14 +3361,28 @@ import java.util.function.IntConsumer;
   private static final class MediaSourceHolderSnapshot implements MediaSourceInfoHolder {
 
     private final Object uid;
-    private final MediaSource mediaSource;
+    @Nullable private final MediaSource mediaSource;
+    @Nullable private MediaSourceDescriptor sourceDescriptor;
 
     private Timeline timeline;
 
-    public MediaSourceHolderSnapshot(Object uid, MaskingMediaSource mediaSource) {
-      this.uid = uid;
-      this.mediaSource = mediaSource;
-      this.timeline = mediaSource.getTimeline();
+    public MediaSourceHolderSnapshot(MediaSourceList.MediaSourceHolder holder) {
+      this.uid = holder.uid;
+      this.mediaSource = holder.mediaSource;
+      this.sourceDescriptor = holder.sourceDescriptor;
+      this.timeline = holder.getTimeline();
+    }
+
+    public boolean canUpdateMediaItem(MediaItem mediaItem) {
+      return sourceDescriptor != null
+          ? sourceDescriptor.copyWithMediaItem(mediaItem) != null
+          : checkNotNull(mediaSource).canUpdateMediaItem(mediaItem);
+    }
+
+    public void updateDescriptor(MediaItem mediaItem) {
+      if (sourceDescriptor != null) {
+        sourceDescriptor = checkNotNull(sourceDescriptor.copyWithMediaItem(mediaItem));
+      }
     }
 
     @Override

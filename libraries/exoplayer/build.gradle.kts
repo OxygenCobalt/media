@@ -37,4 +37,12 @@ dependencies {
   api(project(":lib-database"))
   implementation(libs.androidx.annotation)
   implementation(libs.androidx.exifinterface)
+  if (providers.gradleProperty("media3Tests").isPresent) {
+    testImplementation(project(":test-utils"))
+    testImplementation(project(":test-utils-robolectric"))
+    testImplementation(libs.robolectric)
+    testImplementation(libs.guava.testlib)
+    testImplementation(libs.test.parameter.injector)
+    testImplementation(libs.kotlin.test)
+  }
 }

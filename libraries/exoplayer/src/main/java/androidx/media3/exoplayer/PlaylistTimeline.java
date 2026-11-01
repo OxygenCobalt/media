@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer;
 
+import androidx.annotation.Nullable;
 import androidx.media3.common.AdPlaybackState;
 import androidx.media3.common.C;
 import androidx.media3.common.Player;
@@ -37,6 +38,7 @@ import java.util.List;
   private final Timeline[] timelines;
   private final Object[] uids;
   private final HashMap<Object, Integer> childIndexByUid;
+  private final ShuffleOrder shuffleOrder;
 
   /** Creates an instance. */
   public PlaylistTimeline(
@@ -47,6 +49,7 @@ import java.util.List;
 
   private PlaylistTimeline(Timeline[] timelines, Object[] uids, ShuffleOrder shuffleOrder) {
     super(/* isAtomic= */ false, shuffleOrder);
+    this.shuffleOrder = shuffleOrder;
     int childCount = timelines.length;
     this.timelines = timelines;
     firstPeriodInChildIndices = new int[childCount];
@@ -66,6 +69,70 @@ import java.util.List;
     }
     this.windowCount = windowCount;
     this.periodCount = periodCount;
+  }
+
+  private PlaylistTimeline(
+      PlaylistTimeline layout, Timeline[] timelines, ShuffleOrder shuffleOrder) {
+    super(/* isAtomic= */ false, shuffleOrder);
+    this.shuffleOrder = shuffleOrder;
+    this.timelines = timelines;
+    uids = layout.uids;
+    firstPeriodInChildIndices = layout.firstPeriodInChildIndices;
+    firstWindowInChildIndices = layout.firstWindowInChildIndices;
+    childIndexByUid = layout.childIndexByUid;
+    windowCount = layout.windowCount;
+    periodCount = layout.periodCount;
+  }
+
+  /** Reuses immutable playlist indexing when source updates do not change its structure. */
+  public PlaylistTimeline copyWithUpdatedTimelines(
+      Collection<? extends MediaSourceInfoHolder> holders, ShuffleOrder shuffleOrder) {
+    if (holders.size() != timelines.length) {
+      return new PlaylistTimeline(holders, shuffleOrder);
+    }
+    @Nullable Timeline[] updatedTimelines = null;
+    int index = 0;
+    for (MediaSourceInfoHolder holder : holders) {
+      Timeline childTimeline = holder.getTimeline();
+      if (!uids[index].equals(holder.getUid())
+          || timelines[index].getWindowCount() != childTimeline.getWindowCount()
+          || timelines[index].getPeriodCount() != childTimeline.getPeriodCount()) {
+        return new PlaylistTimeline(holders, shuffleOrder);
+      }
+      if (childTimeline != timelines[index]) {
+        if (updatedTimelines == null) {
+          updatedTimelines = timelines.clone();
+        }
+        updatedTimelines[index] = childTimeline;
+      }
+      index++;
+    }
+    if (updatedTimelines == null && this.shuffleOrder == shuffleOrder) {
+      return this;
+    }
+    return new PlaylistTimeline(
+        this, updatedTimelines != null ? updatedTimelines : timelines, shuffleOrder);
+  }
+
+  /** Whether child identities and their window/period offsets are shared with another snapshot. */
+  public boolean hasSameLayout(PlaylistTimeline other) {
+    return uids == other.uids;
+  }
+
+  @Override
+  public boolean equals(@Nullable Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (other instanceof PlaylistTimeline) {
+      PlaylistTimeline otherTimeline = (PlaylistTimeline) other;
+      if (hasSameLayout(otherTimeline) && shuffleOrder == otherTimeline.shuffleOrder) {
+        // Comparing unchanged child references avoids allocating concatenated window/period UIDs
+        // for the entire playlist when only one source publishes new information.
+        return Arrays.equals(timelines, otherTimeline.timelines);
+      }
+    }
+    return super.equals(other);
   }
 
   /** Returns the child timelines. */
@@ -160,7 +227,7 @@ import java.util.List;
             }
           };
     }
-    return new PlaylistTimeline(newTimelines, uids, shuffleOrder);
+    return new PlaylistTimeline(this, newTimelines, shuffleOrder);
   }
 
   private static Object[] getUids(

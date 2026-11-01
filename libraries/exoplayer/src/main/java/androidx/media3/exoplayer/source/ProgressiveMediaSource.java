@@ -48,6 +48,7 @@ import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 
 /**
  * Provides one period that loads data from a {@link Uri} and extracted using an {@link Extractor}.
@@ -324,8 +325,87 @@ public final class ProgressiveMediaSource extends BaseMediaSource
     }
 
     @Override
+    @Nullable
+    public MediaSourceDescriptor createSourceDescriptor(MediaItem mediaItem) {
+      MediaItem.LocalConfiguration localConfiguration = checkNotNull(mediaItem.localConfiguration);
+      String scheme = localConfiguration.uri.getScheme();
+      if (localConfiguration.drmConfiguration != null
+          || !("content".equals(scheme)
+              || "file".equals(scheme)
+              || "asset".equals(scheme)
+              || "rawresource".equals(scheme)
+              || "android.resource".equals(scheme))) {
+        return null;
+      }
+      // Snapshot every mutable factory setting now. In particular, resolve the DRM provider on the
+      // application thread, just as createMediaSource does. The deferred constructor does no I/O.
+      DataSource.Factory dataSourceFactory = this.dataSourceFactory;
+      ProgressiveMediaExtractor.Factory extractorFactory = progressiveMediaExtractorFactory;
+      DrmSessionManager drmSessionManager = drmSessionManagerProvider.get(mediaItem);
+      LoadErrorHandlingPolicy errorHandlingPolicy = loadErrorHandlingPolicy;
+      int checkIntervalBytes = continueLoadingCheckIntervalBytes;
+      boolean loadSelectedTracks = loadOnlySelectedTracks;
+      boolean enableHagcPlayback = experimentalEnableHagcPlayback;
+      int trackId = singleTrackId;
+      @Nullable Format trackFormat = singleTrackFormat;
+      @Nullable Supplier<ReleasableExecutor> executorSupplier = downloadExecutorSupplier;
+      return new SourceDescriptor(
+          mediaItem,
+          item ->
+              new ProgressiveMediaSource(
+                  item,
+                  dataSourceFactory,
+                  extractorFactory,
+                  drmSessionManager,
+                  errorHandlingPolicy,
+                  checkIntervalBytes,
+                  loadSelectedTracks,
+                  enableHagcPlayback,
+                  trackId,
+                  trackFormat,
+                  executorSupplier));
+    }
+
+    @Override
     public @C.ContentType int[] getSupportedTypes() {
       return new int[] {C.CONTENT_TYPE_OTHER};
+    }
+  }
+
+  private static final class SourceDescriptor implements MediaSourceDescriptor {
+
+    private final MediaItem mediaItem;
+    private final Function<MediaItem, ProgressiveMediaSource> constructor;
+
+    public SourceDescriptor(
+        MediaItem mediaItem, Function<MediaItem, ProgressiveMediaSource> constructor) {
+      this.mediaItem = mediaItem;
+      this.constructor = constructor;
+    }
+
+    @Override
+    public MediaItem getMediaItem() {
+      return mediaItem;
+    }
+
+    @Override
+    public MediaSource createMediaSource() {
+      return constructor.apply(mediaItem);
+    }
+
+    @Override
+    @Nullable
+    public MediaSourceDescriptor copyWithMediaItem(MediaItem mediaItem) {
+      MediaItem.LocalConfiguration previous = checkNotNull(this.mediaItem.localConfiguration);
+      @Nullable MediaItem.LocalConfiguration next = mediaItem.localConfiguration;
+      // Match progressive source update support, while retaining the unencrypted-source contract.
+      return next != null
+              && next.drmConfiguration == null
+              && previous.uri.equals(next.uri)
+              && previous.imageDurationMs == next.imageDurationMs
+              && Objects.equals(previous.customCacheKey, next.customCacheKey)
+          ? new SourceDescriptor(mediaItem, constructor)
+          : null;
     }
   }
 

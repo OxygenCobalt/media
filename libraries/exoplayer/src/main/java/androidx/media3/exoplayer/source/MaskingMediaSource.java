@@ -57,18 +57,39 @@ public final class MaskingMediaSource extends WrappingMediaSource {
    *     initial preparations are triggered only when the player starts buffering the media.
    */
   public MaskingMediaSource(MediaSource mediaSource, boolean useLazyPreparation) {
+    this(
+        mediaSource,
+        useLazyPreparation && mediaSource.isSingleWindow(),
+        mediaSource.getInitialTimeline(),
+        mediaSource.getMediaItem());
+  }
+
+  /**
+   * Creates a lazily prepared wrapper for a source created from a {@link MediaSourceDescriptor}.
+   *
+   * <p>Unlike the regular constructor, this may be called on the playback thread. Initial metadata
+   * comes from the descriptor, so application-thread methods on the source are not called here.
+   */
+  public MaskingMediaSource(MediaSource mediaSource, MediaItem mediaItem) {
+    this(mediaSource, /* useLazyPreparation= */ true, /* initialTimeline= */ null, mediaItem);
+  }
+
+  private MaskingMediaSource(
+      MediaSource mediaSource,
+      boolean useLazyPreparation,
+      @Nullable Timeline initialTimeline,
+      MediaItem mediaItem) {
     super(mediaSource);
-    this.useLazyPreparation = useLazyPreparation && mediaSource.isSingleWindow();
+    this.useLazyPreparation = useLazyPreparation;
     window = new Timeline.Window();
     period = new Timeline.Period();
-    @Nullable Timeline initialTimeline = mediaSource.getInitialTimeline();
     if (initialTimeline != null) {
       timeline =
           MaskingTimeline.createWithRealTimeline(
               initialTimeline, /* firstWindowUid= */ null, /* firstPeriodUid= */ null);
       hasRealTimeline = true;
     } else {
-      timeline = MaskingTimeline.createWithPlaceholderTimeline(mediaSource.getMediaItem());
+      timeline = MaskingTimeline.createWithPlaceholderTimeline(mediaItem);
     }
   }
 

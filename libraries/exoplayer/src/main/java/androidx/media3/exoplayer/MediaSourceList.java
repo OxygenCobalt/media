@@ -24,6 +24,8 @@ import static java.lang.Math.min;
 import android.os.Handler;
 import android.util.Pair;
 import androidx.annotation.Nullable;
+import androidx.media3.common.AdPlaybackState;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.HandlerWrapper;
@@ -41,9 +43,11 @@ import androidx.media3.exoplayer.source.MaskingMediaSource;
 import androidx.media3.exoplayer.source.MediaLoadData;
 import androidx.media3.exoplayer.source.MediaPeriod;
 import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.MediaSourceDescriptor;
 import androidx.media3.exoplayer.source.MediaSourceEventListener;
 import androidx.media3.exoplayer.source.ShuffleOrder;
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder;
+import androidx.media3.exoplayer.source.TimelineWithUpdatedMediaItem;
 import androidx.media3.exoplayer.upstream.Allocator;
 import androidx.media3.exoplayer.upstream.BandwidthMeter;
 import java.io.IOException;
@@ -91,6 +95,7 @@ import java.util.Set;
   private final HandlerWrapper eventHandler;
   private ShuffleOrder shuffleOrder;
   private boolean isPrepared;
+  @Nullable private PlaylistTimeline playlistTimeline;
 
   /**
    * Creates the media source list.
@@ -152,20 +157,20 @@ import java.util.Set;
         MediaSourceHolder holder = holders.get(insertionIndex - index);
         if (insertionIndex > 0) {
           MediaSourceHolder previousHolder = mediaSourceHolders.get(insertionIndex - 1);
-          Timeline previousTimeline = previousHolder.mediaSource.getTimeline();
+          Timeline previousTimeline = previousHolder.getTimeline();
           holder.reset(
               /* firstWindowIndexInChild= */ previousHolder.firstWindowIndexInChild
                   + previousTimeline.getWindowCount());
         } else {
           holder.reset(/* firstWindowIndexInChild= */ 0);
         }
-        Timeline newTimeline = holder.mediaSource.getTimeline();
+        Timeline newTimeline = holder.getTimeline();
         correctOffsets(
             /* startIndex= */ insertionIndex,
             /* windowOffsetUpdate= */ newTimeline.getWindowCount());
         mediaSourceHolders.add(insertionIndex, holder);
         mediaSourceByUid.put(holder.uid, holder);
-        if (isPrepared) {
+        if (isPrepared && holder.sourceDescriptor == null) {
           prepareChildSource(holder);
           if (mediaSourceByMediaPeriod.isEmpty()) {
             enabledMediaSourceHolders.add(holder);
@@ -250,7 +255,7 @@ import java.util.Set;
     for (int i = startIndex; i <= endIndex; i++) {
       MediaSourceHolder holder = mediaSourceHolders.get(i);
       holder.firstWindowIndexInChild = windowOffset;
-      windowOffset += holder.mediaSource.getTimeline().getWindowCount();
+      windowOffset += holder.getTimeline().getWindowCount();
     }
     return createTimeline();
   }
@@ -271,7 +276,7 @@ import java.util.Set;
     checkArgument(fromIndex >= 0 && fromIndex <= toIndex && toIndex <= getSize());
     checkArgument(mediaItems.size() == toIndex - fromIndex);
     for (int i = fromIndex; i < toIndex; i++) {
-      mediaSourceHolders.get(i).mediaSource.updateMediaItem(mediaItems.get(i - fromIndex));
+      mediaSourceHolders.get(i).updateMediaItem(mediaItems.get(i - fromIndex));
     }
     return createTimeline();
   }
@@ -315,6 +320,9 @@ import java.util.Set;
     checkState(!isPrepared);
     for (int i = 0; i < mediaSourceHolders.size(); i++) {
       MediaSourceHolder mediaSourceHolder = mediaSourceHolders.get(i);
+      if (mediaSourceHolder.sourceDescriptor != null) {
+        continue;
+      }
       prepareChildSource(mediaSourceHolder);
       enabledMediaSourceHolders.add(mediaSourceHolder);
     }
@@ -335,10 +343,26 @@ import java.util.Set;
     MediaSource.MediaPeriodId childMediaPeriodId =
         id.copyWithPeriodUid(getChildPeriodUid(id.periodUid));
     MediaSourceHolder holder = checkNotNull(mediaSourceByUid.get(mediaSourceHolderUid));
-    enableMediaSource(holder);
-    holder.activeMediaPeriodIds.add(childMediaPeriodId);
-    MediaPeriod mediaPeriod =
-        holder.mediaSource.createPeriod(childMediaPeriodId, allocator, startPositionUs);
+    MediaPeriod mediaPeriod;
+    try {
+      if (!childSources.containsKey(holder)) {
+        checkState(isPrepared);
+        prepareChildSource(holder);
+      }
+      enableMediaSource(holder);
+      holder.activeMediaPeriodIds.add(childMediaPeriodId);
+      mediaPeriod =
+          checkNotNull(holder.mediaSource)
+              .createPeriod(childMediaPeriodId, allocator, startPositionUs);
+    } catch (RuntimeException e) {
+      holder.activeMediaPeriodIds.remove(childMediaPeriodId);
+      try {
+        maybeReleaseChildSource(holder);
+      } catch (RuntimeException releaseException) {
+        e.addSuppressed(releaseException);
+      }
+      throw e;
+    }
     mediaSourceByMediaPeriod.put(mediaPeriod, holder);
     disableUnusedMediaSources();
     return mediaPeriod;
@@ -351,7 +375,7 @@ import java.util.Set;
    */
   public void releasePeriod(MediaPeriod mediaPeriod) {
     MediaSourceHolder holder = checkNotNull(mediaSourceByMediaPeriod.remove(mediaPeriod));
-    holder.mediaSource.releasePeriod(mediaPeriod);
+    checkNotNull(holder.mediaSource).releasePeriod(mediaPeriod);
     holder.activeMediaPeriodIds.remove(((MaskingMediaPeriod) mediaPeriod).id);
     if (!mediaSourceByMediaPeriod.isEmpty()) {
       disableUnusedMediaSources();
@@ -361,7 +385,8 @@ import java.util.Set;
 
   /** Releases the playlist. */
   public void release() {
-    for (MediaSourceAndListener childSource : childSources.values()) {
+    for (Map.Entry<MediaSourceHolder, MediaSourceAndListener> entry : childSources.entrySet()) {
+      MediaSourceAndListener childSource = entry.getValue();
       try {
         childSource.mediaSource.releaseSource(childSource.caller);
       } catch (RuntimeException e) {
@@ -370,6 +395,7 @@ import java.util.Set;
       }
       childSource.mediaSource.removeEventListener(childSource.eventListener);
       childSource.mediaSource.removeDrmEventListener(childSource.eventListener);
+      entry.getKey().clearPagedSource();
     }
     childSources.clear();
     enabledMediaSourceHolders.clear();
@@ -379,15 +405,21 @@ import java.util.Set;
   /** Creates a timeline reflecting the current state of the playlist. */
   public Timeline createTimeline() {
     if (mediaSourceHolders.isEmpty()) {
+      playlistTimeline = null;
       return Timeline.EMPTY;
     }
-    int windowOffset = 0;
-    for (int i = 0; i < mediaSourceHolders.size(); i++) {
-      MediaSourceHolder mediaSourceHolder = mediaSourceHolders.get(i);
-      mediaSourceHolder.firstWindowIndexInChild = windowOffset;
-      windowOffset += mediaSourceHolder.mediaSource.getTimeline().getWindowCount();
+    PlaylistTimeline newTimeline =
+        playlistTimeline == null
+            ? new PlaylistTimeline(mediaSourceHolders, shuffleOrder)
+            : playlistTimeline.copyWithUpdatedTimelines(mediaSourceHolders, shuffleOrder);
+    if (playlistTimeline == null || !newTimeline.hasSameLayout(playlistTimeline)) {
+      for (int i = 0; i < mediaSourceHolders.size(); i++) {
+        mediaSourceHolders.get(i).firstWindowIndexInChild =
+            newTimeline.getFirstWindowIndexByChildIndex(i);
+      }
     }
-    return new PlaylistTimeline(mediaSourceHolders, shuffleOrder);
+    playlistTimeline = newTimeline;
+    return newTimeline;
   }
 
   /** Returns the shuffle order */
@@ -427,7 +459,7 @@ import java.util.Set;
     for (int index = toIndex - 1; index >= fromIndex; index--) {
       MediaSourceHolder holder = mediaSourceHolders.remove(index);
       mediaSourceByUid.remove(holder.uid);
-      Timeline oldTimeline = holder.mediaSource.getTimeline();
+      Timeline oldTimeline = holder.getTimeline();
       correctOffsets(
           /* startIndex= */ index, /* windowOffsetUpdate= */ -oldTimeline.getWindowCount());
       holder.isRemoved = true;
@@ -467,9 +499,16 @@ import java.util.Set;
   }
 
   private void prepareChildSource(MediaSourceHolder holder) {
-    MediaSource mediaSource = holder.mediaSource;
+    MaskingMediaSource mediaSource = holder.getOrCreateMediaSource();
     MediaSource.MediaSourceCaller caller =
-        (source, timeline) -> mediaSourceListInfoListener.onPlaylistUpdateRequested();
+        (source, timeline) -> {
+          if (holder.mediaSource != source || holder.isRemoved) {
+            return;
+          }
+          if (holder.updateTimeline(timeline)) {
+            mediaSourceListInfoListener.onPlaylistUpdateRequested();
+          }
+        };
     ForwardingEventListener eventListener = new ForwardingEventListener(holder);
     childSources.put(holder, new MediaSourceAndListener(mediaSource, caller, eventListener));
     mediaSource.addEventListener(Util.createHandlerForCurrentOrMainLooper(), eventListener);
@@ -478,13 +517,22 @@ import java.util.Set;
   }
 
   private void maybeReleaseChildSource(MediaSourceHolder mediaSourceHolder) {
-    // Release if the source has been removed from the playlist and no periods are still active.
-    if (mediaSourceHolder.isRemoved && mediaSourceHolder.activeMediaPeriodIds.isEmpty()) {
-      MediaSourceAndListener removedChild = checkNotNull(childSources.remove(mediaSourceHolder));
-      removedChild.mediaSource.releaseSource(removedChild.caller);
-      removedChild.mediaSource.removeEventListener(removedChild.eventListener);
-      removedChild.mediaSource.removeDrmEventListener(removedChild.eventListener);
-      enabledMediaSourceHolders.remove(mediaSourceHolder);
+    // Paged sources may be released without removing their logical playlist entry. All periods,
+    // including buffered successors and preloaded periods, must have finished using the source.
+    if ((mediaSourceHolder.isRemoved || mediaSourceHolder.sourceDescriptor != null)
+        && mediaSourceHolder.activeMediaPeriodIds.isEmpty()) {
+      @Nullable MediaSourceAndListener removedChild = childSources.remove(mediaSourceHolder);
+      if (removedChild == null) {
+        return;
+      }
+      try {
+        removedChild.mediaSource.releaseSource(removedChild.caller);
+      } finally {
+        removedChild.mediaSource.removeEventListener(removedChild.eventListener);
+        removedChild.mediaSource.removeDrmEventListener(removedChild.eventListener);
+        enabledMediaSourceHolders.remove(mediaSourceHolder);
+        mediaSourceHolder.clearPagedSource();
+      }
     }
   }
 
@@ -505,17 +553,69 @@ import java.util.Set;
   /** Data class to hold playlist media sources together with meta data needed to process them. */
   /* package */ static final class MediaSourceHolder implements MediaSourceInfoHolder {
 
-    public final MaskingMediaSource mediaSource;
+    @Nullable public MaskingMediaSource mediaSource;
+    @Nullable public MediaSourceDescriptor sourceDescriptor;
     public final Object uid;
     public final List<MediaSource.MediaPeriodId> activeMediaPeriodIds;
 
     public int firstWindowIndexInChild;
     public boolean isRemoved;
 
+    private Timeline timeline;
+
     public MediaSourceHolder(MediaSource mediaSource, boolean useLazyPreparation) {
       this.mediaSource = new MaskingMediaSource(mediaSource, useLazyPreparation);
+      this.timeline = this.mediaSource.getTimeline();
       this.activeMediaPeriodIds = new ArrayList<>();
       this.uid = new Object();
+    }
+
+    public MediaSourceHolder(MediaSourceDescriptor sourceDescriptor) {
+      this.sourceDescriptor = sourceDescriptor;
+      this.timeline = new MaskingMediaSource.PlaceholderTimeline(sourceDescriptor.getMediaItem());
+      this.activeMediaPeriodIds = new ArrayList<>();
+      this.uid = new Object();
+    }
+
+    public MaskingMediaSource getOrCreateMediaSource() {
+      if (mediaSource == null) {
+        MediaSourceDescriptor descriptor = checkNotNull(sourceDescriptor);
+        mediaSource =
+            new MaskingMediaSource(descriptor.createMediaSource(), descriptor.getMediaItem());
+      }
+      return mediaSource;
+    }
+
+    public void updateMediaItem(MediaItem mediaItem) {
+      if (sourceDescriptor != null) {
+        sourceDescriptor = checkNotNull(sourceDescriptor.copyWithMediaItem(mediaItem));
+        timeline = TimelineWithUpdatedMediaItem.create(timeline, mediaItem);
+      }
+      if (mediaSource != null) {
+        mediaSource.updateMediaItem(mediaItem);
+      }
+    }
+
+    public boolean updateTimeline(Timeline timeline) {
+      if (sourceDescriptor != null) {
+        checkState(timeline.getWindowCount() == 1 && timeline.getPeriodCount() == 1);
+        // A recreated progressive source first publishes an unresolved timeline. Keep the resolved
+        // public information until extraction supplies a fresh result, without changing period
+        // UIDs.
+        Timeline.Window window = new Timeline.Window();
+        if (timeline.getWindow(0, window).isPlaceholder
+            && !this.timeline.getWindow(0, window).isPlaceholder) {
+          return false;
+        }
+      }
+      this.timeline = sourceDescriptor != null ? new SourceTimeline(timeline) : timeline;
+      return true;
+    }
+
+    public void clearPagedSource() {
+      if (sourceDescriptor != null) {
+        mediaSource = null;
+      }
     }
 
     public void reset(int firstWindowIndexInChild) {
@@ -531,7 +631,77 @@ import java.util.Set;
 
     @Override
     public Timeline getTimeline() {
-      return mediaSource.getTimeline();
+      return sourceDescriptor != null ? timeline : checkNotNull(mediaSource).getTimeline();
+    }
+  }
+
+  /**
+   * An immutable value snapshot that cannot retain an evicted source through a timeline wrapper.
+   */
+  private static final class SourceTimeline extends Timeline {
+
+    private final Window window;
+    private final Period period;
+
+    public SourceTimeline(Timeline timeline) {
+      window = timeline.getWindow(0, new Window());
+      period = timeline.getPeriod(0, new Period(), /* setIds= */ true);
+    }
+
+    @Override
+    public int getWindowCount() {
+      return 1;
+    }
+
+    @Override
+    public Window getWindow(int windowIndex, Window window, long defaultPositionProjectionUs) {
+      checkArgument(windowIndex == 0);
+      window.set(
+          this.window.uid,
+          this.window.mediaItem,
+          this.window.manifest,
+          this.window.presentationStartTimeMs,
+          this.window.windowStartTimeMs,
+          this.window.elapsedRealtimeEpochOffsetMs,
+          this.window.isSeekable,
+          this.window.isDynamic,
+          this.window.liveConfiguration,
+          this.window.defaultPositionUs,
+          this.window.durationUs,
+          this.window.firstPeriodIndex,
+          this.window.lastPeriodIndex,
+          this.window.positionInFirstPeriodUs);
+      window.isPlaceholder = this.window.isPlaceholder;
+      return window;
+    }
+
+    @Override
+    public int getPeriodCount() {
+      return 1;
+    }
+
+    @Override
+    public Period getPeriod(int periodIndex, Period period, boolean setIds) {
+      checkArgument(periodIndex == 0);
+      return period.set(
+          setIds ? this.period.id : null,
+          setIds ? this.period.uid : null,
+          this.period.windowIndex,
+          this.period.durationUs,
+          this.period.getPositionInWindowUs(),
+          AdPlaybackState.NONE,
+          this.period.isPlaceholder);
+    }
+
+    @Override
+    public int getIndexOfPeriod(Object uid) {
+      return checkNotNull(period.uid).equals(uid) ? 0 : C.INDEX_UNSET;
+    }
+
+    @Override
+    public Object getUidOfPeriod(int periodIndex) {
+      checkArgument(periodIndex == 0);
+      return checkNotNull(period.uid);
     }
   }
 

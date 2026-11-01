@@ -188,6 +188,19 @@ public interface MediaSource {
      */
     @UnstableApi
     MediaSource createMediaSource(MediaItem mediaItem);
+
+    /**
+     * Returns immutable construction information for source paging, or null if unsupported.
+     *
+     * <p>Called on the application thread when lazy preparation is enabled. Eligible sources are
+     * paged automatically. The default implementation returns null, so existing factories retain
+     * their normal construction and lifetime behavior.
+     */
+    @UnstableApi
+    @Nullable
+    default MediaSourceDescriptor createSourceDescriptor(MediaItem mediaItem) {
+      return null;
+    }
   }
 
   /** A caller of media sources, which will be notified of source events. */

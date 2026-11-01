@@ -33,3 +33,24 @@ Media3Modules.EXTERNAL_MODULES.forEach { (gradleName, moduleInfo) ->
     project(":$gradleName").projectDir = file(moduleInfo.directory)
   }
 }
+
+// Auxio normally configures only its runtime modules. Include upstream test infrastructure and its
+// dependencies explicitly when running the Media3 tests, without adding work to normal app builds.
+if (providers.gradleProperty("media3Tests").isPresent) {
+  mapOf(
+          "lib-effect" to "effect",
+          "lib-effect-ndk" to "effect_ndk",
+          "lib-exoplayer-dash" to "exoplayer_dash",
+          "lib-inspector" to "inspector",
+          "lib-inspector-frame" to "inspector_frame",
+          "lib-muxer" to "muxer",
+          "lib-transformer" to "transformer",
+          "test-data" to "test_data",
+          "test-utils" to "test_utils",
+          "test-utils-robolectric" to "test_utils_robolectric",
+      )
+      .forEach { (name, directory) ->
+        include(":$name")
+        project(":$name").projectDir = file("libraries/$directory")
+      }
+}
